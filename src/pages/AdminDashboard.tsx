@@ -478,8 +478,6 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
       )}
-        </div>
-      </main>
     </div>
   );
 };
