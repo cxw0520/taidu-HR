@@ -41,18 +41,58 @@ const AdminDashboard: React.FC = () => {
   const [addSuccess, setAddSuccess] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const handleAddCustomRole = (e: React.MouseEvent) => {
+  // 從 Firestore 同步職務列表
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'roles'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && Array.isArray(data.list)) {
+          setRoles(data.list);
+        }
+      } else {
+        setDoc(doc(db, 'settings', 'roles'), {
+          list: ['工程師', '設計師', '行銷', '專案經理', '行政總務']
+        }).catch(err => console.error("Initialize roles error:", err));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAddCustomRole = async (e: React.MouseEvent) => {
     e.preventDefault();
     const cleanRoleName = customRoleName.trim();
     if (cleanRoleName) {
       if (!roles.includes(cleanRoleName)) {
-        setRoles([...roles, cleanRoleName]);
+        const updatedRoles = [...roles, cleanRoleName];
+        setRoles(updatedRoles);
         setNewRole(cleanRoleName);
         setCustomRoleName('');
         setShowAddRoleInput(false);
+        try {
+          await setDoc(doc(db, 'settings', 'roles'), { list: updatedRoles });
+        } catch (err) {
+          console.error("Failed to save roles:", err);
+        }
       } else {
         setAddError('該職務名稱已存在');
       }
+    }
+  };
+
+  const handleDeleteRole = async (roleToDelete: string) => {
+    if (roles.length <= 1) {
+      alert('必須保留至少一個職位類別');
+      return;
+    }
+    if (!window.confirm(`確定要刪除「${roleToDelete}」這個職務選項嗎？`)) return;
+    const updatedRoles = roles.filter(r => r !== roleToDelete);
+    setRoles(updatedRoles);
+    setNewRole(updatedRoles[0]);
+    try {
+      await setDoc(doc(db, 'settings', 'roles'), { list: updatedRoles });
+    } catch (err) {
+      console.error("Failed to delete role:", err);
+      alert('刪除失敗，請確認資料庫權限');
     }
   };
 
@@ -920,13 +960,27 @@ const AdminDashboard: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>職位</label>
-                  <button 
-                    type="button" 
-                    onClick={() => setShowAddRoleInput(!showAddRoleInput)}
-                    style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: '600', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-                  >
-                    + 新增自訂職務
-                  </button>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button 
+                      type="button" 
+                      onClick={() => setShowAddRoleInput(!showAddRoleInput)}
+                      style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: '600', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                    >
+                      + 新增自訂職務
+                    </button>
+                    {roles.length > 1 && (
+                      <button 
+                        type="button" 
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleDeleteRole(newRole);
+                        }}
+                        style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                      >
+                        🗑️ 刪除目前職務
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {showAddRoleInput && (

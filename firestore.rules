@@ -44,5 +44,11 @@ service cloud.firestore {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
       allow write: if isAdmin();
     }
+
+    // 4. 系統設定規則 (如自訂職位選項)
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
   }
 }
