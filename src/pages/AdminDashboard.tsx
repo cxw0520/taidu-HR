@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { db } from '../firebase';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import './AdminDashboard.css';
 
 // Mock data
@@ -26,6 +28,29 @@ const mockPayroll = [
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'attendance' | 'employees' | 'schedules' | 'payroll'>('attendance');
+  const [attendance, setAttendance] = useState<any[]>([]);
+
+  useEffect(() => {
+    const q = query(collection(db, 'attendance'), orderBy('timestamp', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const records = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      // 如果資料庫是空的，則顯示 Mock 資料
+      if (records.length === 0) {
+        setAttendance([
+          { id: '1', empName: '王小明', date: '2023-10-27', time: '08:55', type: '上班', status: '正常' },
+          { id: '2', empName: '李大華', date: '2023-10-27', time: '18:30', type: '下班', status: '正常' },
+        ]);
+      } else {
+        setAttendance(records);
+      }
+    }, (error) => {
+      console.error("Firestore read error:", error);
+    });
+    return () => unsubscribe();
+  }, []);
 
   return (
     <div className="admin-layout">
@@ -93,18 +118,22 @@ const AdminDashboard: React.FC = () => {
                     <tr>
                       <th>員工姓名</th>
                       <th>日期</th>
-                      <th>上班時間</th>
-                      <th>下班時間</th>
+                      <th>時間</th>
+                      <th>類型</th>
                       <th>狀態</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {mockAttendance.map(record => (
+                    {attendance.map(record => (
                       <tr key={record.id}>
                         <td>{record.empName}</td>
                         <td>{record.date}</td>
-                        <td>{record.clockIn}</td>
-                        <td>{record.clockOut}</td>
+                        <td>{record.time}</td>
+                        <td>
+                          <span className={`badge badge-${record.type === '上班' ? 'primary' : 'neutral'}`}>
+                            {record.type}
+                          </span>
+                        </td>
                         <td>
                           <span className={`badge badge-${record.status === '正常' ? 'success' : 'warning'}`}>
                             {record.status}

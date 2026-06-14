@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { db } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import './EmployeeClockIn.css';
 
 const EmployeeClockIn: React.FC = () => {
@@ -29,18 +31,38 @@ const EmployeeClockIn: React.FC = () => {
     }
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const { latitude, longitude } = position.coords;
-        // In a real app, send this to backend. For MVP, mock it.
         setLocationState({ 
           status: 'success', 
           message: '定位成功', 
           coords: { lat: latitude, lng: longitude } 
         });
         
-        const timeStr = new Date().toLocaleTimeString('zh-TW');
+        const timeStr = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+        const dateStr = new Date().toLocaleDateString('sv'); // YYYY-MM-DD
         const actionStr = type === 'in' ? '上班' : '下班';
-        setClockInRecord(`今日已於 ${timeStr} 完成${actionStr}打卡`);
+        
+        try {
+          await addDoc(collection(db, 'attendance'), {
+            empName: '王小明',
+            employeeId: 'EMP001',
+            date: dateStr,
+            time: timeStr,
+            type: actionStr,
+            coords: { lat: latitude, lng: longitude },
+            timestamp: serverTimestamp(),
+            status: '正常'
+          });
+          setClockInRecord(`今日已於 ${timeStr} 完成${actionStr}打卡並同步至資料庫`);
+        } catch (error: any) {
+          console.error("Firestore error:", error);
+          setLocationState({ 
+            status: 'error', 
+            message: `打卡儲存失敗: ${error.message}`, 
+            coords: null 
+          });
+        }
       },
       (error) => {
         setLocationState({ 
