@@ -43,9 +43,27 @@ const AdminDashboard: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('工程師');
+  const [roles, setRoles] = useState(['工程師', '設計師', '行銷', '專案經理', '行政總務']);
+  const [showAddRoleInput, setShowAddRoleInput] = useState(false);
+  const [customRoleName, setCustomRoleName] = useState('');
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
   const [creating, setCreating] = useState(false);
+
+  const handleAddCustomRole = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const cleanRoleName = customRoleName.trim();
+    if (cleanRoleName) {
+      if (!roles.includes(cleanRoleName)) {
+        setRoles([...roles, cleanRoleName]);
+        setNewRole(cleanRoleName);
+        setCustomRoleName('');
+        setShowAddRoleInput(false);
+      } else {
+        setAddError('該職務名稱已存在');
+      }
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'attendance'), orderBy('timestamp', 'desc'));
@@ -438,17 +456,44 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>職位</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>職位</label>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowAddRoleInput(!showAddRoleInput)}
+                    style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: '600', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                  >
+                    + 新增自訂職務
+                  </button>
+                </div>
+
+                {showAddRoleInput && (
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="新職務名稱，如：廚師" 
+                      value={customRoleName}
+                      onChange={(e) => setCustomRoleName(e.target.value)}
+                      style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                    />
+                    <button 
+                      type="button" 
+                      onClick={handleAddCustomRole}
+                      style={{ padding: '8px 12px', borderRadius: '6px', backgroundColor: 'var(--primary)', color: '#fff', fontSize: '13px', fontWeight: '600', border: 'none', cursor: 'pointer' }}
+                    >
+                      新增
+                    </button>
+                  </div>
+                )}
+
                 <select 
                   value={newRole} 
                   onChange={(e) => setNewRole(e.target.value)}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
-                  <option value="工程師">工程師</option>
-                  <option value="設計師">設計師</option>
-                  <option value="行銷">行銷</option>
-                  <option value="專案經理">專案經理</option>
-                  <option value="行政總務">行政總務</option>
+                  {roles.map(role => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
                 </select>
               </div>
 

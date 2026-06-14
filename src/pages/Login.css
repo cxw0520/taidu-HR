@@ -82,7 +82,7 @@
 }
 
 .btn-login {
-  background: var(--primary-gradient);
+  background: var(--primary);
   color: white;
   padding: 14px;
   border-radius: var(--radius-md);
@@ -96,6 +96,7 @@
 }
 
 .btn-login:hover {
+  background: var(--primary-hover);
   box-shadow: 0 8px 16px rgba(79, 70, 229, 0.25);
   transform: translateY(-1px);
 }

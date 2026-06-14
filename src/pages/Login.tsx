@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import './Login.css';
@@ -78,7 +78,7 @@ const Login: React.FC = () => {
         </form>
 
         <div className="login-footer-nav">
-          <a href="/" className="back-link">⬅️ 返回打卡頁面</a>
+          <Link to="/" className="back-link">⬅️ 返回打卡頁面</Link>
         </div>
       </div>
 
