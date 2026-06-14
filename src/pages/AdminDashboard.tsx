@@ -11,11 +11,6 @@ const mockEmployees = [
   { id: 'EMP003', name: '張小芬', role: '行銷', status: 'inactive' },
 ];
 
-const mockAttendance = [
-  { id: 1, empName: '王小明', date: '2023-10-27', clockIn: '08:55', clockOut: '18:05', status: '正常' },
-  { id: 2, empName: '李大華', date: '2023-10-27', clockIn: '09:10', clockOut: '18:30', status: '遲到' },
-];
-
 const mockSchedules = [
   { id: 1, empName: '王小明', date: '2023-11-01', shift: '早班 (09:00 - 18:00)', status: '已確認' },
   { id: 2, empName: '李大華', date: '2023-11-01', shift: '晚班 (13:00 - 22:00)', status: '待確認' },
