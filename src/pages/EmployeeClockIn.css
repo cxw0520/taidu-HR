@@ -1,0 +1,189 @@
+.clock-in-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+}
+
+.shape {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  z-index: 0;
+}
+
+.shape-1 {
+  width: 400px;
+  height: 400px;
+  background: rgba(79, 70, 229, 0.3);
+  top: -100px;
+  right: -100px;
+}
+
+.shape-2 {
+  width: 500px;
+  height: 500px;
+  background: rgba(16, 185, 129, 0.2);
+  bottom: -200px;
+  left: -200px;
+}
+
+.clock-card {
+  position: relative;
+  z-index: 1;
+  width: 90%;
+  max-width: 480px;
+  padding: 40px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+  text-align: center;
+}
+
+.company-title {
+  font-size: 20px;
+  color: var(--text-muted);
+  margin-bottom: 30px;
+  font-weight: 500;
+  letter-spacing: 1px;
+}
+
+.time-display {
+  margin-bottom: 40px;
+}
+
+.current-time {
+  font-size: 64px;
+  font-weight: 700;
+  color: var(--primary);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 2px 2px 4px rgba(79, 70, 229, 0.1);
+}
+
+.current-date {
+  font-size: 16px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.btn {
+  flex: 1;
+  padding: 16px 20px;
+  border-radius: var(--radius-lg);
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: white;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn-clock-in {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+}
+
+.btn-clock-in:hover {
+  box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3);
+}
+
+.btn-clock-out {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+}
+
+.btn-clock-out:hover {
+  box-shadow: 0 10px 20px rgba(245, 158, 11, 0.3);
+}
+
+.status-message {
+  font-size: 14px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.status-idle {
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.status-locating {
+  color: #3B82F6;
+  background: rgba(59, 130, 246, 0.1);
+  animation: pulse 1.5s infinite;
+}
+
+.status-error {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.status-success {
+  display: none; /* Hidden because we show the success record below instead */
+}
+
+.record-success {
+  padding: 16px;
+  background: #ECFDF5;
+  color: #065F46;
+  border: 1px solid #A7F3D0;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  margin-bottom: 24px;
+}
+
+.login-footer {
+  margin-top: 30px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.login-footer a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.login-footer a:hover {
+  text-decoration: underline;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+@media (max-width: 480px) {
+  .clock-card {
+    padding: 30px 20px;
+    width: 95%;
+  }
+  .current-time {
+    font-size: 52px;
+  }
+  .action-buttons {
+    flex-direction: column;
+  }
+}
