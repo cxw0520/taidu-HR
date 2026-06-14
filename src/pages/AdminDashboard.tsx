@@ -21,12 +21,6 @@ const getSecondaryAuth = () => {
   return getAuth(secondaryApp);
 };
 
-// Mock data
-const mockEmployees = [
-  { id: 'EMP001', name: '王小明', role: '工程師', status: 'active' },
-  { id: 'EMP002', name: '李大華', role: '設計師', status: 'active' },
-  { id: 'EMP003', name: '張小芬', role: '行銷', status: 'inactive' },
-];
 
 const mockSchedules = [
   { id: 1, empName: '王小明', date: '2023-11-01', shift: '早班 (09:00 - 18:00)', status: '已確認' },
