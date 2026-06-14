@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { db } from '../firebase';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import './EmployeeClockIn.css';
 
 const EmployeeClockIn: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [user, setUser] = useState<User | null>(null);
   const [locationState, setLocationState] = useState<{
     status: 'idle' | 'locating' | 'success' | 'error';
     message: string;
@@ -19,10 +21,21 @@ const EmployeeClockIn: React.FC = () => {
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => {
+      clearInterval(timer);
+      unsubscribe();
+    };
   }, []);
 
   const handleClockIn = (type: 'in' | 'out') => {
+    if (!auth.currentUser) {
+      setLocationState({ status: 'error', message: '請先登入後再進行打卡！', coords: null });
+      return;
+    }
+
     setLocationState({ status: 'locating', message: '取得目前位置中...', coords: null });
     
     if (!navigator.geolocation) {
@@ -45,8 +58,8 @@ const EmployeeClockIn: React.FC = () => {
         
         try {
           await addDoc(collection(db, 'attendance'), {
-            empName: '王小明',
-            employeeId: 'EMP001',
+            empName: auth.currentUser?.email || '未名員工',
+            employeeId: auth.currentUser?.uid || 'UNKNOWN',
             date: dateStr,
             time: timeStr,
             type: actionStr,
@@ -73,6 +86,17 @@ const EmployeeClockIn: React.FC = () => {
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+  };
+
+  const handleSignOut = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      await signOut(auth);
+      setClockInRecord(null);
+      setLocationState({ status: 'idle', message: '已安全登出', coords: null });
+    } catch (err) {
+      console.error("Sign out error:", err);
+    }
   };
 
   const formattedTime = currentTime.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -108,7 +132,19 @@ const EmployeeClockIn: React.FC = () => {
         )}
 
         <div className="login-footer">
-          <p>僅限員工打卡使用，管理員請至 <Link to="/admin">後台登入</Link></p>
+          {user ? (
+            <p>
+              已登入員工: <strong>{user.email}</strong> |{' '}
+              <a href="#" onClick={handleSignOut} style={{ color: '#ef4444', fontWeight: 'bold' }}>
+                登出
+              </a>{' '}
+              | 管理員請至 <Link to="/admin">後台登入</Link>
+            </p>
+          ) : (
+            <p>
+              您尚未登入，員工請至 <Link to="/login" style={{ fontWeight: 'bold' }}>員工登入</Link> | 管理員請至 <Link to="/admin">後台登入</Link>
+            </p>
+          )}
         </div>
       </div>
       

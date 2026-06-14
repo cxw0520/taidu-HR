@@ -8,16 +8,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // 輔助函式：檢查目前使用者是否為管理員
-    // 假設在 /employees/{uid} 文件中，欄位 role == 'admin'
+    // 輔助函式：檢查目前使用者是否為管理員帳號
     function isAdmin() {
-      return isSignedIn() && 
-        get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'admin';
+      return isSignedIn() && request.auth.token.email == 'taidu.patisserie.2025@gmail.com';
     }
 
-    // 輔助函式：檢查是否為本人的資料
-    function isOwner(employeeId) {
-      return isSignedIn() && request.auth.uid == employeeId;
+    // 輔助函式：檢查是否為本人的帳號 (UID)
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
     }
 
     // 1. 員工資料規則
@@ -28,18 +26,20 @@ service cloud.firestore {
 
     // 2. 出勤打卡紀錄規則
     match /attendance/{attendanceId} {
+      // 讀取：管理員可讀全部，員工只能讀取自己 UID 的打卡紀錄
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
+      
+      // 寫入：登入的員工只能新增自己 UID 的打卡紀錄 (不能修改或刪除別人的)
+      allow create: if isSignedIn() && request.resource.data.employeeId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
-    // 3. 排班表規則
+    // 3. 排班表與薪資單規則 (採用防護檢查，如需一般讀取請調整)
     match /schedules/{scheduleId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
       allow write: if isAdmin();
     }
 
-    // 4. 薪資單規則
     match /payroll/{payrollId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
       allow write: if isAdmin();
