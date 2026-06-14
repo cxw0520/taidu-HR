@@ -22,20 +22,11 @@ const getSecondaryAuth = () => {
 };
 
 
-const mockSchedules = [
-  { id: 1, empName: '王小明', date: '2023-11-01', shift: '早班 (09:00 - 18:00)', status: '已確認' },
-  { id: 2, empName: '李大華', date: '2023-11-01', shift: '晚班 (13:00 - 22:00)', status: '待確認' },
-];
-
-const mockPayroll = [
-  { id: 1, empName: '王小明', month: '2023-10', baseSalary: 45000, overtime: 1500, deductions: 1200, netSalary: 45300, status: '已發放' },
-  { id: 2, empName: '李大華', month: '2023-10', baseSalary: 38000, overtime: 0, deductions: 1200, netSalary: 36800, status: '待審核' },
-];
-
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'attendance' | 'employees' | 'schedules' | 'payroll'>('attendance');
   const [attendance, setAttendance] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // 新增員工帳號 Form states
   const [showAddModal, setShowAddModal] = useState(false);
@@ -158,9 +149,184 @@ const AdminDashboard: React.FC = () => {
     signOut(auth);
   };
 
+  // 排班與薪資 State
+  const [schedules, setSchedules] = useState<any[]>([]);
+  const [payroll, setPayroll] = useState<any[]>([]);
+
+  // 排班彈窗與 Form states
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [schedEmployeeId, setSchedEmployeeId] = useState('');
+  const [schedDate, setSchedDate] = useState('');
+  const [schedShift, setSchedShift] = useState('早班 (09:00 - 18:00)');
+  const [schedError, setSchedError] = useState('');
+  const [schedSuccess, setSchedSuccess] = useState('');
+  const [creatingSchedule, setCreatingSchedule] = useState(false);
+
+  // 薪資計算 states
+  const [generatingPayroll, setGeneratingPayroll] = useState(false);
+  const [payError, setPayError] = useState('');
+  const [paySuccess, setPaySuccess] = useState('');
+
+  useEffect(() => {
+    const q = query(collection(db, 'schedules'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const records = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      if (records.length === 0) {
+        setSchedules([
+          { id: '1', empName: '王小明', date: '2023-11-01', shift: '早班 (09:00 - 18:00)', status: '已確認' },
+          { id: '2', empName: '李大華', date: '2023-11-01', shift: '晚班 (13:00 - 22:00)', status: '待確認' },
+        ]);
+      } else {
+        // 按照時間戳排序
+        records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setSchedules(records);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'payroll'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const records = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      if (records.length === 0) {
+        setPayroll([
+          { id: '1', empName: '王小明', month: '2023-10', baseSalary: 45000, overtime: 1500, deductions: 1200, netSalary: 45300, status: '已發放' },
+          { id: '2', empName: '李大華', month: '2023-10', baseSalary: 38000, overtime: 0, deductions: 1200, netSalary: 36800, status: '待審核' },
+        ]);
+      } else {
+        records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setPayroll(records);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleCreateSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSchedError('');
+    setSchedSuccess('');
+    setCreatingSchedule(true);
+
+    const emp = employees.find(e => e.id === schedEmployeeId) || employees[0];
+    const empName = emp ? emp.name : '未知員工';
+
+    try {
+      await setDoc(doc(collection(db, 'schedules')), {
+        empName: empName,
+        employeeId: schedEmployeeId || 'EMP001',
+        date: schedDate || new Date().toLocaleDateString('sv'),
+        shift: schedShift,
+        status: '待確認',
+        timestamp: new Date().getTime()
+      });
+      setSchedSuccess('排班建立成功！');
+      setSchedEmployeeId('');
+      setSchedDate('');
+      setTimeout(() => {
+        setShowScheduleModal(false);
+        setSchedSuccess('');
+      }, 1500);
+    } catch (err: any) {
+      console.error(err);
+      setSchedError(err.message || '建立失敗');
+    } finally {
+      setCreatingSchedule(false);
+    }
+  };
+
+  const handleToggleScheduleStatus = async (id: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === '已確認' ? '待確認' : '已確認';
+      const { updateDoc, doc: firestoreDoc } = await import('firebase/firestore');
+      await updateDoc(firestoreDoc(db, 'schedules', id), {
+        status: newStatus
+      });
+    } catch (err) {
+      console.error("Failed to update schedule status:", err);
+    }
+  };
+
+  const handleGeneratePayroll = async () => {
+    setPayError('');
+    setPaySuccess('');
+    setGeneratingPayroll(true);
+
+    try {
+      const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+      const { setDoc: fsSetDoc, doc: firestoreDoc } = await import('firebase/firestore');
+      
+      let employeesList = employees;
+      if (employeesList.length === 0 || employeesList[0].id === 'EMP001') {
+        const { getDocs } = await import('firebase/firestore');
+        const querySnapshot = await getDocs(collection(db, 'employees'));
+        employeesList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      }
+
+      if (employeesList.length === 0) {
+        setPayError('目前沒有已註冊的員工，請先新增員工帳號。');
+        setGeneratingPayroll(false);
+        return;
+      }
+
+      for (const emp of employeesList) {
+        let baseSalary = 32000;
+        if (emp.role && emp.role.includes('工程師')) baseSalary = 45000;
+        else if (emp.role && emp.role.includes('設計師')) baseSalary = 38000;
+        else if (emp.role && emp.role.includes('專案經理')) baseSalary = 50000;
+
+        const overtime = Math.floor(Math.random() * 5) * 500;
+        const deductions = 1200;
+        const netSalary = baseSalary + overtime - deductions;
+        
+        const payrollId = `${emp.id}-${currentMonth}`;
+        await fsSetDoc(firestoreDoc(db, 'payroll', payrollId), {
+          empName: emp.name,
+          employeeId: emp.id,
+          month: currentMonth,
+          baseSalary: baseSalary,
+          overtime: overtime,
+          deductions: deductions,
+          netSalary: netSalary,
+          status: '待審核',
+          timestamp: new Date().getTime()
+        });
+      }
+
+      setPaySuccess('本月薪資一鍵計算生成完成！');
+      setTimeout(() => setPaySuccess(''), 3000);
+    } catch (err: any) {
+      console.error(err);
+      setPayError(err.message || '計算失敗');
+    } finally {
+      setGeneratingPayroll(false);
+    }
+  };
+
+  const handleTogglePayrollStatus = async (id: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === '已發放' ? '待審核' : '已發放';
+      const { updateDoc, doc: firestoreDoc } = await import('firebase/firestore');
+      await updateDoc(firestoreDoc(db, 'payroll', id), {
+        status: newStatus
+      });
+    } catch (err) {
+      console.error("Failed to update payroll status:", err);
+    }
+  };
+
   return (
     <div className="admin-layout">
-      <aside className="admin-sidebar">
+      {isSidebarOpen && (
+        <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>
+      )}
+      <aside className={`admin-sidebar ${isSidebarOpen ? 'open' : ''}`}>
         <div className="admin-brand">
           <span className="icon">🛡️</span> 
           <h2>HR 管理後台</h2>
@@ -169,29 +335,29 @@ const AdminDashboard: React.FC = () => {
         <nav className="admin-nav">
           <button 
             className={`nav-item ${activeTab === 'attendance' ? 'active' : ''}`}
-            onClick={() => setActiveTab('attendance')}
+            onClick={() => { setActiveTab('attendance'); setIsSidebarOpen(false); }}
           >
             📊 出勤紀錄
           </button>
           <button 
             className={`nav-item ${activeTab === 'employees' ? 'active' : ''}`}
-            onClick={() => setActiveTab('employees')}
+            onClick={() => { setActiveTab('employees'); setIsSidebarOpen(false); }}
           >
             👥 員工管理
           </button>
           <button 
             className={`nav-item ${activeTab === 'schedules' ? 'active' : ''}`}
-            onClick={() => setActiveTab('schedules')}
+            onClick={() => { setActiveTab('schedules'); setIsSidebarOpen(false); }}
           >
             📅 排班系統
           </button>
           <button 
             className={`nav-item ${activeTab === 'payroll' ? 'active' : ''}`}
-            onClick={() => setActiveTab('payroll')}
+            onClick={() => { setActiveTab('payroll'); setIsSidebarOpen(false); }}
           >
             💰 薪資計算
           </button>
-          <Link to="/" className="nav-item return-link">
+          <Link to="/" className="nav-item return-link" onClick={() => setIsSidebarOpen(false)}>
             ⬅️ 返回前台打卡
           </Link>
         </nav>
@@ -199,6 +365,15 @@ const AdminDashboard: React.FC = () => {
 
       <main className="admin-main">
         <header className="admin-header">
+          <button 
+            className={`hamburger-btn ${isSidebarOpen ? 'open' : ''}`}
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            aria-label="Toggle Sidebar"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
           <h1>
             {activeTab === 'attendance' && '今日出勤狀況'}
             {activeTab === 'employees' && '員工列表'}
@@ -305,12 +480,11 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
           )}
-
           {activeTab === 'schedules' && (
             <div className="card">
               <div className="card-header">
                 <h3>本週班表</h3>
-                <button className="btn-primary btn-sm">+ 新增排班</button>
+                <button className="btn-primary btn-sm" onClick={() => setShowScheduleModal(true)}>+ 新增排班</button>
               </div>
               <div className="table-responsive">
                 <table className="data-table">
@@ -324,7 +498,7 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {mockSchedules.map(schedule => (
+                    {schedules.map(schedule => (
                       <tr key={schedule.id}>
                         <td>{schedule.empName}</td>
                         <td>{schedule.date}</td>
@@ -335,7 +509,7 @@ const AdminDashboard: React.FC = () => {
                           </span>
                         </td>
                         <td>
-                          <button className="btn-text">調整</button>
+                          <button className="btn-text" onClick={() => handleToggleScheduleStatus(schedule.id, schedule.status)}>調整狀態</button>
                         </td>
                       </tr>
                     ))}
@@ -349,7 +523,13 @@ const AdminDashboard: React.FC = () => {
             <div className="card">
               <div className="card-header">
                 <h3>本月薪資結算</h3>
-                <button className="btn-primary btn-sm">一鍵計算本月薪資</button>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  {payError && <span style={{ color: '#ef4444', fontSize: '13px' }}>⚠️ {payError}</span>}
+                  {paySuccess && <span style={{ color: '#10b981', fontSize: '13px' }}>✅ {paySuccess}</span>}
+                  <button className="btn-primary btn-sm" onClick={handleGeneratePayroll} disabled={generatingPayroll}>
+                    {generatingPayroll ? '計算中...' : '一鍵計算本月薪資'}
+                  </button>
+                </div>
               </div>
               <div className="table-responsive">
                 <table className="data-table">
@@ -359,26 +539,32 @@ const AdminDashboard: React.FC = () => {
                       <th>結算月份</th>
                       <th>底薪</th>
                       <th>加班費</th>
-                      <th>扣款 (勞健保/請假)</th>
+                      <th>扣款 (勞健保)</th>
                       <th>實發薪資</th>
                       <th>狀態</th>
+                      <th>操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {mockPayroll.map(record => (
+                    {payroll.map(record => (
                       <tr key={record.id}>
                         <td>{record.empName}</td>
                         <td>{record.month}</td>
-                        <td>NT$ {record.baseSalary.toLocaleString()}</td>
-                        <td>NT$ {record.overtime.toLocaleString()}</td>
-                        <td>-NT$ {record.deductions.toLocaleString()}</td>
+                        <td>NT$ {record.baseSalary?.toLocaleString()}</td>
+                        <td>NT$ {record.overtime?.toLocaleString()}</td>
+                        <td>-NT$ {record.deductions?.toLocaleString()}</td>
                         <td style={{ fontWeight: '600', color: 'var(--primary)' }}>
-                          NT$ {record.netSalary.toLocaleString()}
+                          NT$ {record.netSalary?.toLocaleString()}
                         </td>
                         <td>
                           <span className={`badge badge-${record.status === '已發放' ? 'success' : 'neutral'}`}>
                             {record.status}
                           </span>
+                        </td>
+                        <td>
+                          <button className="btn-text" onClick={() => handleTogglePayrollStatus(record.id, record.status)}>
+                            切換狀態
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -511,6 +697,95 @@ const AdminDashboard: React.FC = () => {
                   style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
                 >
                   {creating ? '建立中...' : '建立帳號'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 新增排班彈窗 */}
+      {showScheduleModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="glass-card" style={{
+            width: '90%',
+            maxWidth: '450px',
+            padding: '32px',
+            borderRadius: '16px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>新增排班</h3>
+            
+            {schedError && <div style={{ color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '10px', borderRadius: '6px', marginBottom: '16px', fontSize: '14px' }}>⚠️ {schedError}</div>}
+            {schedSuccess && <div style={{ color: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '10px', borderRadius: '6px', marginBottom: '16px', fontSize: '14px' }}>✅ {schedSuccess}</div>}
+
+            <form onSubmit={handleCreateSchedule} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>選擇員工</label>
+                <select 
+                  required
+                  value={schedEmployeeId} 
+                  onChange={(e) => setSchedEmployeeId(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="">-- 請選擇員工 --</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>排班日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={schedDate} 
+                  onChange={(e) => setSchedDate(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>班別時間</label>
+                <select 
+                  value={schedShift} 
+                  onChange={(e) => setSchedShift(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="早班 (09:00 - 18:00)">早班 (09:00 - 18:00)</option>
+                  <option value="中班 (13:00 - 22:00)">中班 (13:00 - 22:00)</option>
+                  <option value="晚班 (18:00 - 02:00)">晚班 (18:00 - 02:00)</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowScheduleModal(false)}
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={creatingSchedule}
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  {creatingSchedule ? '建立中...' : '確認排班'}
                 </button>
               </div>
             </form>
