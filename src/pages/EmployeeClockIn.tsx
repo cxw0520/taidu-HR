@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import './EmployeeClockIn.css';
 
 const EmployeeClockIn: React.FC = () => {
@@ -85,7 +86,7 @@ const EmployeeClockIn: React.FC = () => {
         )}
 
         <div className="login-footer">
-          <p>僅限員工打卡使用，管理員請至 <a href="/admin">後台登入</a></p>
+          <p>僅限員工打卡使用，管理員請至 <Link to="/admin">後台登入</Link></p>
         </div>
       </div>
       

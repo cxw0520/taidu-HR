@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import './AdminDashboard.css';
 
 // Mock data
@@ -59,9 +60,9 @@ const AdminDashboard: React.FC = () => {
           >
             💰 薪資計算
           </button>
-          <a href="/" className="nav-item return-link">
+          <Link to="/" className="nav-item return-link">
             ⬅️ 返回前台打卡
-          </a>
+          </Link>
         </nav>
       </aside>
 
