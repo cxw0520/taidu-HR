@@ -19,10 +19,28 @@ const EmployeeClockIn: React.FC = () => {
   });
   const [clockInRecord, setClockInRecord] = useState<string | null>(null);
 
+  const [employeeName, setEmployeeName] = useState<string>('');
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      if (currentUser) {
+        try {
+          const { doc, getDoc } = await import('firebase/firestore');
+          const empDoc = await getDoc(doc(db, 'employees', currentUser.uid));
+          if (empDoc.exists()) {
+            setEmployeeName(empDoc.data().name || '');
+          } else {
+            setEmployeeName('');
+          }
+        } catch (err) {
+          console.error("Failed to fetch employee profile:", err);
+          setEmployeeName('');
+        }
+      } else {
+        setEmployeeName('');
+      }
     });
     return () => {
       clearInterval(timer);
@@ -58,7 +76,7 @@ const EmployeeClockIn: React.FC = () => {
         
         try {
           await addDoc(collection(db, 'attendance'), {
-            empName: auth.currentUser?.email || '未名員工',
+            empName: employeeName || auth.currentUser?.email || '未名員工',
             employeeId: auth.currentUser?.uid || 'UNKNOWN',
             date: dateStr,
             time: timeStr,
@@ -93,6 +111,7 @@ const EmployeeClockIn: React.FC = () => {
     try {
       await signOut(auth);
       setClockInRecord(null);
+      setEmployeeName('');
       setLocationState({ status: 'idle', message: '已安全登出', coords: null });
     } catch (err) {
       console.error("Sign out error:", err);
@@ -134,7 +153,7 @@ const EmployeeClockIn: React.FC = () => {
         <div className="login-footer">
           {user ? (
             <p>
-              已登入員工: <strong>{user.email}</strong> |{' '}
+              已登入員工: <strong>{employeeName || user.email}</strong> {employeeName && `(${user.email})`} |{' '}
               <a href="#" onClick={handleSignOut} style={{ color: '#ef4444', fontWeight: 'bold' }}>
                 登出
               </a>{' '}

@@ -218,6 +218,11 @@
   display: none;
 }
 
+/* Sidebar Footer Desktop Default */
+.sidebar-footer {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .admin-layout {
     position: relative;
@@ -237,6 +242,66 @@
 
   .admin-sidebar.open {
     transform: translateX(0);
+  }
+
+  /* Sidebar User Footer for Mobile */
+  .sidebar-footer {
+    display: flex;
+    padding: 20px;
+    border-top: 1px solid var(--border);
+    flex-direction: column;
+    gap: 12px;
+    margin-top: auto;
+    background-color: rgba(0, 0, 0, 0.02);
+  }
+
+  .sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sidebar-user .avatar {
+    flex-shrink: 0;
+  }
+
+  .sidebar-user .user-info {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-user .user-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+  }
+
+  .sidebar-user .user-email {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sidebar-logout-btn {
+    width: 100%;
+    padding: 8px 12px;
+    background-color: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+  }
+
+  .sidebar-logout-btn:hover {
+    background-color: #ef4444;
+    color: white;
   }
 
   .sidebar-overlay {
@@ -267,6 +332,10 @@
     text-align: center;
   }
 
+  .admin-header .admin-user {
+    display: none !important; /* Hide header user details on mobile */
+  }
+
   .admin-content {
     padding: 16px;
   }
@@ -282,15 +351,70 @@
     margin-bottom: 4px;
   }
 
-  .card-header button {
+  .card-header button,
+  .card-header div {
     width: 100%;
     text-align: center;
   }
 
-  .data-table th,
+  /* Responsive card layout for tables */
+  .table-responsive {
+    border: none;
+    overflow-x: visible;
+  }
+
+  .data-table, 
+  .data-table thead, 
+  .data-table tbody, 
+  .data-table tr, 
+  .data-table th, 
   .data-table td {
-    padding: 12px 16px;
+    display: block;
+    width: 100%;
+  }
+
+  .data-table thead {
+    display: none; /* Hide headers */
+  }
+
+  .data-table tr {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  }
+
+  .data-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: right;
+    padding: 8px 0 !important;
+    border-bottom: 1px dashed var(--border) !important;
+    font-size: 14px;
+  }
+
+  .data-table td:last-child {
+    border-bottom: none !important;
+    margin-top: 12px;
+    padding-top: 12px !important;
+    justify-content: flex-end; /* Align actions to the right */
+    gap: 10px;
+  }
+
+  .data-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--text-muted);
+    float: left;
+    text-align: left;
     font-size: 13px;
+  }
+
+  .data-table td[data-label="操作"] {
+    border-bottom: none !important;
   }
 
   .hamburger-btn {
@@ -325,3 +449,10 @@
     transform: translateY(-8px) rotate(-45deg);
   }
 }
+
+@media (max-width: 480px) {
+  .glass-card {
+    padding: 20px !important;
+  }
+}
+
