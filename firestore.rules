@@ -3,52 +3,24 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // 輔助函式：檢查使用者是否已登入
-    function isSignedIn() {
-      return request.auth != null;
-    }
+    // 💡 由於目前專案尚未實作 Firebase Authentication 登入機制，
+    // 在開發測試階段，我們先開放任何人皆可讀寫。
+    // 後續實作登入後，再切換回以 request.auth 限制的安全規則。
 
-    // 輔助函式：檢查目前使用者是否為管理員
-    // 假設在 /employees/{uid} 文件中，欄位 role == 'admin'
-    function isAdmin() {
-      return isSignedIn() && 
-        get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'admin';
-    }
-
-    // 輔助函式：檢查是否為本人的資料
-    function isOwner(employeeId) {
-      return isSignedIn() && request.auth.uid == employeeId;
-    }
-
-    // 1. 員工資料規則
     match /employees/{employeeId} {
-      // 員工可以讀取自己的基本資料，管理員可以讀寫所有人
-      allow read: if isOwner(employeeId) || isAdmin();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
-    // 2. 出勤打卡紀錄規則
     match /attendance/{attendanceId} {
-      // 讀取：管理員可讀全部，員工只能讀取自己的紀錄
-      allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      
-      // 寫入/新增：管理員可操作，員工只能新增自己的打卡紀錄 (不能修改或刪除別人的)
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
-      allow update, delete: if isAdmin();
+      allow read, write: if true;
     }
 
-    // 3. 排班表規則
     match /schedules/{scheduleId} {
-      // 讀取：管理員可讀全部，員工只能讀自己的排班
-      allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
-    // 4. 薪資單規則
     match /payroll/{payrollId} {
-      // 讀取：管理員可讀全部，員工只能看自己的薪資單
-      allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }
