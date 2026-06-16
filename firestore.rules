@@ -9,7 +9,9 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'taidu.patisserie.2025@gmail.com';
+      return isSignedIn() && 
+             request.auth.token.email != null && 
+             request.auth.token.email.lower() == 'taidu.patisserie.2025@gmail.com';
     }
 
     function isOwner(uid) {
