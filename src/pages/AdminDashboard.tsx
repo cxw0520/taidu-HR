@@ -21,6 +21,16 @@ const getSecondaryAuth = () => {
   return getAuth(secondaryApp);
 };
 
+const LEAVE_TYPES = [
+  { value: 'sick', label: '病假 (半薪)' },
+  { value: 'personal', label: '事假 (無薪)' },
+  { value: 'annual', label: '特別休假' },
+  { value: 'official', label: '公假' },
+  { value: 'marriage', label: '婚假' },
+  { value: 'bereavement', label: '喪假' },
+  { value: 'menstrual', label: '生理假' },
+  { value: 'prenatal', label: '產前假' },
+];
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'attendance' | 'employees' | 'schedules' | 'payroll' | 'settings'>('attendance');
@@ -885,6 +895,19 @@ const AdminDashboard: React.FC = () => {
     exportCSV(headers, rows, `出勤紀錄_${filterDate || new Date().toLocaleDateString('sv')}.csv`);
   };
 
+  const handleExportInsuranceEnrollmentCSV = () => {
+    const headers = ['員工姓名', '身分證字號', '到職日期', '勞保投保薪資', '健保投保薪資', '實際眷屬數'];
+    const rows = employees.map((emp: any) => [
+      `"${emp.name || ''}"`,
+      `"${emp.identityNumber || ''}"`,
+      `"${emp.onboardDate || ''}"`,
+      emp.laborSub || 0,
+      emp.nhiSub || 0,
+      emp.nhiDependents || 0
+    ]);
+    exportCSV(headers, rows, `勞健保加保申報表_${new Date().toLocaleDateString('sv')}.csv`);
+  };
+
   const handleExportPayrollCSV = () => {
     const headers = ['員工姓名', '結算月份', '底薪', '伙食津貼', '全勤獎金', '其他津貼', '加班費', '請假扣薪', '勞保自付', '健保自付', '實發薪資', '狀態'];
     const rows = filteredPayroll.map((r: any) => [
@@ -991,6 +1014,15 @@ const AdminDashboard: React.FC = () => {
   const handleUpdateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // 防呆檢核
+      const warnings = checkScheduleWarnings(editSchedEmployeeId, editSchedDate, editSchedShift);
+      if (warnings.length > 0) {
+        const proceed = window.confirm(
+          '⚠️ 排班防呆警示：\n\n' + warnings.join('\n') + '\n\n您確定仍要更新此排班嗎？'
+        );
+        if (!proceed) return;
+      }
+
       const emp = employees.find(e => e.id === editSchedEmployeeId);
       const empName = emp ? emp.name : '未知員工';
       
@@ -1423,6 +1455,22 @@ const AdminDashboard: React.FC = () => {
     return viewPayMonth ? p.month === viewPayMonth : true;
   });
 
+  // 簽核與行政警示計算
+  const pendingLeaves = leaves.filter(l => l.status === 'pending');
+  const pendingOvertimes = overtimeReqs.filter(o => o.status === 'pending');
+  
+  const today = new Date();
+  const probationEmployees = employees.filter(emp => {
+    if (!emp.onboardDate) return false;
+    const onboardTime = new Date(emp.onboardDate).getTime();
+    const diffTime = today.getTime() - onboardTime;
+    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    // 試用期為 90 天
+    return diffDays >= 0 && diffDays <= 90;
+  });
+  
+  const missingBankEmployees = employees.filter(emp => !emp.bankAccount || emp.bankAccount.trim() === '');
+
   // 取得當月天數與首日星期
   const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
   const firstDayOfWeek = new Date(viewYear, viewMonth - 1, 1).getDay(); // 0 = Sun, 6 = Sat
@@ -1566,11 +1614,142 @@ const AdminDashboard: React.FC = () => {
 
         <div className="admin-content fade-in">
           {activeTab === 'attendance' && (
-            <div className="card">
-              <div className="card-header">
-                <h3>即時打卡紀錄</h3>
-                <button className="btn-primary btn-sm">匯出報表</button>
+            <>
+              {/* 🔔 行政與簽核警示面板 */}
+              <div className="alerts-approvals-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                {/* 簽核區 */}
+                <div className="card" style={{ padding: '24px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '20px' }}>📋</span>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>待處理差勤簽核</h3>
+                  </div>
+                  {pendingLeaves.length === 0 && pendingOvertimes.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      🎉 暫無待處理的假單或加班申請！
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {/* 請假單列表 */}
+                      {pendingLeaves.map(lv => (
+                        <div key={lv.id} style={{ padding: '12px', borderRadius: '10px', backgroundColor: '#f9fafb', border: '1px solid var(--border)', fontSize: '13px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                            <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>{lv.empName} (請假)</span>
+                            <span style={{ color: 'var(--primary)', fontWeight: '600' }}>
+                              {LEAVE_TYPES.find(t => t.value === lv.leaveType)?.label || lv.leaveType}
+                            </span>
+                          </div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '8px' }}>
+                            時間：{lv.startDate} ~ {lv.endDate} ({lv.hours}小時)
+                            {lv.reason && <div style={{ marginTop: '2px', fontStyle: 'italic' }}>事由：{lv.reason}</div>}
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              onClick={() => handleApproveLeave(lv.id)}
+                              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              核准
+                            </button>
+                            <button
+                              onClick={() => handleRejectLeave(lv.id)}
+                              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              駁回
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {/* 加班單列表 */}
+                      {pendingOvertimes.map(ot => (
+                        <div key={ot.id} style={{ padding: '12px', borderRadius: '10px', backgroundColor: '#f9fafb', border: '1px solid var(--border)', fontSize: '13px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                            <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>{ot.empName} (加班)</span>
+                            <span style={{ color: '#059669', fontWeight: '600' }}>{ot.hours}小時</span>
+                          </div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '8px' }}>
+                            日期：{ot.date}
+                            {ot.reason && <div style={{ marginTop: '2px', fontStyle: 'italic' }}>原因：{ot.reason}</div>}
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              onClick={() => handleApproveOT(ot.id)}
+                              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              核准
+                            </button>
+                            <button
+                              onClick={() => handleRejectOT(ot.id)}
+                              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              駁回
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 行政警示區 */}
+                <div className="card" style={{ padding: '24px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '20px' }}>🔔</span>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>行政與法規警示</h3>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* 試用期警示 */}
+                    <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: '#d97706', marginBottom: '6px' }}>
+                        <span>⏱️</span>
+                        <span>新進員工試用期追蹤 (到職未滿90天)</span>
+                      </div>
+                      {probationEmployees.length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>目前無新進試用期員工。</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                          {probationEmployees.map(emp => {
+                            // 計算到職天數
+                            const diffDays = Math.floor((today.getTime() - new Date(emp.onboardDate).getTime()) / (1000 * 60 * 60 * 24));
+                            return (
+                              <span key={emp.id} style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'rgba(245,158,11,0.12)', color: '#d97706', fontSize: '12px', fontWeight: '600' }}>
+                                {emp.name} (已到職 {diffDays} 天)
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 銀行帳號未填警示 */}
+                    <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: '#dc2626', marginBottom: '6px' }}>
+                        <span>🏦</span>
+                        <span>銀行帳號未填警示 (會影響薪資匯款)</span>
+                      </div>
+                      {missingBankEmployees.length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>所有員工皆已填寫銀行帳號。</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                          {missingBankEmployees.map(emp => (
+                            <span key={emp.id} style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'rgba(239,68,68,0.12)', color: '#dc2626', fontSize: '12px', fontWeight: '600' }}>
+                              {emp.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
+              <div className="card">
+                <div className="card-header">
+                  <h3>即時打卡紀錄</h3>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn-primary btn-sm" onClick={handleExportAttendanceCSV}>匯出出勤表</button>
+                    <button className="btn-primary btn-sm" onClick={handleExportInsuranceEnrollmentCSV}>匯出加保申報表 (CSV)</button>
+                  </div>
+                </div>
 
               {/* 搜尋與日期篩選器 */}
               <div className="filters-row" style={{ display: 'flex', gap: '16px', padding: '16px 24px', backgroundColor: '#f9fafb', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
@@ -1669,7 +1848,8 @@ const AdminDashboard: React.FC = () => {
                 </table>
               </div>
             </div>
-          )}
+          </>
+        )}
 
           {activeTab === 'employees' && (
             <div className="card">
@@ -2139,6 +2319,9 @@ const AdminDashboard: React.FC = () => {
                   </button>
                   <button className="btn-primary btn-sm" onClick={() => setShowAddPayrollModal(true)}>
                     + 手動新增薪資單
+                  </button>
+                  <button className="btn-primary btn-sm" onClick={handleExportPayrollCSV}>
+                    📥 匯出當月薪資總表
                   </button>
                 </div>
               </div>

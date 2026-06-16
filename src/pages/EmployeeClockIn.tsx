@@ -4,7 +4,7 @@ import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import {
   collection, addDoc, serverTimestamp, query, where, onSnapshot,
-  doc, getDoc, getDocs, orderBy
+  doc, getDoc
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
 
