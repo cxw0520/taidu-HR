@@ -49,6 +49,11 @@ const EmployeeClockIn: React.FC = () => {
   // 主 Tab
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'schedule' | 'payroll' | 'apply'>('clock');
 
+  // 班表日曆月份變數
+  const now0 = new Date();
+  const [calYear, setCalYear] = useState(now0.getFullYear());
+  const [calMonth, setCalMonth] = useState(now0.getMonth() + 1);
+
   // 打卡 Tab 資料
   const [todayRecords, setTodayRecords] = useState<any[]>([]);
   const [allAttendance, setAllAttendance] = useState<any[]>([]);
@@ -548,31 +553,129 @@ const EmployeeClockIn: React.FC = () => {
           </div>
         )}
 
-        {/* ── 班表 Tab ── */}
-        {activeSubTab === 'schedule' && (
-          <div className="tab-panel fade-in">
-            <h3 className="tab-panel-title">我的排班表</h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>💡 僅顯示管理員已發佈的班表</p>
-            {mySchedules.length === 0
-              ? <p className="empty-message">目前沒有已發佈的排班紀錄</p>
-              : (
-                <div className="mini-table-container">
-                  <table className="mini-table">
-                    <thead><tr><th>日期</th><th>班別時間</th><th>狀態</th></tr></thead>
-                    <tbody>
-                      {mySchedules.map((sched) => (
-                        <tr key={sched.id}>
-                          <td>{sched.date}</td>
-                          <td>{sched.shift}</td>
-                          <td><span className={`badge badge-${sched.status === '已確認' ? 'success' : 'warning'}`}>{sched.status}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+        {/* ── 班表 Tab（日曆型）── */}
+        {activeSubTab === 'schedule' && (() => {
+          const todayStr = new Date().toLocaleDateString('sv');
+          const daysInMonth = new Date(calYear, calMonth, 0).getDate();
+          const firstDow = new Date(calYear, calMonth - 1, 1).getDay();
+
+          const schedMap: Record<string, any> = {};
+          mySchedules.forEach(s => { if (s.date) schedMap[s.date] = s; });
+
+          const attMap: Record<string, any[]> = {};
+          allAttendance.forEach((r: any) => {
+            if (!r.date) return;
+            if (!attMap[r.date]) attMap[r.date] = [];
+            attMap[r.date].push(r);
+          });
+
+          const prevMonth = () => { if (calMonth === 1) { setCalYear(y => y - 1); setCalMonth(12); } else setCalMonth(m => m - 1); };
+          const nextMonth = () => { if (calMonth === 12) { setCalYear(y => y + 1); setCalMonth(1); } else setCalMonth(m => m + 1); };
+
+          const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+          const cells: (number | null)[] = [
+            ...Array(firstDow).fill(null),
+            ...Array.from({ length: daysInMonth }, (_, i) => i + 1)
+          ];
+
+          return (
+            <div className="tab-panel fade-in">
+              {/* 月份切換列 */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <button onClick={prevMonth} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', fontSize: '18px', color: 'var(--text-main)' }}>‹</button>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '17px', fontWeight: '800', color: 'var(--primary)' }}>{calYear} 年 {calMonth} 月</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>💡 僅顯示管理員已發佈的班表</div>
                 </div>
-              )}
-          </div>
-        )}
+                <button onClick={nextMonth} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', fontSize: '18px', color: 'var(--text-main)' }}>›</button>
+              </div>
+
+              {/* 星期標頭 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '3px' }}>
+                {weekDays.map((d, i) => (
+                  <div key={d} style={{ textAlign: 'center', fontSize: '11px', fontWeight: '700',
+                    color: i === 0 ? '#ef4444' : i === 6 ? '#4f46e5' : '#9ca3af', padding: '4px 0' }}>{d}</div>
+                ))}
+              </div>
+
+              {/* 日期格子 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px' }}>
+                {cells.map((day, idx) => {
+                  if (!day) return <div key={`e-${idx}`} style={{ minHeight: '68px' }} />;
+                  const dateStr = `${calYear}-${String(calMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  const sched = schedMap[dateStr];
+                  const dayAtts = attMap[dateStr] || [];
+                  const hasIn  = dayAtts.some(r => r.type === '上班');
+                  const hasOut = dayAtts.some(r => r.type === '下班');
+                  const isToday   = dateStr === todayStr;
+                  const isFuture  = dateStr > todayStr;
+                  const dow = new Date(dateStr).getDay();
+                  const hasLeave  = myLeaves.some(l => l.startDate <= dateStr && l.endDate >= dateStr && l.status === 'approved');
+                  const isException = sched && !isFuture && !hasLeave && (!hasIn || !hasOut);
+                  const shiftShort = sched ? (sched.shift || '').replace(/\s*\(.*?\)/, '').slice(0, 4) : '';
+                  const shiftTime  = sched ? ((sched.shift || '').match(/\((.+?)\)/) || [])[1] || '' : '';
+
+                  return (
+                    <div key={dateStr} style={{
+                      minHeight: '68px', borderRadius: '8px', padding: '5px 4px',
+                      backgroundColor: isToday ? 'rgba(79,70,229,0.08)' : sched ? 'rgba(16,185,129,0.05)' : '#fafafa',
+                      border: isToday ? '2px solid var(--primary)'
+                        : isException ? '1px solid rgba(239,68,68,0.35)'
+                        : sched ? '1px solid rgba(16,185,129,0.25)'
+                        : '1px solid var(--border)',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                      position: 'relative', overflow: 'hidden'
+                    }}>
+                      {/* 日期數字 */}
+                      <div style={{ fontWeight: isToday ? '900' : '600', fontSize: '13px', lineHeight: 1,
+                        color: isToday ? 'var(--primary)' : dow === 0 ? '#ef4444' : dow === 6 ? '#4f46e5' : '#374151' }}>{day}</div>
+
+                      {/* 班別標籤 */}
+                      {sched && (
+                        <>
+                          <div style={{ fontSize: '10px', fontWeight: '700', color: '#fff', backgroundColor: '#10b981',
+                            borderRadius: '4px', padding: '1px 5px', whiteSpace: 'nowrap',
+                            maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shiftShort}</div>
+                          {shiftTime && (
+                            <div style={{ fontSize: '8px', color: '#6b7280', lineHeight: 1.3, textAlign: 'center', wordBreak: 'break-all' }}>{shiftTime}</div>
+                          )}
+                        </>
+                      )}
+
+                      {/* 請假標示 */}
+                      {hasLeave && (
+                        <div style={{ fontSize: '9px', color: '#d97706', fontWeight: '700',
+                          backgroundColor: 'rgba(245,158,11,0.12)', borderRadius: '3px', padding: '1px 5px' }}>假</div>
+                      )}
+
+                      {/* 打卡狀態圓點 */}
+                      {sched && !isFuture && !hasLeave && (
+                        <div style={{ display: 'flex', gap: '3px', marginTop: '2px' }}>
+                          <div title="上班卡" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: hasIn ? '#10b981' : '#ef4444' }} />
+                          <div title="下班卡" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: hasOut ? '#10b981' : '#ef4444' }} />
+                        </div>
+                      )}
+
+                      {/* 異常角標 */}
+                      {isException && (
+                        <div style={{ position: 'absolute', top: '1px', right: '2px', fontSize: '9px' }}>⚠️</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 圖例 */}
+              <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginTop: '12px', fontSize: '11px', color: '#6b7280', justifyContent: 'center' }}>
+                <span style={{ display:'flex', alignItems:'center', gap:'4px' }}><span style={{ width:'8px', height:'8px', borderRadius:'50%', backgroundColor:'#10b981', display:'inline-block' }} />已打卡</span>
+                <span style={{ display:'flex', alignItems:'center', gap:'4px' }}><span style={{ width:'8px', height:'8px', borderRadius:'50%', backgroundColor:'#ef4444', display:'inline-block' }} />未打卡</span>
+                <span style={{ display:'flex', alignItems:'center', gap:'4px' }}><span style={{ width:'10px', height:'10px', borderRadius:'3px', backgroundColor:'rgba(16,185,129,0.2)', border:'1px solid #10b981', display:'inline-block' }} />有班表</span>
+                <span>⚠️ 缺卡/暠職</span>
+                <span style={{ color:'#d97706' }}>假 = 已核准請假</span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── 薪資 Tab ── */}
         {activeSubTab === 'payroll' && (
