@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { getApps, initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { db, auth } from '../firebase';
-import { collection, query, where, orderBy, onSnapshot, doc, setDoc, deleteDoc, updateDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, doc, setDoc, deleteDoc, updateDoc, getDocs, getDoc, addDoc } from 'firebase/firestore';
 import './AdminDashboard.css';
 
 const secondaryAppConfig = {
@@ -85,7 +85,7 @@ const AdminDashboard: React.FC = () => {
   const [cfgEmprLaborRatio, setCfgEmprLaborRatio] = useState(0.7);
   const [cfgEmpNhiRatio, setCfgEmpNhiRatio] = useState(0.3);
   const [cfgEmprNhiRatio, setCfgEmprNhiRatio] = useState(0.6);
-  const [cfgToleranceHours, setCfgToleranceHours] = useState(4);
+  const [cfgToleranceMinutes, setCfgToleranceMinutes] = useState(240);
 
   const [settingsSaveMsg, setSettingsSaveMsg] = useState({ type: '', text: '' });
 
@@ -106,6 +106,11 @@ const AdminDashboard: React.FC = () => {
   const [newFileIdCard, setNewFileIdCard] = useState<string>('');
   const [newFileBankbook, setNewFileBankbook] = useState<string>('');
   const [newFileContract, setNewFileContract] = useState<string>('');
+  const [newEmergencyContactName, setNewEmergencyContactName] = useState('');
+  const [newEmergencyContactPhone, setNewEmergencyContactPhone] = useState('');
+  const [newEmergencyContactRelation, setNewEmergencyContactRelation] = useState('');
+  const [newAddress, setNewAddress] = useState('');
+  const [newBirthDate, setNewBirthDate] = useState('');
 
   // 從 Firestore 同步職務列表
   useEffect(() => {
@@ -239,7 +244,12 @@ const AdminDashboard: React.FC = () => {
         otherAllowance: Number(newOtherAllowance),
         fileIdCard: newFileIdCard,
         fileBankbook: newFileBankbook,
-        fileContract: newFileContract
+        fileContract: newFileContract,
+        emergencyContactName: newEmergencyContactName,
+        emergencyContactPhone: newEmergencyContactPhone,
+        emergencyContactRelation: newEmergencyContactRelation,
+        address: newAddress,
+        birthDate: newBirthDate
       });
 
       // 3. 次要 App 實體登出，防止干涉主要 auth 狀態
@@ -265,6 +275,11 @@ const AdminDashboard: React.FC = () => {
       setNewFileIdCard('');
       setNewFileBankbook('');
       setNewFileContract('');
+      setNewEmergencyContactName('');
+      setNewEmergencyContactPhone('');
+      setNewEmergencyContactRelation('');
+      setNewAddress('');
+      setNewBirthDate('');
       setTimeout(() => {
         setShowAddModal(false);
         setAddSuccess('');
@@ -323,6 +338,11 @@ const AdminDashboard: React.FC = () => {
   const [editFileIdCard, setEditFileIdCard] = useState<string>('');
   const [editFileBankbook, setEditFileBankbook] = useState<string>('');
   const [editFileContract, setEditFileContract] = useState<string>('');
+  const [editEmergencyContactName, setEditEmergencyContactName] = useState('');
+  const [editEmergencyContactPhone, setEditEmergencyContactPhone] = useState('');
+  const [editEmergencyContactRelation, setEditEmergencyContactRelation] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editBirthDate, setEditBirthDate] = useState('');
 
   // 日曆式排班與快速排班狀態
   const [viewYear, setViewYear] = useState<number>(new Date().getFullYear());
@@ -445,9 +465,14 @@ const AdminDashboard: React.FC = () => {
     const unsubscribe = onSnapshot(doc(db, 'settings', 'rules'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setCfgToleranceHours(data.toleranceHours);
+        if (data.toleranceMinutes !== undefined) {
+          setCfgToleranceMinutes(data.toleranceMinutes);
+        } else if (data.toleranceHours !== undefined) {
+          setCfgToleranceMinutes(data.toleranceHours * 60);
+        }
       } else {
         const defaultRules = {
+          toleranceMinutes: 240,
           toleranceHours: 4
         };
         setDoc(doc(db, 'settings', 'rules'), defaultRules)
@@ -593,7 +618,8 @@ const AdminDashboard: React.FC = () => {
     };
     
     const rulesData = {
-      toleranceHours: Number(cfgToleranceHours)
+      toleranceMinutes: Number(cfgToleranceMinutes),
+      toleranceHours: Number((cfgToleranceMinutes / 60).toFixed(2))
     };
     
     try {
@@ -835,9 +861,34 @@ const AdminDashboard: React.FC = () => {
     catch (err) { console.error(err); alert('操作失敗'); }
   };
   const handleApprovePC = async (id: string) => {
-    try { await updateDoc(doc(db, 'punch_corrections', id), { status: 'approved' }); }
+    try {
+      // 1. 讀取補卡申請資料
+      const pcSnap = await getDoc(doc(db, 'punch_corrections', id));
+      if (!pcSnap.exists()) { alert('補卡申請不存在'); return; }
+      const pc = pcSnap.data() as any;
+
+      // 2. 自動補登 attendance 紀錄
+      const clockTypeMap: Record<string, string> = { 'clock_in': '上班', 'clock_out': '下班' };
+      const attendanceType = clockTypeMap[pc.type] || pc.type || '上班';
+      await addDoc(collection(db, 'attendance'), {
+        employeeId: pc.employeeId,
+        empName: pc.empName || '',
+        date: pc.date,
+        time: pc.time,
+        type: attendanceType,
+        source: 'punch_correction',   // 標記為補卡補登
+        punchCorrectionId: id,
+        timestamp: new Date().getTime(),
+        note: `補卡核准（原因：${pc.reason || ''}）`
+      });
+
+      // 3. 更新補卡申請狀態
+      await updateDoc(doc(db, 'punch_corrections', id), { status: 'approved' });
+      alert(`✅ 補卡已核准，已自動補登 ${pc.date} ${pc.time} ${attendanceType}卡`);
+    }
     catch (err) { console.error(err); alert('操作失敗'); }
   };
+
   const handleRejectPC = async (id: string) => {
     try { await updateDoc(doc(db, 'punch_corrections', id), { status: 'rejected' }); }
     catch (err) { console.error(err); alert('操作失敗'); }
@@ -1149,6 +1200,11 @@ const AdminDashboard: React.FC = () => {
     setEditFileIdCard(emp.fileIdCard || '');
     setEditFileBankbook(emp.fileBankbook || '');
     setEditFileContract(emp.fileContract || '');
+    setEditEmergencyContactName(emp.emergencyContactName || '');
+    setEditEmergencyContactPhone(emp.emergencyContactPhone || '');
+    setEditEmergencyContactRelation(emp.emergencyContactRelation || '');
+    setEditAddress(emp.address || '');
+    setEditBirthDate(emp.birthDate || '');
     setShowEditEmployeeModal(true);
   };
 
@@ -1175,7 +1231,12 @@ const AdminDashboard: React.FC = () => {
         otherAllowance: Number(editOtherAllowance),
         fileIdCard: editFileIdCard,
         fileBankbook: editFileBankbook,
-        fileContract: editFileContract
+        fileContract: editFileContract,
+        emergencyContactName: editEmergencyContactName,
+        emergencyContactPhone: editEmergencyContactPhone,
+        emergencyContactRelation: editEmergencyContactRelation,
+        address: editAddress,
+        birthDate: editBirthDate
       });
       setShowEditEmployeeModal(false);
     } catch (err) {
@@ -1326,19 +1387,45 @@ const AdminDashboard: React.FC = () => {
                   if (hours > 8) overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
                 }
               } else {
-                const isMonthlyHoliday = holidays.some(h => h.movedDate ? h.movedDate === date : h.date === date);
-                if (isMonthlyHoliday) {
+                // ── 月薪員工加班費判斷（正確對照移轉假日）──
+                // holidays 集合結構：
+                //   h.date        = 原始國定假日日期
+                //   h.movedDate   = 移轉後實際放假日（若非 null 則以此日為假日）
+                //   h.workdayDate = 補班日（若非 null 則此日雖為周末卻要上班，視為平日）
+
+                // 判斷是否為「實際放假日」（含原始假日與移轉假日）
+                const isActualHoliday = holidays.some(h =>
+                  h.movedDate ? h.movedDate === date : h.date === date
+                );
+
+                // 判斷是否為「補班日」（周末但需補班，視同平日）
+                const isCompensatoryWorkday = holidays.some(h =>
+                  h.workdayDate && h.workdayDate === date
+                );
+
+                if (isActualHoliday) {
+                  // 國定假日出勤 → 例假日加班費率
                   overtimePay += calculateOvertimePay(hourlyRate, hours, 'holiday');
                 } else if (hours > 8) {
                   const overtimeHours = hours - 8;
                   const d = new Date(date);
                   const dayOfWeek = d.getDay();
                   let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
-                  if (dayOfWeek === 6) dayType = 'rest';
-                  else if (dayOfWeek === 0) dayType = 'holiday';
+
+                  if (isCompensatoryWorkday) {
+                    // 補班日（周末補班）→ 視為平日，適用平日加班費
+                    dayType = 'regular';
+                  } else if (dayOfWeek === 6) {
+                    // 周六（休息日）→ 休息日加班費率
+                    dayType = 'rest';
+                  } else if (dayOfWeek === 0) {
+                    // 周日（例假日）→ 例假日加班費率
+                    dayType = 'holiday';
+                  }
                   overtimePay += calculateOvertimePay(hourlyRate, overtimeHours, dayType);
                 }
               }
+
             }
           }
         });
@@ -1660,6 +1747,110 @@ const AdminDashboard: React.FC = () => {
   
   const missingBankEmployees = employees.filter(emp => !emp.bankAccount || emp.bankAccount.trim() === '');
 
+  const birthdayEmployees = employees.filter(emp => {
+    if (!emp.birthDate) return false;
+    // birthDate is 'YYYY-MM-DD'
+    const parts = emp.birthDate.split('-');
+    if (parts.length < 2) return false;
+    const birthMonth = parseInt(parts[1], 10);
+    return birthMonth === (today.getMonth() + 1);
+  });
+
+  const anniversaryEmployees = employees.filter(emp => {
+    if (!emp.onboardDate) return false;
+    const parts = emp.onboardDate.split('-');
+    if (parts.length < 2) return false;
+    const onboardMonth = parseInt(parts[1], 10);
+    const onboardYear = parseInt(parts[0], 10);
+    const years = today.getFullYear() - onboardYear;
+    return onboardMonth === (today.getMonth() + 1) && years > 0;
+  });
+
+  const monthlyWorkedHoursSummary = React.useMemo(() => {
+    const monthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
+    const summary: { [empId: string]: { name: string; daysCount: number; totalHours: number } } = {};
+
+    employees.forEach(emp => {
+      summary[emp.id] = { name: emp.name, daysCount: 0, totalHours: 0 };
+    });
+
+    const attMap: { [empId: string]: { [date: string]: any[] } } = {};
+    attendance.forEach(rec => {
+      if (!rec.employeeId || !rec.date || !rec.date.startsWith(monthStr)) return;
+      if (!attMap[rec.employeeId]) attMap[rec.employeeId] = {};
+      if (!attMap[rec.employeeId][rec.date]) attMap[rec.employeeId][rec.date] = [];
+      attMap[rec.employeeId][rec.date].push(rec);
+    });
+
+    Object.keys(attMap).forEach(empId => {
+      if (!summary[empId]) {
+        const firstRec = Object.values(attMap[empId])[0]?.[0];
+        summary[empId] = { name: firstRec?.empName || empId, daysCount: 0, totalHours: 0 };
+      }
+
+      const empDates = attMap[empId];
+      const dates = Object.keys(empDates);
+      summary[empId].daysCount = dates.length;
+
+      let totalHours = 0;
+      dates.forEach(date => {
+        const dayRecords = empDates[date];
+        const inRec = dayRecords.find(r => r.type === '上班');
+        const outRec = dayRecords.find(r => r.type === '下班');
+
+        if (inRec && outRec && inRec.time && outRec.time) {
+          const parseTime = (timeStr: string) => {
+            const [h, m] = timeStr.split(':').map(Number);
+            return h + m / 60;
+          };
+          const inTime = parseTime(inRec.time);
+          let outTime = parseTime(outRec.time);
+          if (outTime < inTime) outTime += 24;
+
+          if (outTime > inTime) {
+            let hours = outTime - inTime;
+
+            const dateSched = schedules.find((s: any) => s.employeeId === empId && s.date === date);
+            if (dateSched) {
+              const shiftName = dateSched.shift.split(' (')[0];
+              const shiftDef = shifts.find(s => s.name === shiftName);
+              if (shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime) {
+                const bStart = parseTime(shiftDef.breakStartTime);
+                let bEnd = parseTime(shiftDef.breakEndTime);
+                if (bEnd < bStart) bEnd += 24;
+
+                let adjustedBStart = bStart;
+                let adjustedBEnd = bEnd;
+                if (adjustedBStart < inTime && adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
+                  adjustedBStart += 24;
+                  adjustedBEnd += 24;
+                } else if (adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
+                  adjustedBStart += 24;
+                  adjustedBEnd += 24;
+                } else if (adjustedBStart - 24 >= inTime) {
+                  adjustedBStart -= 24;
+                  adjustedBEnd -= 24;
+                }
+
+                const startOverlap = Math.max(inTime, adjustedBStart);
+                const endOverlap = Math.min(outTime, adjustedBEnd);
+                const overlap = Math.max(0, endOverlap - startOverlap);
+                hours = Math.max(0, hours - overlap);
+              }
+            }
+            totalHours += hours;
+          }
+        }
+      });
+      summary[empId].totalHours = Math.round(totalHours * 100) / 100;
+    });
+
+    return Object.keys(summary).map(empId => ({
+      id: empId,
+      ...summary[empId]
+    })).filter(row => row.daysCount > 0); // Only show employees with attendance in this month
+  }, [employees, attendance, schedules, shifts, viewYear, viewMonth]);
+
   const attendanceExceptions = React.useMemo(() => {
     const list: Array<{ empName: string; date: string; type: string; message: string }> = [];
     const todayStr = new Date().toLocaleDateString('sv');
@@ -1754,8 +1945,14 @@ const AdminDashboard: React.FC = () => {
           <button 
             className={`nav-item ${activeTab === 'attendance' ? 'active' : ''}`}
             onClick={() => { setActiveTab('attendance'); setIsSidebarOpen(false); }}
+            style={{ position: 'relative' }}
           >
             📊 出勤紀錄
+            {attendanceExceptions.length > 0 && (
+              <span style={{ position: 'absolute', top: '6px', right: '10px', background: '#ef4444', color: '#fff', borderRadius: '99px', padding: '1px 6px', fontSize: '10px', fontWeight: '800' }}>
+                {attendanceExceptions.length}
+              </span>
+            )}
           </button>
           <button 
             className={`nav-item ${activeTab === 'employees' ? 'active' : ''}`}
@@ -1882,7 +2079,7 @@ const AdminDashboard: React.FC = () => {
           {activeTab === 'attendance' && (
             <>
               {/* 🔔 行政警示面板（移除審核門戶，改至「差勤審核」Tab） */}
-              <div className="alerts-approvals-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+              <div className="alerts-approvals-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
                 {/* 快速跳轉審核卡 */}
                 <div className="card" style={{ padding: '24px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
@@ -1963,6 +2160,53 @@ const AdminDashboard: React.FC = () => {
                       )}
                     </div>
 
+                    {/* 生日提醒 */}
+                    <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(236,72,153,0.06)', border: '1px solid rgba(236,72,153,0.15)', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: '#db2777', marginBottom: '6px' }}>
+                        <span>🎂</span>
+                        <span>本月壽星提醒</span>
+                      </div>
+                      {birthdayEmployees.length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>本月無壽星員工。</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                          {birthdayEmployees.map(emp => {
+                            const parts = emp.birthDate.split('-');
+                            const day = parts.length > 2 ? parseInt(parts[2], 10) + '日' : '';
+                            return (
+                              <span key={emp.id} style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'rgba(236,72,153,0.12)', color: '#db2777', fontSize: '12px', fontWeight: '600' }}>
+                                {emp.name} ({day})
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 到職週年提醒 */}
+                    <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: '#059669', marginBottom: '6px' }}>
+                        <span>🎉</span>
+                        <span>本月到職週年提醒</span>
+                      </div>
+                      {anniversaryEmployees.length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>本月無到職週年員工。</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                          {anniversaryEmployees.map(emp => {
+                            const parts = emp.onboardDate.split('-');
+                            const day = parts.length > 2 ? parseInt(parts[2], 10) + '日' : '';
+                            const years = today.getFullYear() - parseInt(parts[0], 10);
+                            return (
+                              <span key={emp.id} style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'rgba(16,185,129,0.12)', color: '#059669', fontSize: '12px', fontWeight: '600' }}>
+                                {emp.name} ({years}週年 - {day})
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
                     {/* 出勤異常彙整 */}
                     <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.15)', fontSize: '13px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: '#7c3aed', marginBottom: '6px' }}>
@@ -1992,6 +2236,54 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
+              {/* 個人月工時合計報表 */}
+              <div className="card" style={{ marginBottom: '24px' }}>
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>⏱️</span>
+                    <h3 style={{ margin: 0 }}>個人月工時合計報表 ({viewYear}年{viewMonth}月)</h3>
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <button onClick={handlePrevMonth} className="btn-text" style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '12px' }}>◀ 上個月</button>
+                    <button onClick={handleNextMonth} className="btn-text" style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '12px' }}>下個月 ▶</button>
+                  </div>
+                </div>
+                <div className="table-responsive">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>員工姓名</th>
+                        <th>本月出勤天數</th>
+                        <th>本月累計總工時 (已扣除休息時間)</th>
+                        <th>備註</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyWorkedHoursSummary.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>本月無出勤紀錄。</td>
+                        </tr>
+                      ) : (
+                        monthlyWorkedHoursSummary.map(row => (
+                          <tr key={row.id}>
+                            <td data-label="員工姓名" style={{ fontWeight: '600', color: 'var(--text-main)' }}>{row.name}</td>
+                            <td data-label="本月出勤天數">{row.daysCount} 天</td>
+                            <td data-label="本月累計總工時">
+                              <span className="badge" style={{ backgroundColor: 'rgba(79, 70, 229, 0.1)', color: 'var(--primary)', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', fontSize: '13px' }}>
+                                {row.totalHours} 小時
+                              </span>
+                            </td>
+                            <td data-label="備註" style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                              {row.totalHours > 160 ? '💡 已達基本工時基準' : '工時累計中'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
               <div className="card">
                 <div className="card-header">
                   <h3>即時打卡紀錄</h3>
@@ -2684,35 +2976,70 @@ const AdminDashboard: React.FC = () => {
               approvedLeaves.filter(l => l.employeeId === empId && l.leaveType === type)
                 .reduce((s, l) => s + (l.hours || 0) / 8, 0);
 
-            // 通用審核卡元件
-            const ApproveCard = ({ item, type, onApprove, onReject }: { item: any; type: string; onApprove: () => void; onReject: () => void }) => (
-              <div style={{ padding: '14px', borderRadius: '12px', backgroundColor: '#f9fafb', border: '1px solid var(--border)', fontSize: '13px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>{item.empName}</span>
-                  <span style={{ fontSize: '11px', color: '#9ca3af' }}>{new Date(item.timestamp).toLocaleDateString('zh-TW')}</span>
+            // 通用審核卡元件（含特休超額警示）
+            const ApproveCard = ({ item, type, onApprove, onReject }: { item: any; type: string; onApprove: () => void; onReject: () => void }) => {
+              // 特休超額警示計算
+              let annualOverQuotaWarning = '';
+              if (type === 'leave' && item.leaveType === 'annual') {
+                const emp = employees.find(e => e.id === item.employeeId);
+                const annualTotal = emp ? calcAnnual(emp.onboardDate || '') : 0;
+                const alreadyUsed = usedByEmpType(item.employeeId, 'annual');
+                const thisRequestDays = (item.hours || 0) / 8;
+                const remaining = annualTotal - alreadyUsed;
+                if (thisRequestDays > remaining) {
+                  annualOverQuotaWarning = `⚠️ 特休超額警示：員工剩餘 ${remaining.toFixed(1)} 天，本次申請 ${thisRequestDays.toFixed(1)} 天，超出 ${(thisRequestDays - remaining).toFixed(1)} 天！核准後將無薪扣款。`;
+                }
+              }
+              // 其他假別超額檢查
+              let otherOverQuotaWarning = '';
+              if (type === 'leave' && item.leaveType !== 'annual' && LEAVE_QUOTA[item.leaveType]) {
+                const used = usedByEmpType(item.employeeId, item.leaveType);
+                const quota = LEAVE_QUOTA[item.leaveType];
+                const thisRequestDays = (item.hours || 0) / 8;
+                const remaining = quota - used;
+                if (thisRequestDays > remaining) {
+                  otherOverQuotaWarning = `⚠️ 假別超額：${LEAVE_TYPES.find(t => t.value === item.leaveType)?.label || item.leaveType} 剩餘 ${remaining.toFixed(1)} 天，本次申請 ${thisRequestDays.toFixed(1)} 天，超出額度。`;
+                }
+              }
+
+              return (
+                <div style={{ padding: '14px', borderRadius: '12px', backgroundColor: '#f9fafb', border: annualOverQuotaWarning || otherOverQuotaWarning ? '1px solid rgba(217,119,6,0.4)' : '1px solid var(--border)', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>{item.empName}</span>
+                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>{new Date(item.timestamp).toLocaleDateString('zh-TW')}</span>
+                  </div>
+                  {type === 'leave' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                    {LEAVE_TYPES.find(t => t.value === item.leaveType)?.label} ｜ {item.startDate}{item.startDate !== item.endDate ? ` ~ ${item.endDate}` : ''} ({item.periodLabel || '全天'}) ｜ {item.hours}h
+                    {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>事由：{item.reason}</div>}
+                  </div>}
+                  {type === 'overtime' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                    加班日期：{item.date} ｜ {item.hours}小時
+                    {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
+                  </div>}
+                  {type === 'punch' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                    補卡日期：{item.date} ｜ 時間：{item.time} ｜ 類型：{item.type}
+                    {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
+                  </div>}
+                  {type === 'appeal' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                    異常日期：{item.exceptionDate} ｜ 異常類型：{item.exceptionType}
+                    <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>說明：{item.reason}</div>
+                  </div>}
+
+                  {/* 特休/假別超額警示橫幅 */}
+                  {(annualOverQuotaWarning || otherOverQuotaWarning) && (
+                    <div style={{ margin: '6px 0', padding: '8px 10px', borderRadius: '6px', backgroundColor: 'rgba(217,119,6,0.1)', border: '1px solid rgba(217,119,6,0.3)', fontSize: '11px', color: '#92400e', fontWeight: '600', lineHeight: 1.5 }}>
+                      {annualOverQuotaWarning || otherOverQuotaWarning}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={onApprove} style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>✅ 核准</button>
+                    <button onClick={onReject}  style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>❌ 駁回</button>
+                  </div>
                 </div>
-                {type === 'leave' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
-                  {LEAVE_TYPES.find(t => t.value === item.leaveType)?.label} ｜ {item.startDate}{item.startDate !== item.endDate ? ` ~ ${item.endDate}` : ''} ({item.periodLabel || '全天'}) ｜ {item.hours}h
-                  {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>事由：{item.reason}</div>}
-                </div>}
-                {type === 'overtime' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
-                  加班日期：{item.date} ｜ {item.hours}小時
-                  {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
-                </div>}
-                {type === 'punch' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
-                  補卡日期：{item.date} ｜ 時間：{item.time} ｜ 類型：{item.type}
-                  {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
-                </div>}
-                {type === 'appeal' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
-                  異常日期：{item.exceptionDate} ｜ 異常類型：{item.exceptionType}
-                  <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>說明：{item.reason}</div>
-                </div>}
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={onApprove} style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>✅ 核准</button>
-                  <button onClick={onReject}  style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>❌ 駁回</button>
-                </div>
-              </div>
-            );
+              );
+            };
+
 
             const allPending = [
               ...leaves.filter(l => l.status === 'pending').map(l => ({ ...l, _type: 'leave' })),
@@ -2909,7 +3236,7 @@ const AdminDashboard: React.FC = () => {
 
               <div className="settings-grid" style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                 gap: '24px'
               }}>
                 {/* 1. 職位類別設定 */}
@@ -3228,12 +3555,12 @@ const AdminDashboard: React.FC = () => {
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <label style={{ fontSize: '13px', fontWeight: '600' }}>跨夜打卡匹配容許小時 (預設 4 小時)</label>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>跨夜打卡匹配容許分鐘 (預設 240 分鐘)</label>
                       <input 
                         type="number" 
                         required
-                        value={cfgToleranceHours}
-                        onChange={(e) => setCfgToleranceHours(Number(e.target.value))}
+                        value={cfgToleranceMinutes}
+                        onChange={(e) => setCfgToleranceMinutes(Number(e.target.value))}
                         style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
                       />
                     </div>
@@ -3552,6 +3879,64 @@ const AdminDashboard: React.FC = () => {
                   placeholder="分行代號-帳號，例如：822-12345..."
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
                 />
+              </div>
+
+              <div style={{ borderTop: '1px dashed #e5e7eb', marginTop: '8px', paddingTop: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--primary)' }}>👤 個人與聯絡資訊</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>出生日期</label>
+                <input 
+                  type="date" 
+                  value={newBirthDate} 
+                  onChange={(e) => setNewBirthDate(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>通訊地址</label>
+                <input 
+                  type="text" 
+                  value={newAddress} 
+                  onChange={(e) => setNewAddress(e.target.value)} 
+                  placeholder="請輸入通訊地址"
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>聯絡人姓名</label>
+                  <input 
+                    type="text" 
+                    value={newEmergencyContactName} 
+                    onChange={(e) => setNewEmergencyContactName(e.target.value)} 
+                    placeholder="姓名"
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>關係</label>
+                  <input 
+                    type="text" 
+                    value={newEmergencyContactRelation} 
+                    onChange={(e) => setNewEmergencyContactRelation(e.target.value)} 
+                    placeholder="關係"
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>聯絡電話</label>
+                  <input 
+                    type="text" 
+                    value={newEmergencyContactPhone} 
+                    onChange={(e) => setNewEmergencyContactPhone(e.target.value)} 
+                    placeholder="電話"
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -4390,6 +4775,64 @@ const AdminDashboard: React.FC = () => {
                   placeholder="分行代號-帳號，例如：822-12345..."
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
                 />
+              </div>
+
+              <div style={{ borderTop: '1px dashed #e5e7eb', marginTop: '8px', paddingTop: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--primary)' }}>👤 個人與聯絡資訊</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>出生日期</label>
+                <input 
+                  type="date" 
+                  value={editBirthDate} 
+                  onChange={(e) => setEditBirthDate(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>通訊地址</label>
+                <input 
+                  type="text" 
+                  value={editAddress} 
+                  onChange={(e) => setEditAddress(e.target.value)} 
+                  placeholder="請輸入通訊地址"
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>聯絡人姓名</label>
+                  <input 
+                    type="text" 
+                    value={editEmergencyContactName} 
+                    onChange={(e) => setEditEmergencyContactName(e.target.value)} 
+                    placeholder="姓名"
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>關係</label>
+                  <input 
+                    type="text" 
+                    value={editEmergencyContactRelation} 
+                    onChange={(e) => setEditEmergencyContactRelation(e.target.value)} 
+                    placeholder="關係"
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>聯絡電話</label>
+                  <input 
+                    type="text" 
+                    value={editEmergencyContactPhone} 
+                    onChange={(e) => setEditEmergencyContactPhone(e.target.value)} 
+                    placeholder="電話"
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

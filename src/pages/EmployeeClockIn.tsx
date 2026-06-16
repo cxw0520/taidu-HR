@@ -44,7 +44,7 @@ const EmployeeClockIn: React.FC = () => {
   const [clockInRecord, setClockInRecord] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState<string>('');
   const [employeeProfile, setEmployeeProfile] = useState<any>(null);
-  const [toleranceHours, setToleranceHours] = useState<number>(4);
+  const [toleranceMinutes, setToleranceMinutes] = useState<number>(240);
 
   // 主 Tab
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'schedule' | 'payroll' | 'apply'>('clock');
@@ -130,8 +130,12 @@ const EmployeeClockIn: React.FC = () => {
     const unsubscribe = onSnapshot(doc(db, 'settings', 'rules'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        if (data && typeof data.toleranceHours === 'number') {
-          setToleranceHours(data.toleranceHours);
+        if (data) {
+          if (typeof data.toleranceMinutes === 'number') {
+            setToleranceMinutes(data.toleranceMinutes);
+          } else if (typeof data.toleranceHours === 'number') {
+            setToleranceMinutes(data.toleranceHours * 60);
+          }
         }
       }
     });
@@ -287,7 +291,7 @@ const EmployeeClockIn: React.FC = () => {
           const activeSchedules = schedSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
           const { assignClockToWorkDate } = await import('../utils/taiwanHrEngine');
           const now = new Date();
-          const matchResult = assignClockToWorkDate(now, type === 'in', activeSchedules, toleranceHours);
+          const matchResult = assignClockToWorkDate(now, type === 'in', activeSchedules, toleranceMinutes / 60);
           let clockStatus = '正常';
           const matchedSched = activeSchedules.find(s => s.id === matchResult.scheduleId);
           if (matchedSched) {
