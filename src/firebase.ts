@@ -23,6 +23,7 @@ export const auth = getAuth(app);
 // 將資料庫與操作函數公開至全域，以便在瀏覽器控制台執行批量操作
 if (typeof window !== 'undefined') {
   (window as any).db = db;
+  (window as any).auth = auth;
   (window as any).firebaseAdminHelpers = {
     getDocs, collection, query, where, addDoc, doc, updateDoc, deleteDoc
   };
