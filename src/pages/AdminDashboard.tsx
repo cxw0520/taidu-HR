@@ -41,6 +41,16 @@ const AdminDashboard: React.FC = () => {
   const [addSuccess, setAddSuccess] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // 台灣勞基法合規新增欄位 states
+  const [newIdentityNumber, setNewIdentityNumber] = useState('');
+  const [newOnboardDate, setNewOnboardDate] = useState(new Date().toISOString().substring(0, 10));
+  const [newBankAccount, setNewBankAccount] = useState('');
+  const [newMonthlySalary, setNewMonthlySalary] = useState<number>(32000);
+  const [newLaborSub, setNewLaborSub] = useState<number>(31800);
+  const [newNhiSub, setNewNhiSub] = useState<number>(31800);
+  const [newPensionSub, setNewPensionSub] = useState<number>(31800);
+  const [newSupervisorId, setNewSupervisorId] = useState('');
+
   // 從 Firestore 同步職務列表
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, 'settings', 'roles'), (docSnap) => {
@@ -156,7 +166,16 @@ const AdminDashboard: React.FC = () => {
         name: newName,
         email: newEmail,
         role: newRole,
-        status: 'active'
+        status: 'active',
+        identityNumber: newIdentityNumber,
+        onboardDate: newOnboardDate,
+        resignDate: null,
+        bankAccount: newBankAccount,
+        monthlySalary: Number(newMonthlySalary),
+        laborSub: Number(newLaborSub),
+        nhiSub: Number(newNhiSub),
+        pensionSub: Number(newPensionSub),
+        supervisorId: newSupervisorId
       });
 
       // 3. 次要 App 實體登出，防止干涉主要 auth 狀態
@@ -167,6 +186,13 @@ const AdminDashboard: React.FC = () => {
       setNewEmail('');
       setNewPassword('');
       setNewName('');
+      setNewIdentityNumber('');
+      setNewBankAccount('');
+      setNewMonthlySalary(32000);
+      setNewLaborSub(31800);
+      setNewNhiSub(31800);
+      setNewPensionSub(31800);
+      setNewSupervisorId('');
       setTimeout(() => {
         setShowAddModal(false);
         setAddSuccess('');
@@ -188,6 +214,42 @@ const AdminDashboard: React.FC = () => {
   const handleSignOut = () => {
     signOut(auth);
   };
+
+  // 出勤搜尋與篩選 States
+  const [filterDate, setFilterDate] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // 編輯出勤紀錄 States
+  const [showEditAttendanceModal, setShowEditAttendanceModal] = useState(false);
+  const [editAttendanceId, setEditAttendanceId] = useState('');
+  const [editAttName, setEditAttName] = useState('');
+  const [editAttDate, setEditAttDate] = useState('');
+  const [editAttTime, setEditAttTime] = useState('');
+  const [editAttType, setEditAttType] = useState('上班');
+  const [editAttStatus, setEditAttStatus] = useState('正常');
+
+  // 編輯員工 States
+  const [showEditEmployeeModal, setShowEditEmployeeModal] = useState(false);
+  const [editEmployeeId, setEditEmployeeId] = useState('');
+  const [editEmpName, setEditEmpName] = useState('');
+  const [editEmpRole, setEditEmpRole] = useState('工程師');
+  const [editEmpStatus, setEditEmpStatus] = useState('active');
+  const [editIdentityNumber, setEditIdentityNumber] = useState('');
+  const [editOnboardDate, setEditOnboardDate] = useState('');
+  const [editResignDate, setEditResignDate] = useState('');
+  const [editBankAccount, setEditBankAccount] = useState('');
+  const [editMonthlySalary, setEditMonthlySalary] = useState<number>(32000);
+  const [editLaborSub, setEditLaborSub] = useState<number>(31800);
+  const [editNhiSub, setEditNhiSub] = useState<number>(31800);
+  const [editPensionSub, setEditPensionSub] = useState<number>(31800);
+  const [editSupervisorId, setEditSupervisorId] = useState('');
+
+  // 排班搜尋 States
+  const [schedSearch, setSchedSearch] = useState('');
+
+  // 薪資篩選與月份 States
+  const [payMonthFilter, setPayMonthFilter] = useState(new Date().toISOString().substring(0, 7));
+  const [viewPayMonth, setViewPayMonth] = useState('');
 
   // 排班與薪資 State
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -393,15 +455,107 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  // 出勤編輯與更新 Logic
+  const handleOpenEditAttendance = (record: any) => {
+    if (record.id === '1' || record.id === '2') {
+      alert('模擬資料無法編輯。請新增真實資料進行操作。');
+      return;
+    }
+    setEditAttendanceId(record.id);
+    setEditAttName(record.empName);
+    setEditAttDate(record.date);
+    setEditAttTime(record.time);
+    setEditAttType(record.type);
+    setEditAttStatus(record.status);
+    setShowEditAttendanceModal(true);
+  };
+
+  const handleUpdateAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await updateDoc(doc(db, 'attendance', editAttendanceId), {
+        date: editAttDate,
+        time: editAttTime,
+        type: editAttType,
+        status: editAttStatus
+      });
+      setShowEditAttendanceModal(false);
+    } catch (err) {
+      console.error("Failed to update attendance:", err);
+      alert('更新失敗，請檢查權限');
+    }
+  };
+
+  // 員工編輯與刪除 Logic
+  const handleOpenEditEmployee = (emp: any) => {
+    if (emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003') {
+      alert('模擬資料無法編輯。請使用新增帳號建立真實資料進行操作。');
+      return;
+    }
+    setEditEmployeeId(emp.id);
+    setEditEmpName(emp.name || '');
+    setEditEmpRole(emp.role || '工程師');
+    setEditEmpStatus(emp.status || 'active');
+    setEditIdentityNumber(emp.identityNumber || '');
+    setEditOnboardDate(emp.onboardDate || '');
+    setEditResignDate(emp.resignDate || '');
+    setEditBankAccount(emp.bankAccount || '');
+    setEditMonthlySalary(emp.monthlySalary || 32000);
+    setEditLaborSub(emp.laborSub || 31800);
+    setEditNhiSub(emp.nhiSub || 31800);
+    setEditPensionSub(emp.pensionSub || 31800);
+    setEditSupervisorId(emp.supervisorId || '');
+    setShowEditEmployeeModal(true);
+  };
+
+  const handleUpdateEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await updateDoc(doc(db, 'employees', editEmployeeId), {
+        name: editEmpName,
+        role: editEmpRole,
+        status: editEmpStatus,
+        identityNumber: editIdentityNumber,
+        onboardDate: editOnboardDate,
+        resignDate: editResignDate || null,
+        bankAccount: editBankAccount,
+        monthlySalary: Number(editMonthlySalary),
+        laborSub: Number(editLaborSub),
+        nhiSub: Number(editNhiSub),
+        pensionSub: Number(editPensionSub),
+        supervisorId: editSupervisorId
+      });
+      setShowEditEmployeeModal(false);
+    } catch (err) {
+      console.error("Failed to update employee:", err);
+      alert('更新失敗，請檢查權限');
+    }
+  };
+
+  const handleDeleteEmployee = async (id: string) => {
+    if (id === 'EMP001' || id === 'EMP002' || id === 'EMP003') {
+      alert('模擬資料無法刪除。');
+      return;
+    }
+    if (!window.confirm('確定要刪除此員工帳號與資料嗎？此動作將只刪除 Firestore 資料，Auth 帳號需由管理員至 Firebase 控制台管理。')) return;
+    try {
+      await deleteDoc(doc(db, 'employees', id));
+    } catch (err) {
+      console.error("Failed to delete employee:", err);
+      alert('刪除失敗，請檢查權限');
+    }
+  };
+
   const handleGeneratePayroll = async () => {
     setPayError('');
     setPaySuccess('');
     setGeneratingPayroll(true);
 
     try {
-      const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+      const currentMonth = payMonthFilter; // YYYY-MM
       
       let employeesList = employees;
+      // 如果還沒有載入，先從 Firestore 獲取真實名單
       if (employeesList.length === 0 || employeesList[0].id === 'EMP001') {
         const querySnapshot = await getDocs(collection(db, 'employees'));
         employeesList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
@@ -417,13 +571,30 @@ const AdminDashboard: React.FC = () => {
       const attendanceSnapshot = await getDocs(collection(db, 'attendance'));
       const attendanceRecords = attendanceSnapshot.docs.map(doc => doc.data() as any);
 
-      for (const emp of employeesList) {
-        let baseSalary = 32000;
-        if (emp.role && emp.role.includes('工程師')) baseSalary = 45000;
-        else if (emp.role && emp.role.includes('設計師')) baseSalary = 38000;
-        else if (emp.role && emp.role.includes('專案經理')) baseSalary = 50000;
+      // 載入台灣 HR 計算引擎
+      const { calculatePayrollInsurance, calculateOvertimePay } = await import('../utils/taiwanHrEngine');
 
-        // 計算實際加班費
+      for (const emp of employeesList) {
+        const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
+        
+        let monthlySalary = emp.monthlySalary || 32000;
+        let laborSub = emp.laborSub || 31800;
+        let nhiSub = emp.nhiSub || 31800;
+        let pensionSub = emp.pensionSub || 31800;
+        let onboardDateStr = emp.onboardDate || '2025-01-01';
+        let resignDateStr = emp.resignDate || null;
+
+        if (isMock) {
+          if (emp.role && emp.role.includes('工程師')) {
+            monthlySalary = 45000; laborSub = 45800; nhiSub = 45800; pensionSub = 45800;
+          } else if (emp.role && emp.role.includes('設計師')) {
+            monthlySalary = 38000; laborSub = 38200; nhiSub = 38200; pensionSub = 38200;
+          }
+        }
+
+        const hourlyRate = monthlySalary / 240; // 僅以「底薪 / 240」計算時薪基準
+
+        // 篩選該員工當月的打卡
         const empAttendance = attendanceRecords.filter((rec: any) => 
           rec.employeeId === emp.id && 
           rec.date && rec.date.startsWith(currentMonth)
@@ -432,7 +603,7 @@ const AdminDashboard: React.FC = () => {
         const daysWorked = new Set(empAttendance.map((rec: any) => rec.date)).size;
         let overtimePay = 0;
         
-        // 依照每日 上班與下班時間差 計算工時
+        // 依每日工作日 (date) 的上班與下班時間計算加班費
         const attendanceByDate: { [date: string]: any[] } = {};
         empAttendance.forEach((rec: any) => {
           if (!attendanceByDate[rec.date]) attendanceByDate[rec.date] = [];
@@ -449,11 +620,26 @@ const AdminDashboard: React.FC = () => {
               return h + m / 60;
             };
             const inTime = parseTime(inRec.time);
-            const outTime = parseTime(outRec.time);
+            let outTime = parseTime(outRec.time);
+            
+            // 處理跨夜下班時間 (若下班小時小於上班小時，代表跨日)
+            if (outTime < inTime) {
+              outTime += 24;
+            }
+
             if (outTime > inTime) {
               const hours = outTime - inTime;
               if (hours > 8) {
-                overtimePay += Math.floor((hours - 8) * 200); // 假設每小時加班費 200 元
+                const overtimeHours = hours - 8;
+                
+                // 依週六、週日、平日決定加班費類型 (一例一休預設模型)
+                const d = new Date(date);
+                const dayOfWeek = d.getDay();
+                let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
+                if (dayOfWeek === 6) dayType = 'rest'; // 週六休息日
+                else if (dayOfWeek === 0) dayType = 'holiday'; // 週日例假日
+                
+                overtimePay += calculateOvertimePay(hourlyRate, overtimeHours, dayType);
               }
             }
           }
@@ -464,24 +650,43 @@ const AdminDashboard: React.FC = () => {
           overtimePay = Math.floor(Math.random() * 5) * 500;
         }
 
-        const deductions = 1200;
-        const netSalary = baseSalary + overtimePay - deductions;
+        // 計算勞健保費
+        const ins = calculatePayrollInsurance(
+          onboardDateStr,
+          resignDateStr,
+          currentMonth,
+          { laborSub, nhiSub, pensionSub }
+        );
+
+        // 扣款項目：預扣代繳之員工勞健保自付額
+        const deductions = ins.employeeLabor + ins.employeeNhi;
+        const netSalary = monthlySalary + overtimePay - deductions;
         
         const payrollId = `${emp.id}-${currentMonth}`;
         await setDoc(doc(db, 'payroll', payrollId), {
           empName: emp.name,
           employeeId: emp.id,
           month: currentMonth,
-          baseSalary: baseSalary,
+          baseSalary: monthlySalary,
           overtime: overtimePay,
           deductions: deductions,
           netSalary: netSalary,
           status: '待審核',
-          timestamp: new Date().getTime()
+          timestamp: new Date().getTime(),
+          // 儲存詳細申報快照，確保薪資發放歷史版本完整
+          laborDays: ins.laborDays,
+          employeeLabor: ins.employeeLabor,
+          employerLabor: ins.employerLabor,
+          employeeNhi: ins.employeeNhi,
+          employerNhi: ins.employerNhi,
+          employerPension: ins.employerPension,
+          laborSub: laborSub,
+          nhiSub: nhiSub,
+          pensionSub: pensionSub
         });
       }
 
-      setPaySuccess('本月薪資一鍵計算生成完成！');
+      setPaySuccess(`${currentMonth} 薪資一鍵計算生成完成！`);
       setTimeout(() => setPaySuccess(''), 3000);
     } catch (err: any) {
       console.error(err);
@@ -589,6 +794,21 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  // 記憶體過濾變數
+  const filteredAttendance = attendance.filter(record => {
+    const matchesDate = filterDate ? record.date === filterDate : true;
+    const matchesName = searchTerm ? record.empName?.toLowerCase().includes(searchTerm.toLowerCase()) : true;
+    return matchesDate && matchesName;
+  });
+
+  const filteredSchedules = schedules.filter(s => {
+    return s.empName?.toLowerCase().includes(schedSearch.toLowerCase());
+  });
+
+  const filteredPayroll = payroll.filter(p => {
+    return viewPayMonth ? p.month === viewPayMonth : true;
+  });
+
   return (
     <div className="admin-layout">
       {isSidebarOpen && (
@@ -688,6 +908,38 @@ const AdminDashboard: React.FC = () => {
                 <h3>即時打卡紀錄</h3>
                 <button className="btn-primary btn-sm">匯出報表</button>
               </div>
+
+              {/* 搜尋與日期篩選器 */}
+              <div className="filters-row" style={{ display: 'flex', gap: '16px', padding: '16px 24px', backgroundColor: '#f9fafb', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600' }}>搜尋員工：</span>
+                  <input 
+                    type="text" 
+                    placeholder="輸入員工姓名..." 
+                    value={searchTerm} 
+                    onChange={(e) => setSearchTerm(e.target.value)} 
+                    style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
+                  />
+                </div>
+                <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600' }}>日期篩選：</span>
+                  <input 
+                    type="date" 
+                    value={filterDate} 
+                    onChange={(e) => setFilterDate(e.target.value)} 
+                    style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
+                  />
+                  {filterDate && (
+                    <button 
+                      onClick={() => setFilterDate('')} 
+                      style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="table-responsive">
                 <table className="data-table">
                   <thead>
@@ -702,7 +954,7 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {attendance.map(record => (
+                    {filteredAttendance.map(record => (
                       <tr key={record.id}>
                         <td data-label="員工姓名">{record.empName}</td>
                         <td data-label="日期">{record.date}</td>
@@ -732,7 +984,14 @@ const AdminDashboard: React.FC = () => {
                             <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>無定位資料</span>
                           )}
                         </td>
-                        <td data-label="操作">
+                        <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <button 
+                            className="btn-text" 
+                            style={{ color: 'var(--primary)' }}
+                            onClick={() => handleOpenEditAttendance(record)}
+                          >
+                            編輯
+                          </button>
                           <button 
                             className="btn-text" 
                             style={{ color: '#ef4444' }}
@@ -764,6 +1023,7 @@ const AdminDashboard: React.FC = () => {
                       <th>電子信箱</th>
                       <th>職位</th>
                       <th>帳號狀態</th>
+                      <th>操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -778,6 +1038,22 @@ const AdminDashboard: React.FC = () => {
                             {emp.status === 'active' ? '啟用中' : '已停用'}
                           </span>
                         </td>
+                        <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <button 
+                            className="btn-text" 
+                            style={{ color: 'var(--primary)' }} 
+                            onClick={() => handleOpenEditEmployee(emp)}
+                          >
+                            編輯
+                          </button>
+                          <button 
+                            className="btn-text" 
+                            style={{ color: '#ef4444' }} 
+                            onClick={() => handleDeleteEmployee(emp.id)}
+                          >
+                            刪除
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -791,6 +1067,21 @@ const AdminDashboard: React.FC = () => {
                 <h3>本週班表</h3>
                 <button className="btn-primary btn-sm" onClick={() => setShowScheduleModal(true)}>+ 新增排班</button>
               </div>
+
+              {/* 排班搜尋篩選 */}
+              <div className="filters-row" style={{ display: 'flex', gap: '16px', padding: '16px 24px', backgroundColor: '#f9fafb', borderBottom: '1px solid var(--border)' }}>
+                <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600' }}>搜尋員工：</span>
+                  <input 
+                    type="text" 
+                    placeholder="輸入員工姓名..." 
+                    value={schedSearch} 
+                    onChange={(e) => setSchedSearch(e.target.value)} 
+                    style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
+                  />
+                </div>
+              </div>
+
               <div className="table-responsive">
                 <table className="data-table">
                   <thead>
@@ -803,7 +1094,7 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {schedules.map(schedule => (
+                    {filteredSchedules.map(schedule => (
                       <tr key={schedule.id}>
                         <td data-label="員工姓名">{schedule.empName}</td>
                         <td data-label="日期">{schedule.date}</td>
@@ -829,18 +1120,52 @@ const AdminDashboard: React.FC = () => {
           {activeTab === 'payroll' && (
             <div className="card">
               <div className="card-header">
-                <h3>本月薪資結算</h3>
+                <h3>薪資結算管理</h3>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
                   {payError && <span style={{ color: '#ef4444', fontSize: '13px' }}>⚠️ {payError}</span>}
                   {paySuccess && <span style={{ color: '#10b981', fontSize: '13px' }}>✅ {paySuccess}</span>}
+                  
+                  {/* 計算月份選擇器 */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '600' }}>結算月份：</span>
+                    <input 
+                      type="month" 
+                      value={payMonthFilter} 
+                      onChange={(e) => setPayMonthFilter(e.target.value)} 
+                      style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
+                    />
+                  </div>
+
+                  <button className="btn-primary btn-sm" onClick={handleGeneratePayroll} disabled={generatingPayroll}>
+                    {generatingPayroll ? '計算中...' : '一鍵計算該月薪資'}
+                  </button>
                   <button className="btn-primary btn-sm" onClick={() => setShowAddPayrollModal(true)}>
                     + 手動新增薪資單
                   </button>
-                  <button className="btn-primary btn-sm" onClick={handleGeneratePayroll} disabled={generatingPayroll}>
-                    {generatingPayroll ? '計算中...' : '一鍵計算本月薪資'}
-                  </button>
                 </div>
               </div>
+
+              {/* 顯示月份篩選 */}
+              <div className="filters-row" style={{ display: 'flex', gap: '16px', padding: '16px 24px', backgroundColor: '#f9fafb', borderBottom: '1px solid var(--border)' }}>
+                <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600' }}>篩選顯示月份：</span>
+                  <input 
+                    type="month" 
+                    value={viewPayMonth} 
+                    onChange={(e) => setViewPayMonth(e.target.value)} 
+                    style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
+                  />
+                  {viewPayMonth && (
+                    <button 
+                      onClick={() => setViewPayMonth('')} 
+                      style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      顯示全部
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="table-responsive">
                 <table className="data-table">
                   <thead>
@@ -856,7 +1181,7 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {payroll.map(record => (
+                    {filteredPayroll.map(record => (
                       <tr key={record.id}>
                         <td data-label="員工姓名">{record.empName}</td>
                         <td data-label="結算月份">{record.month}</td>
@@ -913,7 +1238,9 @@ const AdminDashboard: React.FC = () => {
             padding: '32px',
             borderRadius: '16px',
             backgroundColor: '#ffffff',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            maxHeight: '90vh',
+            overflowY: 'auto'
           }}>
             <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>新增員工帳號</h3>
             
@@ -1010,6 +1337,108 @@ const AdminDashboard: React.FC = () => {
                   {roles.map(role => (
                     <option key={role} value={role}>{role}</option>
                   ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>身分證字號</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={newIdentityNumber} 
+                  onChange={(e) => setNewIdentityNumber(e.target.value.toUpperCase())} 
+                  placeholder="例如：A123456789"
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>到職日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={newOnboardDate} 
+                  onChange={(e) => setNewOnboardDate(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行帳戶 (轉帳用)</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={newBankAccount} 
+                  onChange={(e) => setNewBankAccount(e.target.value)} 
+                  placeholder="分行代號-帳號，例如：822-12345..."
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>月薪底薪 (經常性薪資 NT$)</label>
+                <input 
+                  type="number" 
+                  required 
+                  value={newMonthlySalary} 
+                  onChange={(e) => {
+                    const sal = Number(e.target.value);
+                    setNewMonthlySalary(sal);
+                    setNewLaborSub(sal);
+                    setNewNhiSub(sal);
+                    setNewPensionSub(sal);
+                  }} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保申報 (NT$)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    value={newLaborSub} 
+                    onChange={(e) => setNewLaborSub(Number(e.target.value))} 
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>健保申報 (NT$)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    value={newNhiSub} 
+                    onChange={(e) => setNewNhiSub(Number(e.target.value))} 
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>勞退提繳工資 (NT$)</label>
+                <input 
+                  type="number" 
+                  required 
+                  value={newPensionSub} 
+                  onChange={(e) => setNewPensionSub(Number(e.target.value))} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>直屬主管</label>
+                <select 
+                  value={newSupervisorId} 
+                  onChange={(e) => setNewSupervisorId(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="">-- 無主管 --</option>
+                  {employees
+                    .filter(emp => emp.id !== 'EMP001' && emp.id !== 'EMP002' && emp.id !== 'EMP003') // 只對接真實員工
+                    .map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>
+                    ))}
                 </select>
               </div>
 
@@ -1431,6 +1860,305 @@ const AdminDashboard: React.FC = () => {
                 <button 
                   type="button" 
                   onClick={() => setShowEditPayrollModal(false)}
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit" 
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  儲存修改
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 編輯出勤紀錄彈窗 */}
+      {showEditAttendanceModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="glass-card" style={{
+            width: '90%',
+            maxWidth: '450px',
+            padding: '32px',
+            borderRadius: '16px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>編輯出勤紀錄</h3>
+            <form onSubmit={handleUpdateAttendance} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>員工姓名</label>
+                <input 
+                  type="text" 
+                  disabled 
+                  value={editAttName} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>打卡日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={editAttDate} 
+                  onChange={(e) => setEditAttDate(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>打卡時間</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={editAttTime} 
+                  onChange={(e) => setEditAttTime(e.target.value)} 
+                  placeholder="例如：09:00"
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>打卡類型</label>
+                <select 
+                  value={editAttType} 
+                  onChange={(e) => setEditAttType(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="上班">上班</option>
+                  <option value="下班">下班</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>狀態</label>
+                <select 
+                  value={editAttStatus} 
+                  onChange={(e) => setEditAttStatus(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="正常">正常</option>
+                  <option value="遲到">遲到</option>
+                  <option value="早退">早退</option>
+                  <option value="補打卡">補打卡</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowEditAttendanceModal(false)}
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit" 
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  儲存修改
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 編輯員工彈窗 */}
+      {showEditEmployeeModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="glass-card" style={{
+            width: '90%',
+            maxWidth: '450px',
+            padding: '32px',
+            borderRadius: '16px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>編輯員工資訊</h3>
+            <form onSubmit={handleUpdateEmployee} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>姓名</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={editEmpName} 
+                  onChange={(e) => setEditEmpName(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>職位</label>
+                <select 
+                  value={editEmpRole} 
+                  onChange={(e) => setEditEmpRole(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  {roles.map(role => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>帳號狀態</label>
+                <select 
+                  value={editEmpStatus} 
+                  onChange={(e) => setEditEmpStatus(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="active">啟用中</option>
+                  <option value="inactive">已停用</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>身分證字號</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={editIdentityNumber} 
+                  onChange={(e) => setEditIdentityNumber(e.target.value.toUpperCase())} 
+                  placeholder="例如：A123456789"
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>到職日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={editOnboardDate} 
+                  onChange={(e) => setEditOnboardDate(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>離職日期 (未離職留空)</label>
+                <input 
+                  type="date" 
+                  value={editResignDate} 
+                  onChange={(e) => setEditResignDate(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行帳戶 (轉帳用)</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={editBankAccount} 
+                  onChange={(e) => setEditBankAccount(e.target.value)} 
+                  placeholder="分行代號-帳號，例如：822-12345..."
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>月薪底薪 (經常性薪資 NT$)</label>
+                <input 
+                  type="number" 
+                  required 
+                  value={editMonthlySalary} 
+                  onChange={(e) => {
+                    const sal = Number(e.target.value);
+                    setEditMonthlySalary(sal);
+                    setEditLaborSub(sal);
+                    setEditNhiSub(sal);
+                    setEditPensionSub(sal);
+                  }} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保申報 (NT$)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    value={editLaborSub} 
+                    onChange={(e) => setEditLaborSub(Number(e.target.value))} 
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>健保申報 (NT$)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    value={editNhiSub} 
+                    onChange={(e) => setEditNhiSub(Number(e.target.value))} 
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>勞退提繳工資 (NT$)</label>
+                <input 
+                  type="number" 
+                  required 
+                  value={editPensionSub} 
+                  onChange={(e) => setEditPensionSub(Number(e.target.value))} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>直屬主管</label>
+                <select 
+                  value={editSupervisorId} 
+                  onChange={(e) => setEditSupervisorId(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="">-- 無主管 --</option>
+                  {employees
+                    .filter(emp => emp.id !== 'EMP001' && emp.id !== 'EMP002' && emp.id !== 'EMP003' && emp.id !== editEmployeeId)
+                    .map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>
+                    ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowEditEmployeeModal(false)}
                   style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
                 >
                   取消

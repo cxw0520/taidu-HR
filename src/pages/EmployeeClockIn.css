@@ -153,6 +153,145 @@
   margin-bottom: 24px;
 }
 
+/* 員工前台 Tabs 樣式 */
+.employee-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 30px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 16px;
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.tab-btn:hover {
+  background: rgba(79, 70, 229, 0.05);
+  color: var(--primary);
+}
+
+.tab-btn.active {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+}
+
+.tab-panel {
+  text-align: center;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.tab-panel-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.today-records-section {
+  margin-top: 32px;
+  border-top: 1px dashed var(--border);
+  padding-top: 24px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+/* 前台迷你表格樣式 */
+.mini-table-container {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.mini-table th,
+.mini-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mini-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.mini-table tr:last-child td {
+  border-bottom: none;
+}
+
+.map-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.map-link:hover {
+  text-decoration: underline;
+}
+
+.empty-message {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 32px 0;
+}
+
+.badge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.badge-success {
+  background-color: #D1FAE5;
+  color: #065F46;
+}
+
+.badge-warning {
+  background-color: #FEF3C7;
+  color: #92400E;
+}
+
+.badge-neutral {
+  background-color: #F3F4F6;
+  color: #374151;
+}
+
+.badge-primary {
+  background-color: #DBEAFE;
+  color: #1E40AF;
+}
+
 .login-footer {
   margin-top: 30px;
   font-size: 13px;
@@ -175,9 +314,14 @@
   100% { opacity: 0.6; }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (max-width: 480px) {
   .clock-card {
-    padding: 30px 20px;
+    padding: 30px 16px;
     width: 95%;
   }
   .current-time {
@@ -185,5 +329,15 @@
   }
   .action-buttons {
     flex-direction: column;
+  }
+  .employee-tabs {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .tab-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 12px;
+    font-size: 13px;
   }
 }
