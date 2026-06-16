@@ -1403,7 +1403,7 @@ const AdminDashboard: React.FC = () => {
         const salaryType = emp.salaryType || 'monthly';
         const nhiDependents = emp.nhiDependents || 0;
         const mealAllowance = emp.mealAllowance || 0;
-        const attendanceBonus = emp.attendanceBonus || 0;
+        let attendanceBonus = emp.attendanceBonus || 0;
         const otherAllowance = emp.otherAllowance || 0;
 
         if (isMock) {
@@ -1421,6 +1421,43 @@ const AdminDashboard: React.FC = () => {
           rec.employeeId === emp.id && 
           rec.date && rec.date.startsWith(monthStr)
         );
+
+        // ── 計算遲到次數與遲到累計分鐘數以判定全勤 ──
+        let lateCount = 0;
+        let lateMinutesTotal = 0;
+
+        empAttendance.forEach((rec: any) => {
+          if (rec.type === '上班' && rec.time && rec.date) {
+            const dateSched = schedules.find((s: any) => s.employeeId === emp.id && s.date === rec.date);
+            if (dateSched) {
+              let startTimeStr = dateSched.startTime || '';
+              if (!startTimeStr) {
+                const timeMatch = (dateSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+                if (timeMatch) {
+                  startTimeStr = timeMatch[1];
+                }
+              }
+              if (startTimeStr) {
+                const [sh, sm] = startTimeStr.split(':').map(Number);
+                const [ah, am] = rec.time.split(':').map(Number);
+                const expectedInMins = sh * 60 + sm;
+                const actualInMins = ah * 60 + am;
+                
+                // 晚於排班時間超過 1 分鐘算遲到
+                if (actualInMins > expectedInMins + 1) {
+                  lateCount++;
+                  lateMinutesTotal += (actualInMins - expectedInMins);
+                }
+              }
+            }
+          }
+        });
+
+        let attendanceBonusNote = '';
+        if (lateMinutesTotal > 30 || lateCount > 3) {
+          attendanceBonus = 0;
+          attendanceBonusNote = `遲到超限不發放全勤 (遲到 ${lateCount} 次，累計 ${lateMinutesTotal} 分鐘)`;
+        }
 
         const daysWorked = new Set(empAttendance.map((rec: any) => rec.date)).size;
         
@@ -1589,6 +1626,7 @@ const AdminDashboard: React.FC = () => {
           baseSalary: calculatedBaseSalary,
           mealAllowance,
           attendanceBonus,
+          attendanceBonusNote,
           otherAllowance,
           overtime: overtimePay,
           leaveDeduction,

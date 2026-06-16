@@ -1149,13 +1149,20 @@ const EmployeeClockIn: React.FC = () => {
               {[
                 { label: '💼 底薪',     value: selectedSlip.baseSalary,       color: '#111' },
                 { label: '🍱 伙食津貼', value: selectedSlip.mealAllowance || 0,   color: '#059669' },
-                { label: '🏆 全勤獎金', value: selectedSlip.attendanceBonus || 0, color: '#059669' },
+                { label: '🏆 全勤獎金', value: selectedSlip.attendanceBonus || 0, color: '#059669', note: selectedSlip.attendanceBonusNote },
                 { label: '📦 其他津貼', value: selectedSlip.otherAllowance || 0,  color: '#059669' },
                 { label: '⏰ 加班費',   value: selectedSlip.overtime || 0,        color: '#2563eb' },
               ].map(item => (
-                <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', backgroundColor: '#f9fafb' }}>
-                  <span style={{ fontSize: '13px', color: '#374151' }}>{item.label}</span>
-                  <span style={{ fontSize: '13px', fontWeight: '700', color: item.color }}>NT$ {item.value?.toLocaleString()}</span>
+                <div key={item.label}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', backgroundColor: '#f9fafb' }}>
+                    <span style={{ fontSize: '13px', color: '#374151' }}>{item.label}</span>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: item.color }}>NT$ {item.value?.toLocaleString()}</span>
+                  </div>
+                  {item.note && (
+                    <div style={{ fontSize: '11px', color: '#dc2626', padding: '4px 12px 2px', fontWeight: '600' }}>
+                      ⚠️ {item.note}
+                    </div>
+                  )}
                 </div>
               ))}
               <div style={{ borderTop: '1px dashed #e5e7eb', margin: '4px 0' }} />
