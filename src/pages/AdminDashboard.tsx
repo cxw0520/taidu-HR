@@ -32,6 +32,39 @@ const LEAVE_TYPES = [
   { value: 'prenatal', label: '產前假' },
 ];
 
+// 勞保級距 (月薪正職) - 最低 29,500，最高 45,800
+const LABOR_GRADES_MONTHLY = [29500, 30300, 31800, 33300, 34800, 36300, 38200, 40100, 42000, 43900, 45800];
+
+// 勞保級距 (時薪工讀) - 最低 11,100，最高 45,800
+const LABOR_GRADES_HOURLY = [
+  11100, 12540, 13500, 15840, 16500, 17280, 17820, 19080, 20008, 21009, 22000, 23100, 24000, 25200, 26400, 27600, 28800,
+  29500, 30300, 31800, 33300, 34800, 36300, 38200, 40100, 42000, 43900, 45800
+];
+
+// 勞退級距 (月薪正職) - 最低 29,500，最高 150,000
+const PENSION_GRADES_MONTHLY = [
+  29500, 30300, 31800, 33300, 34800, 36300, 38200, 40100, 42000, 43900, 45800, 48200, 50600, 53000, 55400, 57800, 60800, 63800, 66800, 69800, 72800, 76500, 80200, 83900, 87600, 92100, 96600, 101100, 105600, 110100, 115500, 120900, 126300, 131700, 137100, 142500, 147900, 150000
+];
+
+// 勞退級距 (時薪工讀) - 最低 11,100，最高 150,000
+const PENSION_GRADES_HOURLY = [
+  11100, 12540, 13500, 15840, 16500, 17280, 17820, 19080, 20008, 21009, 22000, 23100, 24000, 25200, 26400, 27600, 28800,
+  29500, 30300, 31800, 33300, 34800, 36300, 38200, 40100, 42000, 43900, 45800, 48200, 50600, 53000, 55400, 57800, 60800, 63800, 66800, 69800, 72800, 76500, 80200, 83900, 87600, 92100, 96600, 101100, 105600, 110100, 115500, 120900, 126300, 131700, 137100, 142500, 147900, 150000
+];
+
+// 健保級距 (月薪正職 與 時薪工讀 皆以法規最低 29,500 開始)
+const NHI_GRADES = [
+  29500, 30300, 31800, 33300, 34800, 36300, 38200, 40100, 42000, 43900, 45800, 48200, 50600, 53000, 55400, 57800, 60800, 63800, 66800, 69800, 72800, 76500, 80200, 83900, 87600, 92100, 96600, 101100, 105600, 110100, 115500, 120900, 126300, 131700, 137100, 142500, 147900, 150000
+];
+
+// 尋找大於或等於薪資的第一個級距，若超出則回傳最後一個（最大）級距
+const findClosestGrade = (salary: number, grades: number[]): number => {
+  if (grades.length === 0) return 0;
+  const match = grades.find(g => g >= salary);
+  return match !== undefined ? match : grades[grades.length - 1];
+};
+
+
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'attendance' | 'employees' | 'schedules' | 'payroll' | 'leaves' | 'settings'>('attendance');
   const [attendance, setAttendance] = useState<any[]>([]);
@@ -94,9 +127,9 @@ const AdminDashboard: React.FC = () => {
   const [newOnboardDate, setNewOnboardDate] = useState(new Date().toISOString().substring(0, 10));
   const [newBankAccount, setNewBankAccount] = useState('');
   const [newMonthlySalary, setNewMonthlySalary] = useState<number>(32000);
-  const [newLaborSub, setNewLaborSub] = useState<number>(31800);
-  const [newNhiSub, setNewNhiSub] = useState<number>(31800);
-  const [newPensionSub, setNewPensionSub] = useState<number>(31800);
+  const [newLaborSub, setNewLaborSub] = useState<number>(33300);
+  const [newNhiSub, setNewNhiSub] = useState<number>(33300);
+  const [newPensionSub, setNewPensionSub] = useState<number>(33300);
   const [newSupervisorId, setNewSupervisorId] = useState('');
   const [newSalaryType, setNewSalaryType] = useState<'monthly' | 'hourly'>('monthly');
   const [newNhiDependents, setNewNhiDependents] = useState<number>(0);
@@ -263,9 +296,9 @@ const AdminDashboard: React.FC = () => {
       setNewIdentityNumber('');
       setNewBankAccount('');
       setNewMonthlySalary(32000);
-      setNewLaborSub(31800);
-      setNewNhiSub(31800);
-      setNewPensionSub(31800);
+      setNewLaborSub(33300);
+      setNewNhiSub(33300);
+      setNewPensionSub(33300);
       setNewSupervisorId('');
       setNewSalaryType('monthly');
       setNewNhiDependents(0);
@@ -1282,12 +1315,16 @@ const AdminDashboard: React.FC = () => {
     setEditOnboardDate(emp.onboardDate || '');
     setEditResignDate(emp.resignDate || '');
     setEditBankAccount(emp.bankAccount || '');
+    const salType = emp.salaryType || 'monthly';
+    const laborGrades = salType === 'monthly' ? LABOR_GRADES_MONTHLY : LABOR_GRADES_HOURLY;
+    const pensionGrades = salType === 'monthly' ? PENSION_GRADES_MONTHLY : PENSION_GRADES_HOURLY;
+
+    setEditSalaryType(salType);
     setEditMonthlySalary(emp.monthlySalary || 32000);
-    setEditLaborSub(emp.laborSub || 31800);
-    setEditNhiSub(emp.nhiSub || 31800);
-    setEditPensionSub(emp.pensionSub || 31800);
+    setEditLaborSub(emp.laborSub === 0 ? 0 : findClosestGrade(emp.laborSub || 31800, laborGrades));
+    setEditNhiSub(emp.nhiSub === 0 ? 0 : findClosestGrade(emp.nhiSub || 31800, NHI_GRADES));
+    setEditPensionSub(emp.pensionSub === 0 ? 0 : findClosestGrade(emp.pensionSub || 31800, pensionGrades));
     setEditSupervisorId(emp.supervisorId || '');
-    setEditSalaryType(emp.salaryType || 'monthly');
     setEditNhiDependents(emp.nhiDependents || 0);
     setEditMealAllowance(emp.mealAllowance || 0);
     setEditAttendanceBonus(emp.attendanceBonus || 0);
@@ -1385,9 +1422,9 @@ const AdminDashboard: React.FC = () => {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
         
         let monthlySalary = emp.monthlySalary || 32000;
-        let laborSub = emp.laborSub || 31800;
-        let nhiSub = emp.nhiSub || 31800;
-        let pensionSub = emp.pensionSub || 31800;
+        let laborSub = emp.laborSub === 0 ? 0 : (emp.laborSub || 31800);
+        let nhiSub = emp.nhiSub === 0 ? 0 : (emp.nhiSub || 31800);
+        let pensionSub = emp.pensionSub === 0 ? 0 : (emp.pensionSub || 31800);
         let onboardDateStr = emp.onboardDate || '2025-01-01';
         let resignDateStr = emp.resignDate || null;
         const salaryType = emp.salaryType || 'monthly';
@@ -4206,65 +4243,84 @@ const AdminDashboard: React.FC = () => {
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>計薪類型</label>
                 <select 
                   value={newSalaryType} 
-                  onChange={(e) => setNewSalaryType(e.target.value as 'monthly' | 'hourly')}
+                  onChange={(e) => {
+                    const type = e.target.value as 'monthly' | 'hourly';
+                    setNewSalaryType(type);
+                    const laborGrades = type === 'monthly' ? LABOR_GRADES_MONTHLY : LABOR_GRADES_HOURLY;
+                    const pensionGrades = type === 'monthly' ? PENSION_GRADES_MONTHLY : PENSION_GRADES_HOURLY;
+                    setNewLaborSub(findClosestGrade(newMonthlySalary, laborGrades));
+                    setNewNhiSub(findClosestGrade(newMonthlySalary, NHI_GRADES));
+                    setNewPensionSub(findClosestGrade(newMonthlySalary, pensionGrades));
+                  }}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
                   <option value="monthly">月薪排班</option>
                   <option value="hourly">時薪工讀</option>
                 </select>
               </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>
-                  {newSalaryType === 'hourly' ? '時薪底薪 (經常性薪資 NT$)' : '月薪底薪 (經常性薪資 NT$)'}
-                </label>
-                <input 
-                  type="number" 
-                  required 
-                  value={newMonthlySalary} 
-                  onChange={(e) => {
-                    const sal = Number(e.target.value);
-                    setNewMonthlySalary(sal);
-                    setNewLaborSub(sal);
-                    setNewNhiSub(sal);
-                    setNewPensionSub(sal);
-                  }} 
-                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                />
+ 
+               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                 <label style={{ fontSize: '13px', fontWeight: '600' }}>
+                   {newSalaryType === 'hourly' ? '時薪底薪 (經常性薪資 NT$)' : '月薪底薪 (經常性薪資 NT$)'}
+                 </label>
+                 <input 
+                   type="number" 
+                   required 
+                   value={newMonthlySalary} 
+                   onChange={(e) => {
+                     const sal = Number(e.target.value);
+                     setNewMonthlySalary(sal);
+                     const laborGrades = newSalaryType === 'monthly' ? LABOR_GRADES_MONTHLY : LABOR_GRADES_HOURLY;
+                     const pensionGrades = newSalaryType === 'monthly' ? PENSION_GRADES_MONTHLY : PENSION_GRADES_HOURLY;
+                     setNewLaborSub(findClosestGrade(sal, laborGrades));
+                     setNewNhiSub(findClosestGrade(sal, NHI_GRADES));
+                     setNewPensionSub(findClosestGrade(sal, pensionGrades));
+                   }} 
+                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                 />
               </div>
 
               <div style={{ display: 'flex', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保申報 (NT$)</label>
-                  <input 
-                    type="number" 
-                    required 
+                  <select 
                     value={newLaborSub} 
                     onChange={(e) => setNewLaborSub(Number(e.target.value))} 
-                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                  />
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                  >
+                    <option value={0}>不投保</option>
+                    {(newSalaryType === 'monthly' ? LABOR_GRADES_MONTHLY : LABOR_GRADES_HOURLY).map((grade) => (
+                      <option key={grade} value={grade}>{grade.toLocaleString()}</option>
+                    ))}
+                  </select>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>健保申報 (NT$)</label>
-                  <input 
-                    type="number" 
-                    required 
+                  <select 
                     value={newNhiSub} 
                     onChange={(e) => setNewNhiSub(Number(e.target.value))} 
-                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                  />
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                  >
+                    <option value={0}>不投保</option>
+                    {NHI_GRADES.map((grade) => (
+                      <option key={grade} value={grade}>{grade.toLocaleString()}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>勞退提繳工資 (NT$)</label>
-                <input 
-                  type="number" 
-                  required 
+                <select 
                   value={newPensionSub} 
                   onChange={(e) => setNewPensionSub(Number(e.target.value))} 
-                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                />
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value={0}>不投保</option>
+                  {(newSalaryType === 'monthly' ? PENSION_GRADES_MONTHLY : PENSION_GRADES_HOURLY).map((grade) => (
+                    <option key={grade} value={grade}>{grade.toLocaleString()}</option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -5344,7 +5400,15 @@ const AdminDashboard: React.FC = () => {
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>計薪類型</label>
                 <select 
                   value={editSalaryType} 
-                  onChange={(e) => setEditSalaryType(e.target.value as 'monthly' | 'hourly')}
+                  onChange={(e) => {
+                    const type = e.target.value as 'monthly' | 'hourly';
+                    setEditSalaryType(type);
+                    const laborGrades = type === 'monthly' ? LABOR_GRADES_MONTHLY : LABOR_GRADES_HOURLY;
+                    const pensionGrades = type === 'monthly' ? PENSION_GRADES_MONTHLY : PENSION_GRADES_HOURLY;
+                    setEditLaborSub(findClosestGrade(editMonthlySalary, laborGrades));
+                    setEditNhiSub(findClosestGrade(editMonthlySalary, NHI_GRADES));
+                    setEditPensionSub(findClosestGrade(editMonthlySalary, pensionGrades));
+                  }}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
                   <option value="monthly">月薪排班</option>
@@ -5363,9 +5427,11 @@ const AdminDashboard: React.FC = () => {
                   onChange={(e) => {
                     const sal = Number(e.target.value);
                     setEditMonthlySalary(sal);
-                    setEditLaborSub(sal);
-                    setEditNhiSub(sal);
-                    setEditPensionSub(sal);
+                    const laborGrades = editSalaryType === 'monthly' ? LABOR_GRADES_MONTHLY : LABOR_GRADES_HOURLY;
+                    const pensionGrades = editSalaryType === 'monthly' ? PENSION_GRADES_MONTHLY : PENSION_GRADES_HOURLY;
+                    setEditLaborSub(findClosestGrade(sal, laborGrades));
+                    setEditNhiSub(findClosestGrade(sal, NHI_GRADES));
+                    setEditPensionSub(findClosestGrade(sal, pensionGrades));
                   }} 
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
                 />
@@ -5374,35 +5440,44 @@ const AdminDashboard: React.FC = () => {
               <div style={{ display: 'flex', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保申報 (NT$)</label>
-                  <input 
-                    type="number" 
-                    required 
+                  <select 
                     value={editLaborSub} 
                     onChange={(e) => setEditLaborSub(Number(e.target.value))} 
-                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                  />
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                  >
+                    <option value={0}>不投保</option>
+                    {(editSalaryType === 'monthly' ? LABOR_GRADES_MONTHLY : LABOR_GRADES_HOURLY).map((grade) => (
+                      <option key={grade} value={grade}>{grade.toLocaleString()}</option>
+                    ))}
+                  </select>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>健保申報 (NT$)</label>
-                  <input 
-                    type="number" 
-                    required 
+                  <select 
                     value={editNhiSub} 
                     onChange={(e) => setEditNhiSub(Number(e.target.value))} 
-                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                  />
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                  >
+                    <option value={0}>不投保</option>
+                    {NHI_GRADES.map((grade) => (
+                      <option key={grade} value={grade}>{grade.toLocaleString()}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>勞退提繳工資 (NT$)</label>
-                <input 
-                  type="number" 
-                  required 
+                <select 
                   value={editPensionSub} 
                   onChange={(e) => setEditPensionSub(Number(e.target.value))} 
-                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                />
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value={0}>不投保</option>
+                  {(editSalaryType === 'monthly' ? PENSION_GRADES_MONTHLY : PENSION_GRADES_HOURLY).map((grade) => (
+                    <option key={grade} value={grade}>{grade.toLocaleString()}</option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
