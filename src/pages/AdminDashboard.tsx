@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { getApps, initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { db, auth } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, updateDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, doc, setDoc, deleteDoc, updateDoc, getDocs } from 'firebase/firestore';
 import './AdminDashboard.css';
 
 const secondaryAppConfig = {
@@ -74,6 +74,8 @@ const AdminDashboard: React.FC = () => {
   const [newShiftName, setNewShiftName] = useState('');
   const [newShiftStart, setNewShiftStart] = useState('09:00');
   const [newShiftEnd, setNewShiftEnd] = useState('18:00');
+  const [newShiftBreakStart, setNewShiftBreakStart] = useState('');
+  const [newShiftBreakEnd, setNewShiftBreakEnd] = useState('');
 
   // 保費費率與規則輸入 Form states
   const [cfgLaborRate, setCfgLaborRate] = useState(0.12);
@@ -536,9 +538,17 @@ const AdminDashboard: React.FC = () => {
       return;
     }
     
-    const updatedShifts = [...shifts, { name, startTime: start, endTime: end }];
+    const updatedShifts = [...shifts, { 
+      name, 
+      startTime: start, 
+      endTime: end,
+      breakStartTime: newShiftBreakStart.trim(),
+      breakEndTime: newShiftBreakEnd.trim()
+    }];
     setShifts(updatedShifts);
     setNewShiftName('');
+    setNewShiftBreakStart('');
+    setNewShiftBreakEnd('');
     try {
       await setDoc(doc(db, 'settings', 'shifts'), { list: updatedShifts });
     } catch (err) {
@@ -699,6 +709,15 @@ const AdminDashboard: React.FC = () => {
     });
     return () => { unsubLeaves(); unsubOT(); };
   }, []);
+
+  // 薪資自動計算：當出勤、請假、排班、員工資料或月份改變時，自動於背景計算薪資
+  useEffect(() => {
+    if (employees.length === 0) return;
+    const delayDebounce = setTimeout(() => {
+      runPayrollCalculation(payMonthFilter, true);
+    }, 1500);
+    return () => clearTimeout(delayDebounce);
+  }, [attendance, leaves, schedules, employees, payMonthFilter]);
 
   const handleDeleteAttendance = async (id: string) => {
     if (id === '1' || id === '2') {
@@ -1147,14 +1166,14 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleGeneratePayroll = async () => {
-    setPayError('');
-    setPaySuccess('');
-    setGeneratingPayroll(true);
+  const runPayrollCalculation = async (monthStr: string, silent: boolean = false) => {
+    if (!silent) {
+      setPayError('');
+      setPaySuccess('');
+      setGeneratingPayroll(true);
+    }
 
     try {
-      const currentMonth = payMonthFilter; // YYYY-MM
-      
       let employeesList = employees;
       if (employeesList.length === 0 || employeesList[0].id === 'EMP001') {
         const querySnapshot = await getDocs(collection(db, 'employees'));
@@ -1162,8 +1181,7 @@ const AdminDashboard: React.FC = () => {
       }
 
       if (employeesList.length === 0) {
-        setPayError('目前沒有已註冊的員工，請先新增員工帳號。');
-        setGeneratingPayroll(false);
+        if (!silent) setPayError('目前沒有已註冊的員工，請先新增員工帳號。');
         return;
       }
 
@@ -1203,7 +1221,7 @@ const AdminDashboard: React.FC = () => {
 
         const empAttendance = attendanceRecords.filter((rec: any) => 
           rec.employeeId === emp.id && 
-          rec.date && rec.date.startsWith(currentMonth)
+          rec.date && rec.date.startsWith(monthStr)
         );
 
         const daysWorked = new Set(empAttendance.map((rec: any) => rec.date)).size;
@@ -1213,6 +1231,7 @@ const AdminDashboard: React.FC = () => {
         
         const attendanceByDate: { [date: string]: any[] } = {};
         empAttendance.forEach((rec: any) => {
+          if (!rec.date) return;
           if (!attendanceByDate[rec.date]) attendanceByDate[rec.date] = [];
           attendanceByDate[rec.date].push(rec);
         });
@@ -1231,7 +1250,38 @@ const AdminDashboard: React.FC = () => {
             if (outTime < inTime) outTime += 24;
 
             if (outTime > inTime) {
-              const hours = outTime - inTime;
+              let hours = outTime - inTime;
+              
+              // 扣除排班中空/休息時間
+              const dateSched = schedules.find((s: any) => s.employeeId === emp.id && s.date === date);
+              if (dateSched) {
+                const shiftName = dateSched.shift.split(' (')[0];
+                const shiftDef = shifts.find(s => s.name === shiftName);
+                if (shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime) {
+                  const bStart = parseTime(shiftDef.breakStartTime);
+                  let bEnd = parseTime(shiftDef.breakEndTime);
+                  if (bEnd < bStart) bEnd += 24;
+                  
+                  let adjustedBStart = bStart;
+                  let adjustedBEnd = bEnd;
+                  if (adjustedBStart < inTime && adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
+                    adjustedBStart += 24;
+                    adjustedBEnd += 24;
+                  } else if (adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
+                    adjustedBStart += 24;
+                    adjustedBEnd += 24;
+                  } else if (adjustedBStart - 24 >= inTime) {
+                    adjustedBStart -= 24;
+                    adjustedBEnd -= 24;
+                  }
+                  
+                  const startOverlap = Math.max(inTime, adjustedBStart);
+                  const endOverlap = Math.min(outTime, adjustedBEnd);
+                  const overlap = Math.max(0, endOverlap - startOverlap);
+                  hours = Math.max(0, hours - overlap);
+                }
+              }
+
               if (isHourly) {
                 const isOriginalHoliday = holidays.some(h => h.date === date);
                 if (isOriginalHoliday) {
@@ -1262,7 +1312,7 @@ const AdminDashboard: React.FC = () => {
         });
 
         if (daysWorked === 0) {
-          overtimePay = Math.floor(Math.random() * 5) * 500;
+          overtimePay = 0;
         }
 
         const dailyRate = monthlySalary / 30;
@@ -1275,8 +1325,8 @@ const AdminDashboard: React.FC = () => {
           const lvEnd = lv.endDate || '';
           if (!lvStart || !lvEnd) continue;
           
-          const monthStartStr = `${currentMonth}-01`;
-          const [yr, mo] = currentMonth.split('-').map(Number);
+          const monthStartStr = `${monthStr}-01`;
+          const [yr, mo] = monthStr.split('-').map(Number);
           const monthEndDate = new Date(yr, mo, 0);
           const monthEndStr = monthEndDate.toLocaleDateString('sv');
           
@@ -1295,22 +1345,23 @@ const AdminDashboard: React.FC = () => {
         const ins = calculatePayrollInsurance(
           onboardDateStr,
           resignDateStr,
-          currentMonth,
+          monthStr,
           { laborSub, nhiSub, pensionSub, nhiDependents },
           insuranceRates
         );
 
-        // 扣款 = 勞保自付 + 健保自付 + 請假扣薪
         const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction;
-        // 實發薪資 = 底薪 + 津貼 + 加班費 - 扣款
         const totalAllowance = mealAllowance + attendanceBonus + otherAllowance;
         const netSalary = calculatedBaseSalary + totalAllowance + overtimePay - deductions;
         
-        const payrollId = `${emp.id}-${currentMonth}`;
+        const payrollId = `${emp.id}-${monthStr}`;
+        const existingRecord = payroll.find(p => p.id === payrollId);
+        const isPublished = existingRecord ? (existingRecord.isPublished ?? false) : false;
+
         await setDoc(doc(db, 'payroll', payrollId), {
           empName: emp.name,
           employeeId: emp.id,
-          month: currentMonth,
+          month: monthStr,
           baseSalary: calculatedBaseSalary,
           mealAllowance,
           attendanceBonus,
@@ -1321,7 +1372,8 @@ const AdminDashboard: React.FC = () => {
           sickLeaveDays,
           deductions,
           netSalary,
-          status: '待審核',
+          status: existingRecord ? existingRecord.status : '待審核',
+          isPublished,
           timestamp: new Date().getTime(),
           laborDays: ins.laborDays,
           employeeLabor: ins.employeeLabor,
@@ -1336,13 +1388,119 @@ const AdminDashboard: React.FC = () => {
         });
       }
 
-      setPaySuccess(`${currentMonth} 薪資一鍵計算生成完成！`);
-      setTimeout(() => setPaySuccess(''), 3000);
+      if (!silent) {
+        setPaySuccess(`${monthStr} 薪資計算生成完成！`);
+        setTimeout(() => setPaySuccess(''), 3000);
+      }
     } catch (err: any) {
       console.error(err);
-      setPayError(err.message || '計算失敗');
+      if (!silent) setPayError(err.message || '計算失敗');
     } finally {
-      setGeneratingPayroll(false);
+      if (!silent) setGeneratingPayroll(false);
+    }
+  };
+
+  const handleGeneratePayroll = async () => {
+    await runPayrollCalculation(payMonthFilter, false);
+  };
+
+  const handlePublishSchedules = async () => {
+    const monthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
+    if (!window.confirm(`確定要發佈 ${monthStr} 的所有排班表給員工檢視嗎？`)) return;
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'schedules'))
+      );
+      const batchDocs = querySnapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.date && data.date.startsWith(monthStr);
+      });
+      
+      let count = 0;
+      for (const d of batchDocs) {
+        await updateDoc(doc(db, 'schedules', d.id), { isPublished: true });
+        count++;
+      }
+      alert(`已成功發佈 ${count} 筆排班紀錄！`);
+    } catch (err) {
+      console.error(err);
+      alert('發佈失敗，請稍後再試');
+    }
+  };
+
+  const handleUnpublishSchedules = async () => {
+    const monthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
+    if (!window.confirm(`確定要取消發佈 ${monthStr} 的所有排班表嗎？員工將無法查看。`)) return;
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'schedules'))
+      );
+      const batchDocs = querySnapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.date && data.date.startsWith(monthStr);
+      });
+      
+      let count = 0;
+      for (const d of batchDocs) {
+        await updateDoc(doc(db, 'schedules', d.id), { isPublished: false });
+        count++;
+      }
+      alert(`已取消發佈 ${count} 筆排班紀錄！`);
+    } catch (err) {
+      console.error(err);
+      alert('操作失敗，請稍後再試');
+    }
+  };
+
+  const handlePublishPayroll = async () => {
+    const monthStr = payMonthFilter;
+    if (!window.confirm(`確定要發佈 ${monthStr} 的所有薪資單給員工檢視嗎？`)) return;
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'payroll'), where('month', '==', monthStr))
+      );
+      let count = 0;
+      for (const d of querySnapshot.docs) {
+        await updateDoc(doc(db, 'payroll', d.id), { isPublished: true });
+        count++;
+      }
+      alert(`已成功發佈 ${count} 筆薪資單！`);
+    } catch (err) {
+      console.error(err);
+      alert('發佈失敗，請稍後再試');
+    }
+  };
+
+  const handleUnpublishPayroll = async () => {
+    const monthStr = payMonthFilter;
+    if (!window.confirm(`確定要取消發佈 ${monthStr} 的所有薪資單嗎？`)) return;
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'payroll'), where('month', '==', monthStr))
+      );
+      let count = 0;
+      for (const d of querySnapshot.docs) {
+        await updateDoc(doc(db, 'payroll', d.id), { isPublished: false });
+        count++;
+      }
+      alert(`已取消發佈 ${count} 筆薪資單！`);
+    } catch (err) {
+      console.error(err);
+      alert('操作失敗，請稍後再試');
+    }
+  };
+
+  const handleTogglePayrollPublish = async (id: string, currentPublished: boolean) => {
+    if (id === '1' || id === '2') {
+      alert('模擬資料無法直接修改。請使用真實資料進行操作。');
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'payroll', id), {
+        isPublished: !currentPublished
+      });
+    } catch (err) {
+      console.error("Failed to toggle payroll publication:", err);
     }
   };
 
@@ -1430,6 +1588,7 @@ const AdminDashboard: React.FC = () => {
         deductions: Number(addPayDeductions),
         netSalary: net,
         status: '待審核',
+        isPublished: false,
         timestamp: new Date().getTime()
       });
 
@@ -1470,6 +1629,70 @@ const AdminDashboard: React.FC = () => {
   });
   
   const missingBankEmployees = employees.filter(emp => !emp.bankAccount || emp.bankAccount.trim() === '');
+
+  const attendanceExceptions = React.useMemo(() => {
+    const list: Array<{ empName: string; date: string; type: string; message: string }> = [];
+    const todayStr = new Date().toLocaleDateString('sv');
+    
+    // Group attendance by employeeId and date
+    const attMap: { [empId: string]: { [date: string]: any[] } } = {};
+    attendance.forEach(rec => {
+      if (!rec.employeeId || !rec.date) return;
+      if (!attMap[rec.employeeId]) attMap[rec.employeeId] = {};
+      if (!attMap[rec.employeeId][rec.date]) attMap[rec.employeeId][rec.date] = [];
+      attMap[rec.employeeId][rec.date].push(rec);
+    });
+    
+    // Group leaves by employeeId
+    const leavesMap: { [empId: string]: any[] } = {};
+    leaves.forEach(l => {
+      if (!l.employeeId) return;
+      if (!leavesMap[l.employeeId]) leavesMap[l.employeeId] = [];
+      leavesMap[l.employeeId].push(l);
+    });
+    
+    // Scan schedules
+    schedules.filter(s => s.date < todayStr).forEach(sched => {
+      const empId = sched.employeeId;
+      const date = sched.date;
+      const empLeaves = leavesMap[empId] || [];
+      
+      const hasLeave = empLeaves.some(l => l.startDate <= date && l.endDate >= date && l.status === 'approved');
+      if (hasLeave) return;
+      
+      const dayAtt = (attMap[empId] && attMap[empId][date]) || [];
+      const inRec = dayAtt.find(r => r.type === '上班');
+      const outRec = dayAtt.find(r => r.type === '下班');
+      
+      if (!inRec && !outRec) {
+        list.push({
+          empName: sched.empName,
+          date,
+          type: '曠職',
+          message: `無打卡紀錄 (${sched.shift})`
+        });
+      } else if (!inRec || !outRec) {
+        list.push({
+          empName: sched.empName,
+          date,
+          type: '缺卡',
+          message: `${inRec ? '缺下班卡' : '缺上班卡'} (${sched.shift})`
+        });
+      } else {
+        const statuses = dayAtt.map(r => r.status).filter(s => s && s !== '正常');
+        if (statuses.length > 0) {
+          list.push({
+            empName: sched.empName,
+            date,
+            type: statuses.join('、'),
+            message: `上班 ${inRec.time || '-'} / 下班 ${outRec.time || '-'} (班表: ${sched.shift})`
+          });
+        }
+      }
+    });
+    
+    return list.sort((a, b) => b.date.localeCompare(a.date));
+  }, [schedules, attendance, leaves]);
 
   // 取得當月天數與首日星期
   const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
@@ -1739,6 +1962,33 @@ const AdminDashboard: React.FC = () => {
                         </div>
                       )}
                     </div>
+
+                    {/* 出勤異常彙整 */}
+                    <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.15)', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: '#7c3aed', marginBottom: '6px' }}>
+                        <span>⚠️</span>
+                        <span>全員出勤異常彙整 (近期)</span>
+                        {attendanceExceptions.length > 0 && (
+                          <span style={{ marginLeft: 'auto', background: 'rgba(168,85,247,0.15)', color: '#7c3aed', borderRadius: '99px', padding: '1px 8px', fontSize: '11px' }}>
+                            {attendanceExceptions.length} 筆
+                          </span>
+                        )}
+                      </div>
+                      {attendanceExceptions.length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>近期無出勤異常紀錄。</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '120px', overflowY: 'auto', marginTop: '4px' }}>
+                          {attendanceExceptions.slice(0, 20).map((ex, i) => (
+                            <div key={i} style={{ fontSize: '12px', color: '#4b5563', display: 'flex', gap: '6px' }}>
+                              <span style={{ color: '#9ca3af', minWidth: '82px' }}>{ex.date}</span>
+                              <span style={{ color: '#6b21a8', fontWeight: '600', minWidth: '32px' }}>{ex.empName}</span>
+                              <span style={{ color: '#7c3aed', fontWeight: '700', minWidth: '36px' }}>[{ex.type}]</span>
+                              <span>{ex.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1944,6 +2194,12 @@ const AdminDashboard: React.FC = () => {
                       setSchedDate(`${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`);
                       setShowScheduleModal(true);
                     }}>+ 新增排班</button>
+                    <button className="btn-primary btn-sm" onClick={handlePublishSchedules} style={{ backgroundColor: '#10b981' }}>
+                      📢 發佈本月班表
+                    </button>
+                    <button className="btn-primary btn-sm" onClick={handleUnpublishSchedules} style={{ backgroundColor: '#ef4444' }}>
+                      🔕 取消發佈本月班表
+                    </button>
                   </div>
                 </div>
 
@@ -2315,10 +2571,16 @@ const AdminDashboard: React.FC = () => {
                   </div>
 
                   <button className="btn-primary btn-sm" onClick={handleGeneratePayroll} disabled={generatingPayroll}>
-                    {generatingPayroll ? '計算中...' : '一鍵計算該月薪資'}
+                    {generatingPayroll ? '計算中...' : '重新計算薪資'}
                   </button>
                   <button className="btn-primary btn-sm" onClick={() => setShowAddPayrollModal(true)}>
                     + 手動新增薪資單
+                  </button>
+                  <button className="btn-primary btn-sm" onClick={handlePublishPayroll} style={{ backgroundColor: '#10b981' }}>
+                    📢 發佈當月薪資
+                  </button>
+                  <button className="btn-primary btn-sm" onClick={handleUnpublishPayroll} style={{ backgroundColor: '#ef4444' }}>
+                    🔕 取消發佈當月薪資
                   </button>
                   <button className="btn-primary btn-sm" onClick={handleExportPayrollCSV}>
                     📥 匯出當月薪資總表
@@ -2358,6 +2620,7 @@ const AdminDashboard: React.FC = () => {
                       <th>扣款 (勞健保)</th>
                       <th>實發薪資</th>
                       <th>狀態</th>
+                      <th>發佈狀態</th>
                       <th>操作</th>
                     </tr>
                   </thead>
@@ -2377,7 +2640,15 @@ const AdminDashboard: React.FC = () => {
                             {record.status}
                           </span>
                         </td>
+                        <td data-label="發佈狀態">
+                          <span className={`badge badge-${record.isPublished ? 'success' : 'neutral'}`} style={{ backgroundColor: record.isPublished ? 'rgba(16,185,129,0.1)' : 'rgba(156,163,175,0.1)', color: record.isPublished ? '#10b981' : '#6b7280' }}>
+                            {record.isPublished ? '已發佈' : '未發佈'}
+                          </span>
+                        </td>
                         <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <button className="btn-text" style={{ color: record.isPublished ? '#6b7280' : '#10b981' }} onClick={() => handleTogglePayrollPublish(record.id, record.isPublished)}>
+                            {record.isPublished ? '取消發佈' : '發佈'}
+                          </button>
                           <button className="btn-text" onClick={() => handleTogglePayrollStatus(record.id, record.status)}>
                             切換狀態
                           </button>
@@ -2503,7 +2774,10 @@ const AdminDashboard: React.FC = () => {
                       }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           <span style={{ fontWeight: '600', fontSize: '14px' }}>{s.name}</span>
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{s.startTime} - {s.endTime}</span>
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                            時間：{s.startTime} - {s.endTime}
+                            {s.breakStartTime && s.breakEndTime && ` (休息：${s.breakStartTime} - ${s.breakEndTime})`}
+                          </span>
                         </div>
                         <button 
                           onClick={() => handleDeleteShift(s.name)}
@@ -2576,6 +2850,45 @@ const AdminDashboard: React.FC = () => {
                           backgroundColor: '#fff'
                         }}
                       />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>中空休息：</span>
+                      <input 
+                        type="time" 
+                        value={newShiftBreakStart}
+                        onChange={(e) => setNewShiftBreakStart(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          fontSize: '12px',
+                          backgroundColor: '#fff'
+                        }}
+                      />
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>至</span>
+                      <input 
+                        type="time" 
+                        value={newShiftBreakEnd}
+                        onChange={(e) => setNewShiftBreakEnd(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          fontSize: '12px',
+                          backgroundColor: '#fff'
+                        }}
+                      />
+                      {(newShiftBreakStart || newShiftBreakEnd) && (
+                        <button 
+                          type="button" 
+                          onClick={() => { setNewShiftBreakStart(''); setNewShiftBreakEnd(''); }}
+                          style={{ fontSize: '11px', color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }}
+                        >
+                          清除
+                        </button>
+                      )}
                     </div>
                     <button 
                       type="submit"

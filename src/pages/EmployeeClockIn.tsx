@@ -40,6 +40,7 @@ const EmployeeClockIn: React.FC = () => {
 
   // Clock tab data
   const [todayRecords, setTodayRecords] = useState<any[]>([]);
+  const [allAttendance, setAllAttendance] = useState<any[]>([]);
   const [mySchedules, setMySchedules] = useState<any[]>([]);
 
   // Payroll tab data + slip modal
@@ -112,6 +113,7 @@ const EmployeeClockIn: React.FC = () => {
     const qAttendance = query(collection(db, 'attendance'), where('employeeId', '==', user.uid));
     const unsubAttendance = onSnapshot(qAttendance, (snapshot) => {
       const records = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAllAttendance(records);
       const todayOnly = records
         .filter((r: any) => r.date === todayStr)
         .sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -122,16 +124,18 @@ const EmployeeClockIn: React.FC = () => {
     const qSchedules = query(collection(db, 'schedules'), where('employeeId', '==', user.uid));
     const unsubSchedules = onSnapshot(qSchedules, (snapshot) => {
       const records = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      records.sort((a: any, b: any) => b.date.localeCompare(a.date));
-      setMySchedules(records);
+      const publishedOnly = records.filter((r: any) => r.isPublished === true);
+      publishedOnly.sort((a: any, b: any) => b.date.localeCompare(a.date));
+      setMySchedules(publishedOnly);
     });
 
     // 3. My payroll
     const qPayroll = query(collection(db, 'payroll'), where('employeeId', '==', user.uid));
     const unsubPayroll = onSnapshot(qPayroll, (snapshot) => {
       const records = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      records.sort((a: any, b: any) => b.month.localeCompare(a.month));
-      setMyPayroll(records);
+      const publishedOnly = records.filter((r: any) => r.isPublished === true);
+      publishedOnly.sort((a: any, b: any) => b.month.localeCompare(a.month));
+      setMyPayroll(publishedOnly);
     });
 
     // 4. My leaves
@@ -181,6 +185,37 @@ const EmployeeClockIn: React.FC = () => {
           const { assignClockToWorkDate } = await import('../utils/taiwanHrEngine');
           const now = new Date();
           const matchResult = assignClockToWorkDate(now, type === 'in', activeSchedules, toleranceHours);
+          let clockStatus = '正常';
+          const matchedSched = activeSchedules.find(s => s.id === matchResult.scheduleId);
+          if (matchedSched) {
+            const workDate = matchedSched.date || matchedSched.workDate || '';
+            const timeMatch = (matchedSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+            if (timeMatch && workDate) {
+              const schedStartStr = timeMatch[1];
+              const schedEndStr = timeMatch[2];
+              const [schedStartH, schedStartM] = schedStartStr.split(':').map(Number);
+              const [schedEndH, schedEndM] = schedEndStr.split(':').map(Number);
+              
+              const [yr, mo, dy] = workDate.split('-').map(Number);
+              const expectedIn = new Date(yr, mo - 1, dy, schedStartH, schedStartM);
+              let expectedOut = new Date(yr, mo - 1, dy, schedEndH, schedEndM);
+              if (expectedOut < expectedIn) {
+                expectedOut.setDate(expectedOut.getDate() + 1);
+              }
+              
+              const actualTime = new Date();
+              if (type === 'in') {
+                if (actualTime.getTime() > expectedIn.getTime() + 60000) {
+                  clockStatus = '遲到';
+                }
+              } else {
+                if (actualTime.getTime() < expectedOut.getTime() - 60000) {
+                  clockStatus = '早退';
+                }
+              }
+            }
+          }
+
           await addDoc(collection(db, 'attendance'), {
             empName: employeeName || auth.currentUser?.email || '未名員工',
             employeeId: auth.currentUser?.uid || 'UNKNOWN',
@@ -189,7 +224,7 @@ const EmployeeClockIn: React.FC = () => {
             type: actionStr,
             coords: { lat: latitude, lng: longitude },
             timestamp: serverTimestamp(),
-            status: '正常',
+            status: clockStatus,
             scheduleId: matchResult.scheduleId || ''
           });
           setClockInRecord(`工作日 ${matchResult.workDate} 於 ${timeStr} 完成${actionStr}打卡並同步至資料庫`);
@@ -282,6 +317,57 @@ const EmployeeClockIn: React.FC = () => {
     return { label: '⏳ 待審核', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' };
   };
 
+  const employeeExceptions = React.useMemo(() => {
+    if (!user) return [];
+    const list: Array<{ date: string; message: string; type: string }> = [];
+    const todayStr = new Date().toLocaleDateString('sv');
+    
+    const attByDate: { [date: string]: any[] } = {};
+    allAttendance.forEach((rec: any) => {
+      if (!rec.date) return;
+      if (!attByDate[rec.date]) attByDate[rec.date] = [];
+      attByDate[rec.date].push(rec);
+    });
+    
+    const pastSchedules = mySchedules.filter(s => s.date < todayStr);
+    
+    pastSchedules.forEach((sched: any) => {
+      const date = sched.date;
+      const dayAtt = attByDate[date] || [];
+      
+      const hasLeave = myLeaves.some(l => l.startDate <= date && l.endDate >= date && l.status === 'approved');
+      if (hasLeave) return;
+      
+      const inRec = dayAtt.find(r => r.type === '上班');
+      const outRec = dayAtt.find(r => r.type === '下班');
+      
+      if (!inRec && !outRec) {
+        list.push({
+          date,
+          type: '曠職',
+          message: `當天有班表 (${sched.shift})，但無任何打卡紀錄。`
+        });
+      } else if (!inRec || !outRec) {
+        list.push({
+          date,
+          type: '缺卡',
+          message: `打卡不完整：${inRec ? '已打上班但缺下班卡' : '已打下班但缺上班卡'}。`
+        });
+      } else {
+        const statuses = dayAtt.map(r => r.status).filter(s => s && s !== '正常');
+        if (statuses.length > 0) {
+          list.push({
+            date,
+            type: statuses.join('、'),
+            message: `打卡時間：上班 ${inRec.time || '-'} / 下班 ${outRec.time || '-'} (班表: ${sched.shift})。`
+          });
+        }
+      }
+    });
+    
+    return list.sort((a, b) => b.date.localeCompare(a.date));
+  }, [allAttendance, mySchedules, myLeaves, user]);
+
   const leaveTypeLabel = (type: string) => LEAVE_TYPES.find(l => l.value === type)?.label || type;
 
   const formattedTime = currentTime.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -304,6 +390,28 @@ const EmployeeClockIn: React.FC = () => {
         {/* ── 打卡 Tab ── */}
         {activeSubTab === 'clock' && (
           <div className="tab-panel">
+            {employeeExceptions.length > 0 && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '12px',
+                padding: '12px 16px',
+                marginBottom: '16px',
+                textAlign: 'left'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#dc2626', fontWeight: '700', fontSize: '13px', marginBottom: '6px' }}>
+                  <span>⚠️ 出勤異常通知 ({employeeExceptions.length} 筆)</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '100px', overflowY: 'auto' }}>
+                  {employeeExceptions.map((ex, i) => (
+                    <div key={i} style={{ fontSize: '11px', color: '#4b5563' }}>
+                      <strong>{ex.date}</strong>: <span style={{ color: '#dc2626', fontWeight: '600' }}>[{ex.type}]</span> {ex.message}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="time-display">
               <div className="current-time">{formattedTime}</div>
               <div className="current-date">{formattedDate}</div>

@@ -219,19 +219,36 @@ export function calculateAnniversaryLeavePeriods(onboardDateStr: string, current
 export function assignClockToWorkDate(
   clockTime: Date,
   isClockIn: boolean,
-  activeSchedules: Array<{ id: string; workDate: string; startTime: string; endTime: string }>,
+  activeSchedules: Array<{ id: string; workDate?: string; date?: string; startTime?: string; endTime?: string; shift?: string }>,
   toleranceHours: number = 4
 ) {
   let matchedSchedule = null;
   let minDiff = Infinity;
+  let matchedWorkDate = '';
 
   for (const sched of activeSchedules) {
-    const [startH, startM] = sched.startTime.split(':').map(Number);
-    const [endH, endM] = sched.endTime.split(':').map(Number);
+    const workDate = sched.workDate || sched.date || '';
+    if (!workDate) continue;
+
+    let startTime = sched.startTime || '';
+    let endTime = sched.endTime || '';
+
+    if (!startTime || !endTime) {
+      const timeMatch = (sched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+      if (timeMatch) {
+        startTime = timeMatch[1];
+        endTime = timeMatch[2];
+      }
+    }
+
+    if (!startTime || !endTime) continue;
+
+    const [startH, startM] = startTime.split(':').map(Number);
+    const [endH, endM] = endTime.split(':').map(Number);
     
-    const schedYear = Number(sched.workDate.substring(0, 4));
-    const schedMonth = Number(sched.workDate.substring(5, 7));
-    const schedDay = Number(sched.workDate.substring(8, 10));
+    const schedYear = Number(workDate.substring(0, 4));
+    const schedMonth = Number(workDate.substring(5, 7));
+    const schedDay = Number(workDate.substring(8, 10));
 
     // 預計上班打卡時間
     const expectedIn = new Date(schedYear, schedMonth - 1, schedDay, startH, startM);
@@ -248,13 +265,14 @@ export function assignClockToWorkDate(
     if (diff < minDiff) {
       minDiff = diff;
       matchedSchedule = sched;
+      matchedWorkDate = workDate;
     }
   }
 
   // 如果最接近的預計時間在容許誤差內，則關聯至該班表
   if (matchedSchedule && minDiff < toleranceHours * 60 * 60 * 1000) {
     return {
-      workDate: matchedSchedule.workDate,
+      workDate: matchedWorkDate,
       scheduleId: matchedSchedule.id
     };
   }
