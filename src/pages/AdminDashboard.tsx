@@ -33,7 +33,7 @@ const LEAVE_TYPES = [
 ];
 
 const AdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'attendance' | 'employees' | 'schedules' | 'payroll' | 'settings'>('attendance');
+  const [activeTab, setActiveTab] = useState<'attendance' | 'employees' | 'schedules' | 'payroll' | 'leaves' | 'settings'>('attendance');
   const [attendance, setAttendance] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -343,6 +343,10 @@ const AdminDashboard: React.FC = () => {
   // 請假與加班審核 State
   const [leaves, setLeaves] = useState<any[]>([]);
   const [overtimeReqs, setOvertimeReqs] = useState<any[]>([]);
+  const [punchCorrections, setPunchCorrections] = useState<any[]>([]);
+  const [attendanceAppeals, setAttendanceAppeals] = useState<any[]>([]);
+  // 差勤審核分頁子 Tab
+  const [leavesSubTab, setLeavesSubTab] = useState<'pending' | 'history' | 'balance'>('pending');
 
   // 排班彈窗與 Form states
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -707,7 +711,19 @@ const AdminDashboard: React.FC = () => {
       records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       setOvertimeReqs(records);
     });
-    return () => { unsubLeaves(); unsubOT(); };
+    const qPC = query(collection(db, 'punch_corrections'));
+    const unsubPC = onSnapshot(qPC, (snap) => {
+      const records = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+      records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      setPunchCorrections(records);
+    });
+    const qAA = query(collection(db, 'attendance_appeals'));
+    const unsubAA = onSnapshot(qAA, (snap) => {
+      const records = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+      records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      setAttendanceAppeals(records);
+    });
+    return () => { unsubLeaves(); unsubOT(); unsubPC(); unsubAA(); };
   }, []);
 
   // 薪資自動計算：當出勤、請假、排班、員工資料或月份改變時，自動於背景計算薪資
@@ -816,6 +832,22 @@ const AdminDashboard: React.FC = () => {
   };
   const handleRejectOT = async (id: string) => {
     try { await updateDoc(doc(db, 'overtime_requests', id), { status: 'rejected' }); }
+    catch (err) { console.error(err); alert('操作失敗'); }
+  };
+  const handleApprovePC = async (id: string) => {
+    try { await updateDoc(doc(db, 'punch_corrections', id), { status: 'approved' }); }
+    catch (err) { console.error(err); alert('操作失敗'); }
+  };
+  const handleRejectPC = async (id: string) => {
+    try { await updateDoc(doc(db, 'punch_corrections', id), { status: 'rejected' }); }
+    catch (err) { console.error(err); alert('操作失敗'); }
+  };
+  const handleApproveAppeal = async (id: string) => {
+    try { await updateDoc(doc(db, 'attendance_appeals', id), { status: 'approved' }); }
+    catch (err) { console.error(err); alert('操作失敗'); }
+  };
+  const handleRejectAppeal = async (id: string) => {
+    try { await updateDoc(doc(db, 'attendance_appeals', id), { status: 'rejected' }); }
     catch (err) { console.error(err); alert('操作失敗'); }
   };
 
@@ -1615,8 +1647,6 @@ const AdminDashboard: React.FC = () => {
   });
 
   // 簽核與行政警示計算
-  const pendingLeaves = leaves.filter(l => l.status === 'pending');
-  const pendingOvertimes = overtimeReqs.filter(o => o.status === 'pending');
   
   const today = new Date();
   const probationEmployees = employees.filter(emp => {
@@ -1746,6 +1776,18 @@ const AdminDashboard: React.FC = () => {
             💰 薪資計算
           </button>
           <button 
+            className={`nav-item ${activeTab === 'leaves' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('leaves'); setIsSidebarOpen(false); }}
+            style={{ position: 'relative' }}
+          >
+            ✅ 差勤審核
+            {(leaves.filter(l => l.status === 'pending').length + overtimeReqs.filter(o => o.status === 'pending').length + punchCorrections.filter(p => p.status === 'pending').length + attendanceAppeals.filter(a => a.status === 'pending').length) > 0 && (
+              <span style={{ position: 'absolute', top: '6px', right: '10px', background: '#ef4444', color: '#fff', borderRadius: '99px', padding: '1px 6px', fontSize: '10px', fontWeight: '800' }}>
+                {leaves.filter(l => l.status === 'pending').length + overtimeReqs.filter(o => o.status === 'pending').length + punchCorrections.filter(p => p.status === 'pending').length + attendanceAppeals.filter(a => a.status === 'pending').length}
+              </span>
+            )}
+          </button>
+          <button 
             className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
             onClick={() => { setActiveTab('settings'); setIsSidebarOpen(false); }}
             style={{ marginTop: 'auto' }}
@@ -1785,6 +1827,7 @@ const AdminDashboard: React.FC = () => {
             {activeTab === 'employees' && '員工列表'}
             {activeTab === 'schedules' && '排班系統'}
             {activeTab === 'payroll' && '薪資計算'}
+            {activeTab === 'leaves' && '差勤審核管理'}
             {activeTab === 'settings' && '系統設定'}
           </h1>
           <div className="admin-user" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1838,79 +1881,36 @@ const AdminDashboard: React.FC = () => {
         <div className="admin-content fade-in">
           {activeTab === 'attendance' && (
             <>
-              {/* 🔔 行政與簽核警示面板 */}
+              {/* 🔔 行政警示面板（移除審核門戶，改至「差勤審核」Tab） */}
               <div className="alerts-approvals-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
-                {/* 簽核區 */}
+                {/* 快速跳轉審核卡 */}
                 <div className="card" style={{ padding: '24px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                     <span style={{ fontSize: '20px' }}>📋</span>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>待處理差勤簽核</h3>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>差勤待審核概覽</h3>
                   </div>
-                  {pendingLeaves.length === 0 && pendingOvertimes.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                      🎉 暫無待處理的假單或加班申請！
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
-                      {/* 請假單列表 */}
-                      {pendingLeaves.map(lv => (
-                        <div key={lv.id} style={{ padding: '12px', borderRadius: '10px', backgroundColor: '#f9fafb', border: '1px solid var(--border)', fontSize: '13px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                            <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>{lv.empName} (請假)</span>
-                            <span style={{ color: 'var(--primary)', fontWeight: '600' }}>
-                              {LEAVE_TYPES.find(t => t.value === lv.leaveType)?.label || lv.leaveType}
-                            </span>
-                          </div>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '8px' }}>
-                            時間：{lv.startDate} ~ {lv.endDate} ({lv.hours}小時)
-                            {lv.reason && <div style={{ marginTop: '2px', fontStyle: 'italic' }}>事由：{lv.reason}</div>}
-                          </div>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                              onClick={() => handleApproveLeave(lv.id)}
-                              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                            >
-                              核准
-                            </button>
-                            <button
-                              onClick={() => handleRejectLeave(lv.id)}
-                              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                            >
-                              駁回
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      
-                      {/* 加班單列表 */}
-                      {pendingOvertimes.map(ot => (
-                        <div key={ot.id} style={{ padding: '12px', borderRadius: '10px', backgroundColor: '#f9fafb', border: '1px solid var(--border)', fontSize: '13px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                            <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>{ot.empName} (加班)</span>
-                            <span style={{ color: '#059669', fontWeight: '600' }}>{ot.hours}小時</span>
-                          </div>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '8px' }}>
-                            日期：{ot.date}
-                            {ot.reason && <div style={{ marginTop: '2px', fontStyle: 'italic' }}>原因：{ot.reason}</div>}
-                          </div>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                              onClick={() => handleApproveOT(ot.id)}
-                              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                            >
-                              核准
-                            </button>
-                            <button
-                              onClick={() => handleRejectOT(ot.id)}
-                              style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                            >
-                              駁回
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {[
+                      { label: '請假申請', count: leaves.filter(l => l.status === 'pending').length, color: '#4f46e5', icon: '📄' },
+                      { label: '加班申請', count: overtimeReqs.filter(o => o.status === 'pending').length, color: '#059669', icon: '⏰' },
+                      { label: '補卡申請', count: punchCorrections.filter(p => p.status === 'pending').length, color: '#d97706', icon: '🔧' },
+                      { label: '打卡異常申訴', count: attendanceAppeals.filter(a => a.status === 'pending').length, color: '#7c3aed', icon: '📣' },
+                    ].map(item => (
+                      <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: '10px', backgroundColor: `rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '124,58,237'},0.06)`, border: `1px solid rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '124,58,237'},0.15)` }}>
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>{item.icon} {item.label}</span>
+                        {item.count > 0
+                          ? <span style={{ background: '#ef4444', color: '#fff', borderRadius: '99px', padding: '2px 10px', fontSize: '12px', fontWeight: '800' }}>{item.count} 待審</span>
+                          : <span style={{ color: '#10b981', fontSize: '12px', fontWeight: '600' }}>✅ 無待審</span>
+                        }
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setActiveTab('leaves')}
+                      style={{ marginTop: '8px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
+                    >
+                      前往差勤審核 →
+                    </button>
+                  </div>
                 </div>
 
                 {/* 行政警示區 */}
@@ -2666,6 +2666,229 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* ═══════════════ 差勤審核分頁 ═══════════════ */}
+          {activeTab === 'leaves' && (() => {
+            // 勞基法特別休假計算
+            const calcAnnual = (onboardDate: string): number => {
+              if (!onboardDate) return 0;
+              const months = (Date.now() - new Date(onboardDate).getTime()) / (1000 * 60 * 60 * 24 * 30.44);
+              if (months < 6) return 0; if (months < 12) return 3;
+              const y = months / 12;
+              if (y < 2) return 7; if (y < 3) return 10; if (y < 5) return 14; if (y < 10) return 15;
+              return Math.min(30, 15 + Math.floor(y - 10));
+            };
+            const LEAVE_QUOTA: Record<string, number> = { sick: 30, personal: 14, menstrual: 3, marriage: 8 };
+            const approvedLeaves = leaves.filter(l => l.status === 'approved');
+            const usedByEmpType = (empId: string, type: string) =>
+              approvedLeaves.filter(l => l.employeeId === empId && l.leaveType === type)
+                .reduce((s, l) => s + (l.hours || 0) / 8, 0);
+
+            // 通用審核卡元件
+            const ApproveCard = ({ item, type, onApprove, onReject }: { item: any; type: string; onApprove: () => void; onReject: () => void }) => (
+              <div style={{ padding: '14px', borderRadius: '12px', backgroundColor: '#f9fafb', border: '1px solid var(--border)', fontSize: '13px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>{item.empName}</span>
+                  <span style={{ fontSize: '11px', color: '#9ca3af' }}>{new Date(item.timestamp).toLocaleDateString('zh-TW')}</span>
+                </div>
+                {type === 'leave' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                  {LEAVE_TYPES.find(t => t.value === item.leaveType)?.label} ｜ {item.startDate}{item.startDate !== item.endDate ? ` ~ ${item.endDate}` : ''} ({item.periodLabel || '全天'}) ｜ {item.hours}h
+                  {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>事由：{item.reason}</div>}
+                </div>}
+                {type === 'overtime' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                  加班日期：{item.date} ｜ {item.hours}小時
+                  {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
+                </div>}
+                {type === 'punch' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                  補卡日期：{item.date} ｜ 時間：{item.time} ｜ 類型：{item.type}
+                  {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
+                </div>}
+                {type === 'appeal' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                  異常日期：{item.exceptionDate} ｜ 異常類型：{item.exceptionType}
+                  <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>說明：{item.reason}</div>
+                </div>}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={onApprove} style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>✅ 核准</button>
+                  <button onClick={onReject}  style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>❌ 駁回</button>
+                </div>
+              </div>
+            );
+
+            const allPending = [
+              ...leaves.filter(l => l.status === 'pending').map(l => ({ ...l, _type: 'leave' })),
+              ...overtimeReqs.filter(o => o.status === 'pending').map(o => ({ ...o, _type: 'overtime' })),
+              ...punchCorrections.filter(p => p.status === 'pending').map(p => ({ ...p, _type: 'punch' })),
+              ...attendanceAppeals.filter(a => a.status === 'pending').map(a => ({ ...a, _type: 'appeal' })),
+            ].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+            const allHistory = [
+              ...leaves.filter(l => ['approved','rejected','cancelled'].includes(l.status)).map(l => ({ ...l, _type: 'leave' })),
+              ...overtimeReqs.filter(o => ['approved','rejected'].includes(o.status)).map(o => ({ ...o, _type: 'overtime' })),
+              ...punchCorrections.filter(p => ['approved','rejected'].includes(p.status)).map(p => ({ ...p, _type: 'punch' })),
+              ...attendanceAppeals.filter(a => ['approved','rejected'].includes(a.status)).map(a => ({ ...a, _type: 'appeal' })),
+            ].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+            const typeLabel = (t: string) => t === 'leave' ? '📄 請假' : t === 'overtime' ? '⏰ 加班' : t === 'punch' ? '🔧 補卡' : '📣 申訴';
+            const statusBadge = (s: string) =>
+              s === 'approved' ? { label: '✅ 已核准', color: '#10b981', bg: 'rgba(16,185,129,0.1)' } :
+              s === 'rejected' ? { label: '❌ 已駁回', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' } :
+              { label: '🚫 已撤銷', color: '#9ca3af', bg: 'rgba(156,163,175,0.1)' };
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* 統計列 */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                  {[
+                    { label: '請假待審', count: leaves.filter(l => l.status === 'pending').length, color: '#4f46e5' },
+                    { label: '加班待審', count: overtimeReqs.filter(o => o.status === 'pending').length, color: '#059669' },
+                    { label: '補卡待審', count: punchCorrections.filter(p => p.status === 'pending').length, color: '#d97706' },
+                    { label: '申訴待審', count: attendanceAppeals.filter(a => a.status === 'pending').length, color: '#7c3aed' },
+                  ].map(item => (
+                    <div key={item.label} className="card" style={{ padding: '16px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '28px', fontWeight: '900', color: item.count > 0 ? '#ef4444' : '#10b981' }}>{item.count}</div>
+                      <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 子分頁按鈕 */}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {([
+                    { key: 'pending', label: `⏳ 待審核 (${allPending.length})` },
+                    { key: 'history', label: `📋 已審核紀錄 (${allHistory.length})` },
+                    { key: 'balance', label: `🏖️ 全員假別餘額` },
+                  ] as const).map(tab => (
+                    <button key={tab.key} onClick={() => setLeavesSubTab(tab.key)}
+                      style={{ padding: '9px 18px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', border: 'none', cursor: 'pointer',
+                        backgroundColor: leavesSubTab === tab.key ? 'var(--primary)' : '#f3f4f6',
+                        color: leavesSubTab === tab.key ? '#fff' : 'var(--text-main)' }}>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── 待審核 ── */}
+                {leavesSubTab === 'pending' && (
+                  <div className="card" style={{ padding: '24px' }}>
+                    {allPending.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '40px', color: '#10b981', fontWeight: '700', fontSize: '15px' }}>🎉 目前無待審核的差勤申請！</div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+                        {allPending.map(item => (
+                          <div key={item.id}>
+                            <div style={{ fontSize: '11px', fontWeight: '700', color: '#9ca3af', marginBottom: '6px' }}>{typeLabel(item._type)}</div>
+                            <ApproveCard
+                              item={item} type={item._type}
+                              onApprove={() => item._type === 'leave' ? handleApproveLeave(item.id) : item._type === 'overtime' ? handleApproveOT(item.id) : item._type === 'punch' ? handleApprovePC(item.id) : handleApproveAppeal(item.id)}
+                              onReject={() => item._type === 'leave' ? handleRejectLeave(item.id) : item._type === 'overtime' ? handleRejectOT(item.id) : item._type === 'punch' ? handleRejectPC(item.id) : handleRejectAppeal(item.id)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── 已審核紀錄 ── */}
+                {leavesSubTab === 'history' && (
+                  <div className="card" style={{ padding: '24px' }}>
+                    <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: '700' }}>已審核差勤紀錄</h3>
+                    {allHistory.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)', fontSize: '13px' }}>尚無已審核紀錄</div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>員工</th><th>申請類型</th><th>詳細內容</th><th>申請時間</th><th>狀態</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allHistory.map(item => {
+                              const s = statusBadge(item.status);
+                              return (
+                                <tr key={item.id}>
+                                  <td style={{ fontWeight: '600' }}>{item.empName}</td>
+                                  <td>{typeLabel(item._type)}</td>
+                                  <td style={{ fontSize: '12px', color: '#6b7280' }}>
+                                    {item._type === 'leave' && `${LEAVE_TYPES.find(t => t.value === item.leaveType)?.label} ${item.startDate}~${item.endDate} ${item.hours}h`}
+                                    {item._type === 'overtime' && `${item.date} ${item.hours}h`}
+                                    {item._type === 'punch' && `${item.date} ${item.time} ${item.type}`}
+                                    {item._type === 'appeal' && `${item.exceptionDate} [${item.exceptionType}]`}
+                                  </td>
+                                  <td style={{ fontSize: '12px', color: '#9ca3af' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('zh-TW') : '-'}</td>
+                                  <td><span style={{ padding: '2px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '700', color: s.color, backgroundColor: s.bg }}>{s.label}</span></td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── 全員假別餘額 ── */}
+                {leavesSubTab === 'balance' && (
+                  <div className="card" style={{ padding: '24px' }}>
+                    <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: '700' }}>全員假別剩餘天數</h3>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>員工姓名</th>
+                            <th>到職日</th>
+                            <th>🏖️ 特別休假</th>
+                            <th>🏥 病假 (/30天)</th>
+                            <th>👤 事假 (/14天)</th>
+                            <th>💊 生理假 (/3天)</th>
+                            <th>💍 婚假 (/8天)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {employees.map(emp => {
+                            const annualTotal = calcAnnual(emp.onboardDate || '');
+                            const annualUsed = usedByEmpType(emp.id, 'annual');
+                            const sickUsed = usedByEmpType(emp.id, 'sick');
+                            const personalUsed = usedByEmpType(emp.id, 'personal');
+                            const menstrualUsed = usedByEmpType(emp.id, 'menstrual');
+                            const marriageUsed = usedByEmpType(emp.id, 'marriage');
+                            const cell = (used: number, total: number) => {
+                              const rem = Math.max(0, total - used);
+                              const pct = total > 0 ? (used / total) * 100 : 0;
+                              return (
+                                <td key={`${emp.id}-${total}`} style={{ textAlign: 'center' }}>
+                                  <div style={{ fontWeight: '700', color: rem === 0 ? '#ef4444' : rem <= 2 ? '#d97706' : '#10b981', fontSize: '15px' }}>{rem}</div>
+                                  <div style={{ fontSize: '10px', color: '#9ca3af' }}>已用 {used.toFixed(1)}</div>
+                                  <div style={{ marginTop: '3px', height: '4px', borderRadius: '2px', backgroundColor: '#e5e7eb', overflow: 'hidden' }}>
+                                    <div style={{ height: '100%', width: `${Math.min(100, pct)}%`, backgroundColor: pct >= 90 ? '#ef4444' : pct >= 60 ? '#d97706' : '#10b981', borderRadius: '2px' }} />
+                                  </div>
+                                </td>
+                              );
+                            };
+                            return (
+                              <tr key={emp.id}>
+                                <td style={{ fontWeight: '600' }}>{emp.name}</td>
+                                <td style={{ fontSize: '12px', color: '#6b7280' }}>{emp.onboardDate || '-'}</td>
+                                {cell(annualUsed, annualTotal)}
+                                {cell(sickUsed, LEAVE_QUOTA.sick)}
+                                {cell(personalUsed, LEAVE_QUOTA.personal)}
+                                {cell(menstrualUsed, LEAVE_QUOTA.menstrual)}
+                                {cell(marriageUsed, LEAVE_QUOTA.marriage)}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ marginTop: '12px', fontSize: '11px', color: '#9ca3af' }}>
+                      ※ 剩餘天數以綠色顯示，≤2天以橘色警示，0天以紅色標記。特別休假依到職日年資自動計算（勞基法第38條）。
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {activeTab === 'settings' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
