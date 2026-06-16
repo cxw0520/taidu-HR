@@ -36,7 +36,7 @@ export function calculatePayrollInsurance(
   onboardDate: Date | string,
   resignDate: Date | string | null,
   targetYearMonth: string,
-  salaryConfig: { laborSub: number; nhiSub: number; pensionSub: number },
+  salaryConfig: { laborSub: number; nhiSub: number; pensionSub: number; nhiDependents?: number },
   rates: InsuranceRates = DEFAULT_INSURANCE_RATES
 ) {
   const oDate = typeof onboardDate === 'string' ? new Date(onboardDate) : onboardDate;
@@ -114,8 +114,10 @@ export function calculatePayrollInsurance(
   let employerNhi = 0;
 
   if (paysNhiThisMonth) {
-    // 員工自付健保費 = 投保金額 * 費率 * 員工自付比例 (四捨五入)
-    employeeNhi = Math.round(salaryConfig.nhiSub * rates.nhiRate * rates.employeeNhiRatio);
+    // 實際加保眷屬數限制在 0 至 3 之間
+    const deps = typeof salaryConfig.nhiDependents === 'number' ? Math.max(0, Math.min(salaryConfig.nhiDependents, 3)) : 0;
+    // 員工自付健保費 = 投保金額 * 費率 * 員工自付比例 * (1 + 眷屬數) (四捨五入)
+    employeeNhi = Math.round(salaryConfig.nhiSub * rates.nhiRate * rates.employeeNhiRatio * (1 + deps));
     // 雇主負擔健保費 = 投保金額 * 費率 * 雇主比例 * (1 + 平均眷屬數) (四捨五入)
     employerNhi = Math.round(salaryConfig.nhiSub * rates.nhiRate * rates.employerNhiRatio * (1 + rates.nhiAvgDependents));
   }

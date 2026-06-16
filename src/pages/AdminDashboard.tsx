@@ -87,6 +87,13 @@ const AdminDashboard: React.FC = () => {
   const [newPensionSub, setNewPensionSub] = useState<number>(31800);
   const [newSupervisorId, setNewSupervisorId] = useState('');
   const [newSalaryType, setNewSalaryType] = useState<'monthly' | 'hourly'>('monthly');
+  const [newNhiDependents, setNewNhiDependents] = useState<number>(0);
+  const [newMealAllowance, setNewMealAllowance] = useState<number>(0);
+  const [newAttendanceBonus, setNewAttendanceBonus] = useState<number>(0);
+  const [newOtherAllowance, setNewOtherAllowance] = useState<number>(0);
+  const [newFileIdCard, setNewFileIdCard] = useState<string>('');
+  const [newFileBankbook, setNewFileBankbook] = useState<string>('');
+  const [newFileContract, setNewFileContract] = useState<string>('');
 
   // 從 Firestore 同步職務列表
   useEffect(() => {
@@ -213,7 +220,14 @@ const AdminDashboard: React.FC = () => {
         nhiSub: Number(newNhiSub),
         pensionSub: Number(newPensionSub),
         supervisorId: newSupervisorId,
-        salaryType: newSalaryType
+        salaryType: newSalaryType,
+        nhiDependents: Number(newNhiDependents),
+        mealAllowance: Number(newMealAllowance),
+        attendanceBonus: Number(newAttendanceBonus),
+        otherAllowance: Number(newOtherAllowance),
+        fileIdCard: newFileIdCard,
+        fileBankbook: newFileBankbook,
+        fileContract: newFileContract
       });
 
       // 3. 次要 App 實體登出，防止干涉主要 auth 狀態
@@ -232,6 +246,13 @@ const AdminDashboard: React.FC = () => {
       setNewPensionSub(31800);
       setNewSupervisorId('');
       setNewSalaryType('monthly');
+      setNewNhiDependents(0);
+      setNewMealAllowance(0);
+      setNewAttendanceBonus(0);
+      setNewOtherAllowance(0);
+      setNewFileIdCard('');
+      setNewFileBankbook('');
+      setNewFileContract('');
       setTimeout(() => {
         setShowAddModal(false);
         setAddSuccess('');
@@ -283,6 +304,13 @@ const AdminDashboard: React.FC = () => {
   const [editPensionSub, setEditPensionSub] = useState<number>(31800);
   const [editSupervisorId, setEditSupervisorId] = useState('');
   const [editSalaryType, setEditSalaryType] = useState<'monthly' | 'hourly'>('monthly');
+  const [editNhiDependents, setEditNhiDependents] = useState<number>(0);
+  const [editMealAllowance, setEditMealAllowance] = useState<number>(0);
+  const [editAttendanceBonus, setEditAttendanceBonus] = useState<number>(0);
+  const [editOtherAllowance, setEditOtherAllowance] = useState<number>(0);
+  const [editFileIdCard, setEditFileIdCard] = useState<string>('');
+  const [editFileBankbook, setEditFileBankbook] = useState<string>('');
+  const [editFileContract, setEditFileContract] = useState<string>('');
 
   // 日曆式排班與快速排班狀態
   const [viewYear, setViewYear] = useState<number>(new Date().getFullYear());
@@ -299,6 +327,10 @@ const AdminDashboard: React.FC = () => {
   // 排班與薪資 State
   const [schedules, setSchedules] = useState<any[]>([]);
   const [payroll, setPayroll] = useState<any[]>([]);
+
+  // 請假與加班審核 State
+  const [leaves, setLeaves] = useState<any[]>([]);
+  const [overtimeReqs, setOvertimeReqs] = useState<any[]>([]);
 
   // 排班彈窗與 Form states
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -641,6 +673,23 @@ const AdminDashboard: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  // 監聽請假與加班申請
+  useEffect(() => {
+    const qLeaves = query(collection(db, 'leaves'));
+    const unsubLeaves = onSnapshot(qLeaves, (snap) => {
+      const records = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+      records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      setLeaves(records);
+    });
+    const qOT = query(collection(db, 'overtime_requests'));
+    const unsubOT = onSnapshot(qOT, (snap) => {
+      const records = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+      records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      setOvertimeReqs(records);
+    });
+    return () => { unsubLeaves(); unsubOT(); };
+  }, []);
+
   const handleDeleteAttendance = async (id: string) => {
     if (id === '1' || id === '2') {
       alert('模擬資料無法刪除。');
@@ -675,10 +724,19 @@ const AdminDashboard: React.FC = () => {
     }
 
     try {
+      // 防呆檢核
+      const targetDate = schedDate || new Date().toLocaleDateString('sv');
+      const warnings = checkScheduleWarnings(schedEmployeeId, targetDate, schedShift);
+      if (warnings.length > 0) {
+        const proceed = window.confirm(
+          '⚠️ 排班防呆警示：\n\n' + warnings.join('\n') + '\n\n您確定仍要建立此排班嗎？'
+        );
+        if (!proceed) { setCreatingSchedule(false); return; }
+      }
       await setDoc(doc(collection(db, 'schedules')), {
         empName: emp.name,
         employeeId: schedEmployeeId,
-        date: schedDate || new Date().toLocaleDateString('sv'),
+        date: targetDate,
         shift: schedShift,
         status: '待確認',
         timestamp: new Date().getTime()
@@ -712,6 +770,138 @@ const AdminDashboard: React.FC = () => {
       console.error("Failed to delete schedule:", err);
       alert('刪除失敗，請檢查權限');
     }
+  };
+
+  // ===== 請假/加班審核處理 =====
+  const handleApproveLeave = async (id: string) => {
+    try { await updateDoc(doc(db, 'leaves', id), { status: 'approved' }); }
+    catch (err) { console.error(err); alert('操作失敗'); }
+  };
+  const handleRejectLeave = async (id: string) => {
+    try { await updateDoc(doc(db, 'leaves', id), { status: 'rejected' }); }
+    catch (err) { console.error(err); alert('操作失敗'); }
+  };
+  const handleApproveOT = async (id: string) => {
+    try { await updateDoc(doc(db, 'overtime_requests', id), { status: 'approved' }); }
+    catch (err) { console.error(err); alert('操作失敗'); }
+  };
+  const handleRejectOT = async (id: string) => {
+    try { await updateDoc(doc(db, 'overtime_requests', id), { status: 'rejected' }); }
+    catch (err) { console.error(err); alert('操作失敗'); }
+  };
+
+  // ===== 排班防呆檢核 =====
+  /**
+   * 回傳防呆警示訊息陣列 (空陣列 = 無問題)
+   * @param empId 員工ID
+   * @param dateStr 欲排班日期 YYYY-MM-DD
+   * @param shiftStr 班別字串 e.g. '早班 (09:00 - 18:00)'
+   */
+  const checkScheduleWarnings = (empId: string, dateStr: string, shiftStr: string): string[] => {
+    const warnings: string[] = [];
+
+    // 1. 請假衝突防呆
+    const hasApprovedLeave = leaves.some(
+      l => l.employeeId === empId && l.status === 'approved' &&
+           l.startDate <= dateStr && l.endDate >= dateStr
+    );
+    if (hasApprovedLeave) {
+      warnings.push('⚠️ 請假衝突：該員工此日已有核准的請假紀錄！');
+    }
+
+    // 2. 七休一防呆：取前後7天檢查連續工作天
+    const empSchedules = schedules.filter(s => s.employeeId === empId);
+    const datesToCheck: string[] = [];
+    for (let i = -6; i <= 6; i++) {
+      const d = new Date(dateStr);
+      d.setDate(d.getDate() + i);
+      datesToCheck.push(d.toLocaleDateString('sv'));
+    }
+    // 加入欲排班日期後重新計算連續天數
+    const allDates = [...new Set([...empSchedules.map((s: any) => s.date), dateStr])].sort();
+    let maxStreak = 0;
+    let streak = 0;
+    let prevDate: string | null = null;
+    for (const d of allDates) {
+      if (prevDate) {
+        const diff = (new Date(d).getTime() - new Date(prevDate).getTime()) / 86400000;
+        if (diff === 1) { streak++; } else { streak = 1; }
+      } else { streak = 1; }
+      maxStreak = Math.max(maxStreak, streak);
+      prevDate = d;
+    }
+    if (maxStreak > 6) {
+      warnings.push('🔴 七休一違規：該員工已連續排班超過 6 天，違反勞基法第 36 條！');
+    }
+
+    // 3. 11小時輪班間隔防呆
+    const parseShiftEnd = (shift: string): number | null => {
+      const match = shift.match(/(\d{2}):(\d{2})\s*\)\s*$/);
+      if (!match) return null;
+      return parseInt(match[1]) + parseInt(match[2]) / 60;
+    };
+    const parseShiftStart = (shift: string): number | null => {
+      const match = shift.match(/\((\d{2}):(\d{2})/);
+      if (!match) return null;
+      return parseInt(match[1]) + parseInt(match[2]) / 60;
+    };
+    // 前一天
+    const prevDay = new Date(dateStr);
+    prevDay.setDate(prevDay.getDate() - 1);
+    const prevDayStr = prevDay.toLocaleDateString('sv');
+    const prevSched = empSchedules.find((s: any) => s.date === prevDayStr);
+    if (prevSched) {
+      let prevEnd = parseShiftEnd(prevSched.shift) ?? 18;
+      const todayStart = parseShiftStart(shiftStr) ?? 9;
+      // 若下班時間 < 上班時間 → 跨夜
+      const prevShiftStart = parseShiftStart(prevSched.shift) ?? 9;
+      if (prevEnd < prevShiftStart) prevEnd += 24;
+      const gap = (todayStart + 24) - prevEnd;
+      const adjustedGap = gap > 24 ? gap - 24 : gap;
+      if (adjustedGap < 11) {
+        warnings.push(`🟡 輪班間隔不足：距前一天下班時間僅 ${adjustedGap.toFixed(1)} 小時（法規要求 ≥ 11 小時）`);
+      }
+    }
+
+    return warnings;
+  };
+
+  // ===== CSV 匯出工具 =====
+  const exportCSV = (headers: string[], rows: string[][], filename: string) => {
+    const BOM = '\uFEFF';
+    const csvContent = BOM + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportAttendanceCSV = () => {
+    const headers = ['員工姓名', '日期', '時間', '類型', '狀態'];
+    const rows = filteredAttendance.map((r: any) => [
+      `"${r.empName || ''}"`, r.date || '', r.time || '', r.type || '', r.status || ''
+    ]);
+    exportCSV(headers, rows, `出勤紀錄_${filterDate || new Date().toLocaleDateString('sv')}.csv`);
+  };
+
+  const handleExportPayrollCSV = () => {
+    const headers = ['員工姓名', '結算月份', '底薪', '伙食津貼', '全勤獎金', '其他津貼', '加班費', '請假扣薪', '勞保自付', '健保自付', '實發薪資', '狀態'];
+    const rows = filteredPayroll.map((r: any) => [
+      `"${r.empName || ''}"`,
+      r.month || '',
+      r.baseSalary || 0,
+      r.mealAllowance || 0,
+      r.attendanceBonus || 0,
+      r.otherAllowance || 0,
+      r.overtime || 0,
+      r.leaveDeduction || 0,
+      r.employeeLabor || 0,
+      r.employeeNhi || 0,
+      r.netSalary || 0,
+      `"${r.status || ''}"`
+    ]);
+    exportCSV(headers, rows, `薪資總表_${payMonthFilter}.csv`);
   };
 
   // 快速排班與日曆輔助函式
@@ -763,6 +953,14 @@ const AdminDashboard: React.FC = () => {
     }
 
     try {
+      // 防呆檢核
+      const warnings = checkScheduleWarnings(quickSchedEmpId, dateStr, currentShift);
+      if (warnings.length > 0) {
+        const proceed = window.confirm(
+          '⚠️ 排班防呆警示：\n\n' + warnings.join('\n') + '\n\n您確定仍要建立此排班嗎？'
+        );
+        if (!proceed) return;
+      }
       await setDoc(doc(collection(db, 'schedules')), {
         empName: emp.name,
         employeeId: quickSchedEmpId,
@@ -861,6 +1059,13 @@ const AdminDashboard: React.FC = () => {
     setEditPensionSub(emp.pensionSub || 31800);
     setEditSupervisorId(emp.supervisorId || '');
     setEditSalaryType(emp.salaryType || 'monthly');
+    setEditNhiDependents(emp.nhiDependents || 0);
+    setEditMealAllowance(emp.mealAllowance || 0);
+    setEditAttendanceBonus(emp.attendanceBonus || 0);
+    setEditOtherAllowance(emp.otherAllowance || 0);
+    setEditFileIdCard(emp.fileIdCard || '');
+    setEditFileBankbook(emp.fileBankbook || '');
+    setEditFileContract(emp.fileContract || '');
     setShowEditEmployeeModal(true);
   };
 
@@ -880,7 +1085,14 @@ const AdminDashboard: React.FC = () => {
         nhiSub: Number(editNhiSub),
         pensionSub: Number(editPensionSub),
         supervisorId: editSupervisorId,
-        salaryType: editSalaryType
+        salaryType: editSalaryType,
+        nhiDependents: Number(editNhiDependents),
+        mealAllowance: Number(editMealAllowance),
+        attendanceBonus: Number(editAttendanceBonus),
+        otherAllowance: Number(editOtherAllowance),
+        fileIdCard: editFileIdCard,
+        fileBankbook: editFileBankbook,
+        fileContract: editFileContract
       });
       setShowEditEmployeeModal(false);
     } catch (err) {
@@ -912,7 +1124,6 @@ const AdminDashboard: React.FC = () => {
       const currentMonth = payMonthFilter; // YYYY-MM
       
       let employeesList = employees;
-      // 如果還沒有載入，先從 Firestore 獲取真實名單
       if (employeesList.length === 0 || employeesList[0].id === 'EMP001') {
         const querySnapshot = await getDocs(collection(db, 'employees'));
         employeesList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
@@ -924,11 +1135,12 @@ const AdminDashboard: React.FC = () => {
         return;
       }
 
-      // 取得當月出勤紀錄用以精準計算加班費
       const attendanceSnapshot = await getDocs(collection(db, 'attendance'));
       const attendanceRecords = attendanceSnapshot.docs.map(doc => doc.data() as any);
 
-      // 載入台灣 HR 計算引擎
+      const leavesSnapshot = await getDocs(collection(db, 'leaves'));
+      const approvedLeaves = leavesSnapshot.docs.map(d => d.data() as any).filter(l => l.status === 'approved');
+
       const { calculatePayrollInsurance, calculateOvertimePay } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
@@ -941,6 +1153,10 @@ const AdminDashboard: React.FC = () => {
         let onboardDateStr = emp.onboardDate || '2025-01-01';
         let resignDateStr = emp.resignDate || null;
         const salaryType = emp.salaryType || 'monthly';
+        const nhiDependents = emp.nhiDependents || 0;
+        const mealAllowance = emp.mealAllowance || 0;
+        const attendanceBonus = emp.attendanceBonus || 0;
+        const otherAllowance = emp.otherAllowance || 0;
 
         if (isMock) {
           if (emp.role && emp.role.includes('工程師')) {
@@ -953,7 +1169,6 @@ const AdminDashboard: React.FC = () => {
         const isHourly = salaryType === 'hourly';
         const hourlyRate = isHourly ? monthlySalary : (monthlySalary / 240);
 
-        // 篩選該員工當月的打卡
         const empAttendance = attendanceRecords.filter((rec: any) => 
           rec.employeeId === emp.id && 
           rec.date && rec.date.startsWith(currentMonth)
@@ -964,7 +1179,6 @@ const AdminDashboard: React.FC = () => {
         let calculatedBaseSalary = isHourly ? 0 : monthlySalary;
         let overtimePay = 0;
         
-        // 依每日工作日 (date) 的上班與下班時間計算薪資
         const attendanceByDate: { [date: string]: any[] } = {};
         empAttendance.forEach((rec: any) => {
           if (!attendanceByDate[rec.date]) attendanceByDate[rec.date] = [];
@@ -982,74 +1196,83 @@ const AdminDashboard: React.FC = () => {
             };
             const inTime = parseTime(inRec.time);
             let outTime = parseTime(outRec.time);
-            
-            // 處理跨夜下班時間
-            if (outTime < inTime) {
-              outTime += 24;
-            }
+            if (outTime < inTime) outTime += 24;
 
             if (outTime > inTime) {
               const hours = outTime - inTime;
-              
               if (isHourly) {
-                // 時薪制計算
                 const isOriginalHoliday = holidays.some(h => h.date === date);
                 if (isOriginalHoliday) {
-                  // 國定假日雙薪：1x 進底薪，1x 進加班費
                   const regHours = Math.min(hours, 8);
                   calculatedBaseSalary += regHours * hourlyRate;
-                  overtimePay += regHours * hourlyRate; // 額外 1 倍
-                  if (hours > 8) {
-                    overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
-                  }
+                  overtimePay += regHours * hourlyRate;
+                  if (hours > 8) overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
                 } else {
-                  // 一般日
                   calculatedBaseSalary += Math.min(hours, 8) * hourlyRate;
-                  if (hours > 8) {
-                    overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
-                  }
+                  if (hours > 8) overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
                 }
               } else {
-                // 月薪制計算
                 const isMonthlyHoliday = holidays.some(h => h.movedDate ? h.movedDate === date : h.date === date);
                 if (isMonthlyHoliday) {
-                  // 國定假日/挪移假出勤：使用引擎計算（8小時內加發1倍薪資，超出部分加成）
                   overtimePay += calculateOvertimePay(hourlyRate, hours, 'holiday');
-                } else {
-                  // 一般日/休息日/例假日：僅計算超過 8 小時之加班費
-                  if (hours > 8) {
-                    const overtimeHours = hours - 8;
-                    const d = new Date(date);
-                    const dayOfWeek = d.getDay();
-                    let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
-                    if (dayOfWeek === 6) dayType = 'rest';
-                    else if (dayOfWeek === 0) dayType = 'holiday';
-                    
-                    overtimePay += calculateOvertimePay(hourlyRate, overtimeHours, dayType);
-                  }
+                } else if (hours > 8) {
+                  const overtimeHours = hours - 8;
+                  const d = new Date(date);
+                  const dayOfWeek = d.getDay();
+                  let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
+                  if (dayOfWeek === 6) dayType = 'rest';
+                  else if (dayOfWeek === 0) dayType = 'holiday';
+                  overtimePay += calculateOvertimePay(hourlyRate, overtimeHours, dayType);
                 }
               }
             }
           }
         });
 
-        // 彈性機制：若當月無打卡出勤但為啟用的 Mock 或無打卡環境，給予少量隨機加班費作為預設展示，其餘 0 元
         if (daysWorked === 0) {
           overtimePay = Math.floor(Math.random() * 5) * 500;
         }
 
-        // 計算勞健保費
+        const dailyRate = monthlySalary / 30;
+        let personalLeaveDays = 0;
+        let sickLeaveDays = 0;
+        
+        const empLeaves = approvedLeaves.filter(l => l.employeeId === emp.id);
+        for (const lv of empLeaves) {
+          const lvStart = lv.startDate || '';
+          const lvEnd = lv.endDate || '';
+          if (!lvStart || !lvEnd) continue;
+          
+          const monthStartStr = `${currentMonth}-01`;
+          const [yr, mo] = currentMonth.split('-').map(Number);
+          const monthEndDate = new Date(yr, mo, 0);
+          const monthEndStr = monthEndDate.toLocaleDateString('sv');
+          
+          const effectiveStart = lvStart < monthStartStr ? monthStartStr : lvStart;
+          const effectiveEnd = lvEnd > monthEndStr ? monthEndStr : lvEnd;
+          if (effectiveStart > effectiveEnd) continue;
+          
+          const days = Math.round((new Date(effectiveEnd).getTime() - new Date(effectiveStart).getTime()) / 86400000) + 1;
+          
+          if (lv.leaveType === 'personal') personalLeaveDays += days;
+          else if (lv.leaveType === 'sick') sickLeaveDays += days;
+        }
+        
+        const leaveDeduction = Math.round(personalLeaveDays * dailyRate * 1.0 + sickLeaveDays * dailyRate * 0.5);
+
         const ins = calculatePayrollInsurance(
           onboardDateStr,
           resignDateStr,
           currentMonth,
-          { laborSub, nhiSub, pensionSub },
+          { laborSub, nhiSub, pensionSub, nhiDependents },
           insuranceRates
         );
 
-        // 扣款項目：預扣代繳之員工勞健保自付額
-        const deductions = ins.employeeLabor + ins.employeeNhi;
-        const netSalary = calculatedBaseSalary + overtimePay - deductions;
+        // 扣款 = 勞保自付 + 健保自付 + 請假扣薪
+        const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction;
+        // 實發薪資 = 底薪 + 津貼 + 加班費 - 扣款
+        const totalAllowance = mealAllowance + attendanceBonus + otherAllowance;
+        const netSalary = calculatedBaseSalary + totalAllowance + overtimePay - deductions;
         
         const payrollId = `${emp.id}-${currentMonth}`;
         await setDoc(doc(db, 'payroll', payrollId), {
@@ -1057,21 +1280,27 @@ const AdminDashboard: React.FC = () => {
           employeeId: emp.id,
           month: currentMonth,
           baseSalary: calculatedBaseSalary,
+          mealAllowance,
+          attendanceBonus,
+          otherAllowance,
           overtime: overtimePay,
-          deductions: deductions,
-          netSalary: netSalary,
+          leaveDeduction,
+          personalLeaveDays,
+          sickLeaveDays,
+          deductions,
+          netSalary,
           status: '待審核',
           timestamp: new Date().getTime(),
-          // 儲存詳細申報快照，確保薪資發放歷史版本完整
           laborDays: ins.laborDays,
           employeeLabor: ins.employeeLabor,
           employerLabor: ins.employerLabor,
           employeeNhi: ins.employeeNhi,
           employerNhi: ins.employerNhi,
           employerPension: ins.employerPension,
-          laborSub: laborSub,
-          nhiSub: nhiSub,
-          pensionSub: pensionSub
+          laborSub,
+          nhiSub,
+          pensionSub,
+          nhiDependents
         });
       }
 
@@ -2687,6 +2916,115 @@ const AdminDashboard: React.FC = () => {
                 </select>
               </div>
 
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>健保實際扶養眷屬人數 (0-3 口，不含本人)</label>
+                <select 
+                  value={newNhiDependents} 
+                  onChange={(e) => setNewNhiDependents(Number(e.target.value))}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value={0}>0 口</option>
+                  <option value={1}>1 口</option>
+                  <option value={2}>2 口</option>
+                  <option value={3}>3 口</option>
+                </select>
+              </div>
+
+              <div style={{ borderTop: '1px dashed #e5e7eb', marginTop: '8px', paddingTop: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--primary)' }}>💰 固定非經常性津貼項目</span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>伙食津貼 (每月 NT$)</label>
+                  <input 
+                    type="number" 
+                    value={newMealAllowance} 
+                    onChange={(e) => setNewMealAllowance(Number(e.target.value))}
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>全勤獎金 (每月 NT$)</label>
+                  <input 
+                    type="number" 
+                    value={newAttendanceBonus} 
+                    onChange={(e) => setNewAttendanceBonus(Number(e.target.value))}
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '600' }}>其他津貼 (每月 NT$)</label>
+                <input 
+                  type="number" 
+                  value={newOtherAllowance} 
+                  onChange={(e) => setNewOtherAllowance(Number(e.target.value))}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                />
+              </div>
+
+              <div style={{ borderTop: '1px dashed #e5e7eb', marginTop: '8px', paddingTop: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--primary)' }}>📁 檔案管理 (人事資料附件)</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>身分證正反面影本</label>
+                  <input 
+                    type="file" 
+                    accept="image/*,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => setNewFileIdCard(reader.result as string);
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    style={{ fontSize: '12px' }}
+                  />
+                  {newFileIdCard && <span style={{ fontSize: '11px', color: '#10b981' }}>✓ 已選取檔案</span>}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>存摺封面影本</label>
+                  <input 
+                    type="file" 
+                    accept="image/*,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => setNewFileBankbook(reader.result as string);
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    style={{ fontSize: '12px' }}
+                  />
+                  {newFileBankbook && <span style={{ fontSize: '11px', color: '#10b981' }}>✓ 已選取檔案</span>}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>勞動契約 (PDF/圖片)</label>
+                  <input 
+                    type="file" 
+                    accept="image/*,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => setNewFileContract(reader.result as string);
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    style={{ fontSize: '12px' }}
+                  />
+                  {newFileContract && <span style={{ fontSize: '11px', color: '#10b981' }}>✓ 已選取檔案</span>}
+                </div>
+              </div>
+
               <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
                 <button 
                   type="button" 
@@ -3414,6 +3752,136 @@ const AdminDashboard: React.FC = () => {
                       <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>
                     ))}
                 </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>健保實際扶養眷屬人數 (0-3 口，不含本人)</label>
+                <select 
+                  value={editNhiDependents} 
+                  onChange={(e) => setEditNhiDependents(Number(e.target.value))}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value={0}>0 口</option>
+                  <option value={1}>1 口</option>
+                  <option value={2}>2 口</option>
+                  <option value={3}>3 口</option>
+                </select>
+              </div>
+
+              <div style={{ borderTop: '1px dashed #e5e7eb', marginTop: '8px', paddingTop: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--primary)' }}>💰 固定非經常性津貼項目</span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>伙食津貼 (每月 NT$)</label>
+                  <input 
+                    type="number" 
+                    value={editMealAllowance} 
+                    onChange={(e) => setEditMealAllowance(Number(e.target.value))}
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>全勤獎金 (每月 NT$)</label>
+                  <input 
+                    type="number" 
+                    value={editAttendanceBonus} 
+                    onChange={(e) => setEditAttendanceBonus(Number(e.target.value))}
+                    style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '600' }}>其他津貼 (每月 NT$)</label>
+                <input 
+                  type="number" 
+                  value={editOtherAllowance} 
+                  onChange={(e) => setEditOtherAllowance(Number(e.target.value))}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }}
+                />
+              </div>
+
+              <div style={{ borderTop: '1px dashed #e5e7eb', marginTop: '8px', paddingTop: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--primary)' }}>📁 檔案管理 (人事資料附件)</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>身分證正反面影本</label>
+                  <input 
+                    type="file" 
+                    accept="image/*,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => setEditFileIdCard(reader.result as string);
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    style={{ fontSize: '12px' }}
+                  />
+                  {editFileIdCard ? (
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px' }}>
+                      <span style={{ fontSize: '11px', color: '#10b981' }}>✓ 已有存檔</span>
+                      <a href={editFileIdCard} download={`${editEmpName}_身分證影本`} style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: '600', textDecoration: 'underline' }}>下載查看</a>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>尚未上傳</span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>存摺封面影本</label>
+                  <input 
+                    type="file" 
+                    accept="image/*,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => setEditFileBankbook(reader.result as string);
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    style={{ fontSize: '12px' }}
+                  />
+                  {editFileBankbook ? (
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px' }}>
+                      <span style={{ fontSize: '11px', color: '#10b981' }}>✓ 已有存檔</span>
+                      <a href={editFileBankbook} download={`${editEmpName}_存摺封面`} style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: '600', textDecoration: 'underline' }}>下載查看</a>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>尚未上傳</span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>勞動契約 (PDF/圖片)</label>
+                  <input 
+                    type="file" 
+                    accept="image/*,application/pdf"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => setEditFileContract(reader.result as string);
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    style={{ fontSize: '12px' }}
+                  />
+                  {editFileContract ? (
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px' }}>
+                      <span style={{ fontSize: '11px', color: '#10b981' }}>✓ 已有存檔</span>
+                      <a href={editFileContract} download={`${editEmpName}_勞動契約`} style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: '600', textDecoration: 'underline' }}>下載查看</a>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>尚未上傳</span>
+                  )}
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
