@@ -27,7 +27,7 @@ service cloud.firestore {
     // ── 2. 出勤打卡紀錄 ──
     match /attendance/{attendanceId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.employeeId == request.auth.uid;
+      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
 
@@ -53,8 +53,8 @@ service cloud.firestore {
     match /leaves/{leaveId} {
       // 管理員可讀全部；員工只能讀自己的
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      // 員工只能新增屬於自己的假單
-      allow create: if isSignedIn() && request.resource.data.employeeId == request.auth.uid;
+      // 員工與管理員皆能新增
+      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
       // 員工只能撤銷（更新 status）自己且狀態為 pending 的假單；管理員可修改所有
       allow update: if isAdmin() ||
         (isSignedIn() &&
@@ -67,7 +67,7 @@ service cloud.firestore {
     // ── 7. 加班申請 ──
     match /overtime_requests/{otId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.employeeId == request.auth.uid;
+      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
       allow update: if isAdmin() ||
         (isSignedIn() &&
          resource.data.employeeId == request.auth.uid &&
@@ -79,14 +79,14 @@ service cloud.firestore {
     // ── 8. 補卡申請 ──
     match /punch_corrections/{pcId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.employeeId == request.auth.uid;
+      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
 
     // ── 9. 打卡異常申訴 ──
     match /attendance_appeals/{apId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.employeeId == request.auth.uid;
+      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
   }

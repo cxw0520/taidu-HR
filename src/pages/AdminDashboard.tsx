@@ -414,6 +414,10 @@ const AdminDashboard: React.FC = () => {
   const [editSchedShift, setEditSchedShift] = useState('');
   const [editSchedStatus, setEditSchedStatus] = useState('');
 
+  // 個人工時明細彈窗 states
+  const [showWorkHoursDetailModal, setShowWorkHoursDetailModal] = useState(false);
+  const [selectedDetailEmployee, setSelectedDetailEmployee] = useState<any>(null);
+
   // 薪資計算 states
   const [generatingPayroll, setGeneratingPayroll] = useState(false);
   const [payError, setPayError] = useState('');
@@ -1869,10 +1873,24 @@ const AdminDashboard: React.FC = () => {
 
   const monthlyWorkedHoursSummary = React.useMemo(() => {
     const monthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
-    const summary: { [empId: string]: { name: string; daysCount: number; totalHours: number } } = {};
+    const summary: { 
+      [empId: string]: { 
+        name: string; 
+        daysCount: number; 
+        totalHours: number;
+        dailyDetails?: Array<{
+          date: string;
+          punch1: string;
+          punch2: string;
+          punch3: string;
+          punch4: string;
+          hours: number;
+        }>;
+      } 
+    } = {};
 
     employees.forEach(emp => {
-      summary[emp.id] = { name: emp.name, daysCount: 0, totalHours: 0 };
+      summary[emp.id] = { name: emp.name, daysCount: 0, totalHours: 0, dailyDetails: [] };
     });
 
     const attMap: { [empId: string]: { [date: string]: any[] } } = {};
@@ -1886,30 +1904,70 @@ const AdminDashboard: React.FC = () => {
     Object.keys(attMap).forEach(empId => {
       if (!summary[empId]) {
         const firstRec = Object.values(attMap[empId])[0]?.[0];
-        summary[empId] = { name: firstRec?.empName || empId, daysCount: 0, totalHours: 0 };
+        summary[empId] = { name: firstRec?.empName || empId, daysCount: 0, totalHours: 0, dailyDetails: [] };
       }
 
       const empDates = attMap[empId];
-      const dates = Object.keys(empDates);
+      const dates = Object.keys(empDates).sort((a, b) => a.localeCompare(b));
       summary[empId].daysCount = dates.length;
+
+      const dailyDetails: Array<{
+        date: string;
+        punch1: string;
+        punch2: string;
+        punch3: string;
+        punch4: string;
+        hours: number;
+      }> = [];
 
       let totalHours = 0;
       dates.forEach(date => {
         const dayRecords = empDates[date];
-        const inRec = dayRecords.find(r => r.type === '上班');
-        const outRec = dayRecords.find(r => r.type === '下班');
+        const sortedRecs = dayRecords.filter(r => r.time).sort((a, b) => a.time.localeCompare(b.time));
 
-        if (inRec && outRec && inRec.time && outRec.time) {
-          const parseTime = (timeStr: string) => {
-            const [h, m] = timeStr.split(':').map(Number);
-            return h + m / 60;
-          };
-          const inTime = parseTime(inRec.time);
-          let outTime = parseTime(outRec.time);
-          if (outTime < inTime) outTime += 24;
+        let dayHours = 0;
+        const parseTime = (timeStr: string) => {
+          const [h, m] = timeStr.split(':').map(Number);
+          return h + m / 60;
+        };
 
-          if (outTime > inTime) {
-            let hours = outTime - inTime;
+        // Match pairs of 上班 & 下班
+        let segments = 0;
+        let i = 0;
+        while (i < sortedRecs.length) {
+          if (sortedRecs[i].type === '上班') {
+            let nextOut = null;
+            let j = i + 1;
+            while (j < sortedRecs.length) {
+              if (sortedRecs[j].type === '下班') {
+                nextOut = sortedRecs[j];
+                break;
+              }
+              j++;
+            }
+            if (nextOut) {
+              const inTime = parseTime(sortedRecs[i].time);
+              let outTime = parseTime(nextOut.time);
+              if (outTime < inTime) outTime += 24;
+              dayHours += (outTime - inTime);
+              segments++;
+              i = j + 1;
+            } else {
+              i++;
+            }
+          } else {
+            i++;
+          }
+        }
+
+        // If only 1 segment (e.g. 2 punches), subtract break overlap if applicable
+        if (segments === 1) {
+          const inRec = sortedRecs.find(r => r.type === '上班');
+          const outRec = sortedRecs.find(r => r.type === '下班');
+          if (inRec && outRec) {
+            const inTime = parseTime(inRec.time);
+            let outTime = parseTime(outRec.time);
+            if (outTime < inTime) outTime += 24;
 
             const dateSched = schedules.find((s: any) => s.employeeId === empId && s.date === date);
             if (dateSched) {
@@ -1936,20 +1994,52 @@ const AdminDashboard: React.FC = () => {
                 const startOverlap = Math.max(inTime, adjustedBStart);
                 const endOverlap = Math.min(outTime, adjustedBEnd);
                 const overlap = Math.max(0, endOverlap - startOverlap);
-                hours = Math.max(0, hours - overlap);
+                dayHours = Math.max(0, dayHours - overlap);
               }
             }
-            totalHours += hours;
           }
         }
+
+        dayHours = Math.round(dayHours * 100) / 100;
+        totalHours += dayHours;
+
+        // Map punches for display
+        const ins = sortedRecs.filter(r => r.type === '上班');
+        const outs = sortedRecs.filter(r => r.type === '下班');
+        
+        let punch1 = '—';
+        let punch2 = '—';
+        let punch3 = '—';
+        let punch4 = '—';
+
+        if (sortedRecs.length <= 2) {
+          punch1 = ins[0]?.time || '—';
+          punch4 = outs[0]?.time || '—';
+        } else {
+          punch1 = ins[0]?.time || '—';
+          punch2 = outs[0]?.time || '—';
+          punch3 = ins[1]?.time || '—';
+          punch4 = outs[1]?.time || '—';
+        }
+
+        dailyDetails.push({
+          date,
+          punch1,
+          punch2,
+          punch3,
+          punch4,
+          hours: dayHours
+        });
       });
+
       summary[empId].totalHours = Math.round(totalHours * 100) / 100;
+      summary[empId].dailyDetails = dailyDetails;
     });
 
     return Object.keys(summary).map(empId => ({
       id: empId,
       ...summary[empId]
-    })).filter(row => row.daysCount > 0); // Only show employees with attendance in this month
+    })).filter(row => row.daysCount > 0);
   }, [employees, attendance, schedules, shifts, viewYear, viewMonth]);
 
   const attendanceExceptions = React.useMemo(() => {
@@ -2370,8 +2460,25 @@ const AdminDashboard: React.FC = () => {
                             <td data-label="員工姓名" style={{ fontWeight: '600', color: 'var(--text-main)' }}>{row.name}</td>
                             <td data-label="本月出勤天數">{row.daysCount} 天</td>
                             <td data-label="本月累計總工時">
-                              <span className="badge" style={{ backgroundColor: 'rgba(79, 70, 229, 0.1)', color: 'var(--primary)', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', fontSize: '13px' }}>
-                                {row.totalHours} 小時
+                              <span 
+                                className="badge" 
+                                style={{ 
+                                  backgroundColor: 'rgba(79, 70, 229, 0.1)', 
+                                  color: 'var(--primary)', 
+                                  fontWeight: '700', 
+                                  padding: '4px 10px', 
+                                  borderRadius: '6px', 
+                                  fontSize: '13px',
+                                  cursor: 'pointer',
+                                  textDecoration: 'underline'
+                                }}
+                                title="點擊查看每日工時與打卡明細"
+                                onClick={() => {
+                                  setSelectedDetailEmployee(row);
+                                  setShowWorkHoursDetailModal(true);
+                                }}
+                              >
+                                {row.totalHours} 小時 🔍
                               </span>
                             </td>
                             <td data-label="備註" style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
@@ -5432,6 +5539,122 @@ const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 個人工時明細彈窗 */}
+      {showWorkHoursDetailModal && selectedDetailEmployee && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="glass-card" style={{
+            width: '90%',
+            maxWidth: '700px',
+            padding: '32px',
+            borderRadius: '16px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            position: 'relative',
+            backgroundColor: '#fff',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid #e5e7eb', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'var(--text-main)' }}>
+                ⏱️ {selectedDetailEmployee.name} - 個人工時明細 ({viewYear}年{viewMonth}月)
+              </h3>
+              <button 
+                onClick={() => {
+                  setShowWorkHoursDetailModal(false);
+                  setSelectedDetailEmployee(null);
+                }}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  fontSize: '20px',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="table-responsive">
+              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f9fafb' }}>
+                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>日期</th>
+                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>上班</th>
+                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>下班</th>
+                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>上班</th>
+                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>下班</th>
+                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>時數</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!selectedDetailEmployee.dailyDetails || selectedDetailEmployee.dailyDetails.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                        此月份無出勤明細紀錄。
+                      </td>
+                    </tr>
+                  ) : (
+                    selectedDetailEmployee.dailyDetails.map((detail: any, idx: number) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: '12px', fontWeight: '600', color: 'var(--text-main)' }}>{detail.date}</td>
+                        <td style={{ padding: '12px', color: detail.punch1 === '—' ? '#9ca3af' : 'inherit' }}>{detail.punch1}</td>
+                        <td style={{ padding: '12px', color: detail.punch2 === '—' ? '#9ca3af' : 'inherit' }}>{detail.punch2}</td>
+                        <td style={{ padding: '12px', color: detail.punch3 === '—' ? '#9ca3af' : 'inherit' }}>{detail.punch3}</td>
+                        <td style={{ padding: '12px', color: detail.punch4 === '—' ? '#9ca3af' : 'inherit' }}>{detail.punch4}</td>
+                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>
+                          {detail.hours.toFixed(1)} 小時
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
+              <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-muted)' }}>
+                出勤天數: <strong style={{ color: 'var(--text-main)' }}>{selectedDetailEmployee.daysCount} 天</strong>
+              </span>
+              <span style={{ fontSize: '15px', fontWeight: '700', color: 'var(--primary)' }}>
+                累計工時: {selectedDetailEmployee.totalHours} 小時
+              </span>
+            </div>
+
+            <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={() => {
+                  setShowWorkHoursDetailModal(false);
+                  setSelectedDetailEmployee(null);
+                }}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '8px',
+                  border: '1px solid #d1d5db',
+                  backgroundColor: '#f3f4f6',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px'
+                }}
+              >
+                關閉明細
+              </button>
+            </div>
           </div>
         </div>
       )}
