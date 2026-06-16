@@ -112,16 +112,6 @@ const AdminDashboard: React.FC = () => {
   const [newAddress, setNewAddress] = useState('');
   const [newBirthDate, setNewBirthDate] = useState('');
 
-  // 於 window 物件上公開 db 與 helper 以利網頁終端機執行腳本
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).db = db;
-      (window as any).firebaseAdminHelpers = {
-        getDocs, collection, query, where, addDoc, doc, updateDoc, deleteDoc
-      };
-    }
-  }, []);
-
   // 從 Firestore 同步職務列表
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, 'settings', 'roles'), (docSnap) => {
