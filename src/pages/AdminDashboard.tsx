@@ -315,6 +315,25 @@ const AdminDashboard: React.FC = () => {
   const [editAttType, setEditAttType] = useState('上班');
   const [editAttStatus, setEditAttStatus] = useState('正常');
 
+  // 手動新增打卡紀錄 States
+  const [showAddAttendanceModal, setShowAddAttendanceModal] = useState(false);
+  const [addAttEmployeeId, setAddAttEmployeeId] = useState('');
+  const [addAttDate, setAddAttDate] = useState(new Date().toISOString().substring(0, 10));
+  const [addAttTime, setAddAttTime] = useState('09:00');
+  const [addAttType, setAddAttType] = useState('上班');
+  const [addAttStatus, setAddAttStatus] = useState('正常');
+
+  // 編輯請假紀錄 States
+  const [showEditLeaveModal, setShowEditLeaveModal] = useState(false);
+  const [editLeaveId, setEditLeaveId] = useState('');
+  const [editLeaveEmployeeId, setEditLeaveEmployeeId] = useState('');
+  const [editLeaveType, setEditLeaveType] = useState('sick');
+  const [editLeaveStart, setEditLeaveStart] = useState('');
+  const [editLeaveEnd, setEditLeaveEnd] = useState('');
+  const [editLeaveHours, setEditLeaveHours] = useState(8);
+  const [editLeaveStatus, setEditLeaveStatus] = useState('pending');
+  const [editLeaveReason, setEditLeaveReason] = useState('');
+
   // 編輯員工 States
   const [showEditEmployeeModal, setShowEditEmployeeModal] = useState(false);
   const [editEmployeeId, setEditEmployeeId] = useState('');
@@ -1170,6 +1189,78 @@ const AdminDashboard: React.FC = () => {
     } catch (err) {
       console.error("Failed to update attendance:", err);
       alert('更新失敗，請檢查權限');
+    }
+  };
+
+  const handleCreateAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addAttEmployeeId) {
+      alert('請選擇員工');
+      return;
+    }
+    const emp = employees.find(e => e.id === addAttEmployeeId);
+    const empName = emp ? emp.name : '未知員工';
+    try {
+      await addDoc(collection(db, 'attendance'), {
+        employeeId: addAttEmployeeId,
+        empName: empName,
+        date: addAttDate,
+        time: addAttTime,
+        type: addAttType,
+        status: addAttStatus,
+        source: 'admin_manual',
+        coords: null,
+        timestamp: new Date().getTime()
+      });
+      setShowAddAttendanceModal(false);
+      setAddAttEmployeeId('');
+      setAddAttDate(new Date().toISOString().substring(0, 10));
+      setAddAttTime('09:00');
+      setAddAttType('上班');
+      setAddAttStatus('正常');
+    } catch (err) {
+      console.error("Failed to create attendance manually:", err);
+      alert('新增失敗，請檢查權限');
+    }
+  };
+
+  const handleOpenEditLeave = (leave: any) => {
+    setEditLeaveId(leave.id);
+    setEditLeaveEmployeeId(leave.employeeId || '');
+    setEditLeaveType(leave.leaveType || 'sick');
+    setEditLeaveStart(leave.startDate || '');
+    setEditLeaveEnd(leave.endDate || '');
+    setEditLeaveHours(Number(leave.hours) || 8);
+    setEditLeaveStatus(leave.status || 'pending');
+    setEditLeaveReason(leave.reason || '');
+    setShowEditLeaveModal(true);
+  };
+
+  const handleUpdateLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await updateDoc(doc(db, 'leaves', editLeaveId), {
+        leaveType: editLeaveType,
+        startDate: editLeaveStart,
+        endDate: editLeaveEnd,
+        hours: Number(editLeaveHours),
+        status: editLeaveStatus,
+        reason: editLeaveReason
+      });
+      setShowEditLeaveModal(false);
+    } catch (err) {
+      console.error("Failed to update leave:", err);
+      alert('更新失敗，請檢查權限');
+    }
+  };
+
+  const handleDeleteLeave = async (id: string) => {
+    if (!window.confirm('確定要刪除此請假紀錄嗎？此動作無法復原。')) return;
+    try {
+      await deleteDoc(doc(db, 'leaves', id));
+    } catch (err) {
+      console.error("Failed to delete leave:", err);
+      alert('刪除失敗，請檢查權限');
     }
   };
 
@@ -2288,6 +2379,7 @@ const AdminDashboard: React.FC = () => {
                 <div className="card-header">
                   <h3>即時打卡紀錄</h3>
                   <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn-primary btn-sm" onClick={() => setShowAddAttendanceModal(true)}>+ 新增打卡紀錄</button>
                     <button className="btn-primary btn-sm" onClick={handleExportAttendanceCSV}>匯出出勤表</button>
                     <button className="btn-primary btn-sm" onClick={handleExportInsuranceEnrollmentCSV}>匯出加保申報表 (CSV)</button>
                   </div>
@@ -3036,6 +3128,12 @@ const AdminDashboard: React.FC = () => {
                     <button onClick={onApprove} style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>✅ 核准</button>
                     <button onClick={onReject}  style={{ flex: 1, padding: '7px', borderRadius: '7px', border: 'none', backgroundColor: '#ef4444', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>❌ 駁回</button>
                   </div>
+                  {type === 'leave' && (
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                      <button onClick={() => handleOpenEditLeave(item)} style={{ flex: 1, padding: '5px', borderRadius: '6px', border: '1px solid var(--primary)', backgroundColor: 'transparent', color: 'var(--primary)', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>編輯假單</button>
+                      <button onClick={() => handleDeleteLeave(item.id)} style={{ flex: 1, padding: '5px', borderRadius: '6px', border: '1px solid #ef4444', backgroundColor: 'transparent', color: '#ef4444', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>刪除假單</button>
+                    </div>
+                  )}
                 </div>
               );
             };
@@ -3127,7 +3225,7 @@ const AdminDashboard: React.FC = () => {
                         <table className="data-table">
                           <thead>
                             <tr>
-                              <th>員工</th><th>申請類型</th><th>詳細內容</th><th>申請時間</th><th>狀態</th>
+                              <th>員工</th><th>申請類型</th><th>詳細內容</th><th>申請時間</th><th>狀態</th><th>操作</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -3145,6 +3243,26 @@ const AdminDashboard: React.FC = () => {
                                   </td>
                                   <td style={{ fontSize: '12px', color: '#9ca3af' }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString('zh-TW') : '-'}</td>
                                   <td><span style={{ padding: '2px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '700', color: s.color, backgroundColor: s.bg }}>{s.label}</span></td>
+                                  <td>
+                                    {item._type === 'leave' && (
+                                      <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button 
+                                          className="btn-text" 
+                                          style={{ color: 'var(--primary)', fontSize: '12px' }}
+                                          onClick={() => handleOpenEditLeave(item)}
+                                        >
+                                          編輯
+                                        </button>
+                                        <button 
+                                          className="btn-text" 
+                                          style={{ color: '#ef4444', fontSize: '12px' }}
+                                          onClick={() => handleDeleteLeave(item.id)}
+                                        >
+                                          刪除
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
                                 </tr>
                               );
                             })}
@@ -4659,6 +4777,248 @@ const AdminDashboard: React.FC = () => {
                 </button>
                 <button 
                   type="submit" 
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  儲存修改
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 手動新增打卡紀錄彈窗 */}
+      {showAddAttendanceModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="glass-card" style={{
+            width: '90%',
+            maxWidth: '450px',
+            padding: '32px',
+            borderRadius: '16px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>手動新增打卡紀錄</h3>
+            <form onSubmit={handleCreateAttendance} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>選擇員工</label>
+                <select 
+                  value={addAttEmployeeId} 
+                  onChange={(e) => setAddAttEmployeeId(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                  required
+                >
+                  <option value="">-- 請選擇員工 --</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>打卡日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={addAttDate} 
+                  onChange={(e) => setAddAttDate(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>打卡時間</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={addAttTime} 
+                  onChange={(e) => setAddAttTime(e.target.value)} 
+                  placeholder="例如：09:00"
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>打卡類型</label>
+                <select 
+                  value={addAttType} 
+                  onChange={(e) => setAddAttType(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="上班">上班</option>
+                  <option value="下班">下班</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>狀態</label>
+                <select 
+                  value={addAttStatus} 
+                  onChange={(e) => setAddAttStatus(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="正常">正常</option>
+                  <option value="遲到">遲到</option>
+                  <option value="早退">早退</option>
+                  <option value="異常">異常</option>
+                  <option value="補打卡">補打卡</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowAddAttendanceModal(false)}
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit"
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  新增打卡
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 編輯請假紀錄彈窗 */}
+      {showEditLeaveModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="glass-card" style={{
+            width: '90%',
+            maxWidth: '450px',
+            padding: '32px',
+            borderRadius: '16px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>編輯請假紀錄</h3>
+            <form onSubmit={handleUpdateLeave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>員工</label>
+                <select 
+                  disabled
+                  value={editLeaveEmployeeId}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
+                >
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>假別</label>
+                <select 
+                  value={editLeaveType} 
+                  onChange={(e) => setEditLeaveType(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  {LEAVE_TYPES.map(lt => (
+                    <option key={lt.value} value={lt.value}>{lt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>開始日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={editLeaveStart} 
+                  onChange={(e) => setEditLeaveStart(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>結束日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={editLeaveEnd} 
+                  onChange={(e) => setEditLeaveEnd(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時數</label>
+                <input 
+                  type="number" 
+                  required 
+                  min={1}
+                  value={editLeaveHours} 
+                  onChange={(e) => setEditLeaveHours(Number(e.target.value))} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>假單狀態</label>
+                <select 
+                  value={editLeaveStatus} 
+                  onChange={(e) => setEditLeaveStatus(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="pending">待審核</option>
+                  <option value="approved">已核准</option>
+                  <option value="rejected">已拒絕</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>事由</label>
+                <textarea 
+                  value={editLeaveReason} 
+                  onChange={(e) => setEditLeaveReason(e.target.value)} 
+                  rows={2}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowEditLeaveModal(false)}
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit"
                   style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
                 >
                   儲存修改

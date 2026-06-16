@@ -4,7 +4,7 @@ import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import {
   collection, addDoc, serverTimestamp, query, where, onSnapshot,
-  doc, getDoc, updateDoc
+  doc, getDoc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
 
@@ -79,6 +79,16 @@ const EmployeeClockIn: React.FC = () => {
   const [leaveReason, setLeaveReason] = useState('');
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const [leaveMsg, setLeaveMsg] = useState({ type: '', text: '' });
+
+  // ── 編輯請假 ──
+  const [showEditLeaveModal, setShowEditLeaveModal] = useState(false);
+  const [editLeaveId, setEditLeaveId] = useState('');
+  const [editLeaveType, setEditLeaveType] = useState('sick');
+  const [editLeaveStart, setEditLeaveStart] = useState('');
+  const [editLeaveEnd, setEditLeaveEnd] = useState('');
+  const [editLeavePeriod, setEditLeavePeriod] = useState<'full' | 'morning' | 'afternoon'>('full');
+  const [editLeaveHours, setEditLeaveHours] = useState<number>(8);
+  const [editLeaveReason, setEditLeaveReason] = useState('');
 
   // ── 加班表單 ──
   const [otDate, setOtDate] = useState('');
@@ -307,6 +317,8 @@ const EmployeeClockIn: React.FC = () => {
               if (type === 'in'  && now.getTime() > expectedIn.getTime()  + 60000) clockStatus = '遲到';
               if (type === 'out' && now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';
             }
+          } else {
+            clockStatus = '異常';
           }
           await addDoc(collection(db, 'attendance'), {
             empName: employeeName || auth.currentUser?.email || '未名員工',
@@ -375,12 +387,48 @@ const EmployeeClockIn: React.FC = () => {
     } finally { setLeaveSubmitting(false); }
   };
 
-  // ── 取消請假 ──
-  const handleCancelLeave = async (id: string) => {
-    if (!window.confirm('確定要撤銷此請假申請嗎？')) return;
+
+
+  const handleOpenEditLeave = (lv: any) => {
+    setEditLeaveId(lv.id);
+    setEditLeaveType(lv.leaveType || 'sick');
+    setEditLeaveStart(lv.startDate || '');
+    setEditLeaveEnd(lv.endDate || '');
+    setEditLeavePeriod(lv.leavePeriod || 'full');
+    setEditLeaveHours(Number(lv.hours) || 8);
+    setEditLeaveReason(lv.reason || '');
+    setShowEditLeaveModal(true);
+  };
+
+  const handleUpdateLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      await updateDoc(doc(db, 'leaves', id), { status: 'cancelled' });
-    } catch (err: any) { alert('撤銷失敗：' + err.message); }
+      const finalHours = editLeavePeriod === 'full' ? Number(editLeaveHours) : 4;
+      const periodLbl = editLeavePeriod === 'full' ? '全天' : editLeavePeriod === 'morning' ? '上半天' : '下半天';
+      await updateDoc(doc(db, 'leaves', editLeaveId), {
+        leaveType: editLeaveType,
+        startDate: editLeaveStart,
+        endDate: editLeaveEnd,
+        leavePeriod: editLeavePeriod,
+        periodLabel: periodLbl,
+        hours: finalHours,
+        reason: editLeaveReason
+      });
+      setShowEditLeaveModal(false);
+      alert('請假單修改成功！');
+    } catch (err: any) {
+      alert('修改失敗：' + err.message);
+    }
+  };
+
+  const handleDeleteLeave = async (id: string) => {
+    if (!window.confirm('確定要刪除此請假單嗎？此動作無法復原。')) return;
+    try {
+      await deleteDoc(doc(db, 'leaves', id));
+      alert('請假單已刪除！');
+    } catch (err: any) {
+      alert('刪除失敗：' + err.message);
+    }
   };
 
   // ── 送出加班 ──
@@ -825,12 +873,16 @@ const EmployeeClockIn: React.FC = () => {
                                 <td>{lv.hours} h</td>
                                 <td><span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: '600', color: s.color, backgroundColor: s.bg }}>{s.label}</span></td>
                                 <td>
-                                  {lv.status === 'pending' && (
-                                    <button onClick={() => handleCancelLeave(lv.id)}
-                                      style={{ fontSize: '11px', color: '#ef4444', background: 'none', border: '1px solid #ef4444', borderRadius: '5px', padding: '2px 6px', cursor: 'pointer' }}>
-                                      撤銷
+                                  <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button onClick={() => handleOpenEditLeave(lv)}
+                                      style={{ fontSize: '11px', color: 'var(--primary)', background: 'none', border: '1px solid var(--primary)', borderRadius: '5px', padding: '2px 6px', cursor: 'pointer' }}>
+                                      編輯
                                     </button>
-                                  )}
+                                    <button onClick={() => handleDeleteLeave(lv.id)}
+                                      style={{ fontSize: '11px', color: '#ef4444', background: 'none', border: '1px solid #ef4444', borderRadius: '5px', padding: '2px 6px', cursor: 'pointer' }}>
+                                      刪除
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1129,6 +1181,126 @@ const EmployeeClockIn: React.FC = () => {
             <div style={{ marginTop: '16px', padding: '10px', backgroundColor: '#f3f4f6', borderRadius: '8px', fontSize: '11px', color: '#9ca3af', textAlign: 'center' }}>
               勞保投保薪資：NT$ {selectedSlip.laborSub?.toLocaleString()} ｜ 健保投保薪資：NT$ {selectedSlip.nhiSub?.toLocaleString()}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 員工編輯請假 Modal */}
+      {showEditLeaveModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div className="glass-card" style={{
+            width: '90%',
+            maxWidth: '450px',
+            padding: '32px',
+            borderRadius: '16px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>修改請假申請</h3>
+            <form onSubmit={handleUpdateLeave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>假別</label>
+                <select 
+                  value={editLeaveType} 
+                  onChange={(e) => setEditLeaveType(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  {LEAVE_TYPES.map(lt => (
+                    <option key={lt.value} value={lt.value}>{lt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時段</label>
+                <select 
+                  value={editLeavePeriod} 
+                  onChange={(e) => setEditLeavePeriod(e.target.value as any)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="full">全天（8 小時）</option>
+                  <option value="morning">上半天（4 小時）</option>
+                  <option value="afternoon">下半天（4 小時）</option>
+                </select>
+              </div>
+
+              {editLeavePeriod === 'full' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時數（全天請假時填寫）</label>
+                  <input 
+                    type="number" 
+                    min={1} 
+                    max={240} 
+                    value={editLeaveHours} 
+                    onChange={(e) => setEditLeaveHours(Number(e.target.value))} 
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>開始日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={editLeaveStart} 
+                  onChange={(e) => setEditLeaveStart(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>結束日期</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={editLeaveEnd} 
+                  onChange={(e) => setEditLeaveEnd(e.target.value)} 
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>請假事由</label>
+                <textarea 
+                  value={editLeaveReason} 
+                  onChange={(e) => setEditLeaveReason(e.target.value)} 
+                  rows={2}
+                  placeholder="請填寫請假原因（選填）"
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowEditLeaveModal(false)}
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit"
+                  style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+                >
+                  儲存修改
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
