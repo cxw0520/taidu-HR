@@ -456,3 +456,21 @@
   }
 }
 
+/* Custom scrollbar for calendar cell schedules */
+.day-schedules-list::-webkit-scrollbar {
+  width: 4px;
+}
+.day-schedules-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.day-schedules-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+}
+.day-schedules-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.calendar-stats-container {
+  animation: fadeIn 0.3s ease-in-out;
+}

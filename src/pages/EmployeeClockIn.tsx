@@ -19,6 +19,7 @@ const EmployeeClockIn: React.FC = () => {
   });
   const [clockInRecord, setClockInRecord] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState<string>('');
+  const [toleranceHours, setToleranceHours] = useState<number>(4);
 
   // 員工前台新增 Tab States
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'schedule' | 'payroll'>('clock');
@@ -50,6 +51,19 @@ const EmployeeClockIn: React.FC = () => {
       clearInterval(timer);
       unsubscribe();
     };
+  }, []);
+
+  // 載入系統打卡配對容許時數
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'rules'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && typeof data.toleranceHours === 'number') {
+          setToleranceHours(data.toleranceHours);
+        }
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   // 當使用者登入時，監聽其相關資料 (今日打卡、班表、薪資單)
@@ -136,7 +150,7 @@ const EmployeeClockIn: React.FC = () => {
 
           const { assignClockToWorkDate } = await import('../utils/taiwanHrEngine');
           const now = new Date();
-          const matchResult = assignClockToWorkDate(now, type === 'in', activeSchedules);
+          const matchResult = assignClockToWorkDate(now, type === 'in', activeSchedules, toleranceHours);
           const workDate = matchResult.workDate;
           const scheduleId = matchResult.scheduleId;
 

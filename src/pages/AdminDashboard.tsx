@@ -23,7 +23,7 @@ const getSecondaryAuth = () => {
 
 
 const AdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'attendance' | 'employees' | 'schedules' | 'payroll'>('attendance');
+  const [activeTab, setActiveTab] = useState<'attendance' | 'employees' | 'schedules' | 'payroll' | 'settings'>('attendance');
   const [attendance, setAttendance] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -41,6 +41,42 @@ const AdminDashboard: React.FC = () => {
   const [addSuccess, setAddSuccess] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // 系統設定狀態與監聽
+  const [shifts, setShifts] = useState<any[]>([]);
+  const [insuranceRates, setInsuranceRates] = useState<any>({
+    laborRate: 0.12,
+    nhiRate: 0.0517,
+    nhiAvgDependents: 0.56,
+    employerLaborRatio: 0.7,
+    employeeLaborRatio: 0.2,
+    employerNhiRatio: 0.6,
+    employeeNhiRatio: 0.3
+  });
+
+  const [holidays, setHolidays] = useState<any[]>([]);
+
+  // 國定假日與挪移管理專用 UI inputs
+  const [newHolidayName, setNewHolidayName] = useState('');
+  const [newHolidayDate, setNewHolidayDate] = useState('');
+  const [newHolidayMovedDate, setNewHolidayMovedDate] = useState('');
+
+  // 系統設定專用 UI inputs
+  const [newShiftName, setNewShiftName] = useState('');
+  const [newShiftStart, setNewShiftStart] = useState('09:00');
+  const [newShiftEnd, setNewShiftEnd] = useState('18:00');
+
+  // 保費費率與規則輸入 Form states
+  const [cfgLaborRate, setCfgLaborRate] = useState(0.12);
+  const [cfgNhiRate, setCfgNhiRate] = useState(0.0517);
+  const [cfgNhiAvgDeps, setCfgNhiAvgDeps] = useState(0.56);
+  const [cfgEmpLaborRatio, setCfgEmpLaborRatio] = useState(0.2);
+  const [cfgEmprLaborRatio, setCfgEmprLaborRatio] = useState(0.7);
+  const [cfgEmpNhiRatio, setCfgEmpNhiRatio] = useState(0.3);
+  const [cfgEmprNhiRatio, setCfgEmprNhiRatio] = useState(0.6);
+  const [cfgToleranceHours, setCfgToleranceHours] = useState(4);
+
+  const [settingsSaveMsg, setSettingsSaveMsg] = useState({ type: '', text: '' });
+
   // 台灣勞基法合規新增欄位 states
   const [newIdentityNumber, setNewIdentityNumber] = useState('');
   const [newOnboardDate, setNewOnboardDate] = useState(new Date().toISOString().substring(0, 10));
@@ -50,6 +86,7 @@ const AdminDashboard: React.FC = () => {
   const [newNhiSub, setNewNhiSub] = useState<number>(31800);
   const [newPensionSub, setNewPensionSub] = useState<number>(31800);
   const [newSupervisorId, setNewSupervisorId] = useState('');
+  const [newSalaryType, setNewSalaryType] = useState<'monthly' | 'hourly'>('monthly');
 
   // 從 Firestore 同步職務列表
   useEffect(() => {
@@ -175,7 +212,8 @@ const AdminDashboard: React.FC = () => {
         laborSub: Number(newLaborSub),
         nhiSub: Number(newNhiSub),
         pensionSub: Number(newPensionSub),
-        supervisorId: newSupervisorId
+        supervisorId: newSupervisorId,
+        salaryType: newSalaryType
       });
 
       // 3. 次要 App 實體登出，防止干涉主要 auth 狀態
@@ -193,6 +231,7 @@ const AdminDashboard: React.FC = () => {
       setNewNhiSub(31800);
       setNewPensionSub(31800);
       setNewSupervisorId('');
+      setNewSalaryType('monthly');
       setTimeout(() => {
         setShowAddModal(false);
         setAddSuccess('');
@@ -243,9 +282,15 @@ const AdminDashboard: React.FC = () => {
   const [editNhiSub, setEditNhiSub] = useState<number>(31800);
   const [editPensionSub, setEditPensionSub] = useState<number>(31800);
   const [editSupervisorId, setEditSupervisorId] = useState('');
+  const [editSalaryType, setEditSalaryType] = useState<'monthly' | 'hourly'>('monthly');
 
-  // 排班搜尋 States
-  const [schedSearch, setSchedSearch] = useState('');
+  // 日曆式排班與快速排班狀態
+  const [viewYear, setViewYear] = useState<number>(new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState<number>(new Date().getMonth() + 1);
+  const [isQuickSchedMode, setIsQuickSchedMode] = useState<boolean>(false);
+  const [quickSchedEmpId, setQuickSchedEmpId] = useState<string>('');
+  const [quickSchedShift, setQuickSchedShift] = useState<string>('');
+  const [quickSchedStatus, setQuickSchedStatus] = useState<string>('已確認');
 
   // 薪資篩選與月份 States
   const [payMonthFilter, setPayMonthFilter] = useState(new Date().toISOString().substring(0, 7));
@@ -294,6 +339,266 @@ const AdminDashboard: React.FC = () => {
   const [editPayOvertime, setEditPayOvertime] = useState<number>(0);
   const [editPayDeductions, setEditPayDeductions] = useState<number>(0);
   const [editPayStatus, setEditPayStatus] = useState('');
+
+  // 從 Firestore 同步班別設定
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'shifts'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && Array.isArray(data.list)) {
+          setShifts(data.list);
+        }
+      } else {
+        const defaultShifts = [
+          { name: '早班', startTime: '09:00', endTime: '18:00' },
+          { name: '中班', startTime: '13:00', endTime: '22:00' },
+          { name: '晚班', startTime: '18:00', endTime: '02:00' }
+        ];
+        setShifts(defaultShifts);
+        setDoc(doc(db, 'settings', 'shifts'), { list: defaultShifts })
+          .catch(err => console.error("Initialize shifts error:", err));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 從 Firestore 同步保費費率與差勤規則
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'insurance'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setInsuranceRates(data);
+        setCfgLaborRate(data.laborRate);
+        setCfgNhiRate(data.nhiRate);
+        setCfgNhiAvgDeps(data.nhiAvgDependents);
+        setCfgEmpLaborRatio(data.employeeLaborRatio);
+        setCfgEmprLaborRatio(data.employerLaborRatio);
+        setCfgEmpNhiRatio(data.employeeNhiRatio);
+        setCfgEmprNhiRatio(data.employerNhiRatio);
+      } else {
+        const defaultRates = {
+          laborRate: 0.12,
+          nhiRate: 0.0517,
+          nhiAvgDependents: 0.56,
+          employerLaborRatio: 0.7,
+          employeeLaborRatio: 0.2,
+          employerNhiRatio: 0.6,
+          employeeNhiRatio: 0.3
+        };
+        setInsuranceRates(defaultRates);
+        setDoc(doc(db, 'settings', 'insurance'), defaultRates)
+          .catch(err => console.error("Initialize insurance error:", err));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'rules'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setCfgToleranceHours(data.toleranceHours);
+      } else {
+        const defaultRules = {
+          toleranceHours: 4
+        };
+        setDoc(doc(db, 'settings', 'rules'), defaultRules)
+          .catch(err => console.error("Initialize rules error:", err));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'holidays'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && Array.isArray(data.list)) {
+          const normalized = data.list.map((h: any) => ({
+            ...h,
+            movedDate: h.movedDate || h.date
+          }));
+          setHolidays(normalized);
+        }
+      } else {
+        const defaultHolidays = [
+          // 2025
+          { date: '2025-01-01', name: '元旦' },
+          { date: '2025-01-26', name: '小年夜' },
+          { date: '2025-01-27', name: '除夕' },
+          { date: '2025-01-28', name: '春節初一' },
+          { date: '2025-01-29', name: '春節初二' },
+          { date: '2025-01-30', name: '春節初三' },
+          { date: '2025-02-28', name: '和平紀念日' },
+          { date: '2025-04-03', name: '兒童節' },
+          { date: '2025-04-04', name: '清明節' },
+          { date: '2025-05-01', name: '勞動節' },
+          { date: '2025-05-31', name: '端午節' },
+          { date: '2025-09-28', name: '教師節' },
+          { date: '2025-10-06', name: '中秋節' },
+          { date: '2025-10-10', name: '國慶日' },
+          { date: '2025-10-25', name: '臺灣光復節' },
+          { date: '2025-12-25', name: '行憲紀念日' },
+          // 2026
+          { date: '2026-01-01', name: '元旦' },
+          { date: '2026-02-15', name: '小年夜' },
+          { date: '2026-02-16', name: '除夕' },
+          { date: '2026-02-17', name: '春節初一' },
+          { date: '2026-02-18', name: '春節初二' },
+          { date: '2026-02-19', name: '春節初三' },
+          { date: '2026-02-28', name: '和平紀念日' },
+          { date: '2026-04-03', name: '兒童節' },
+          { date: '2026-04-04', name: '清明節' },
+          { date: '2026-05-01', name: '勞動節' },
+          { date: '2026-06-19', name: '端午節' },
+          { date: '2026-09-25', name: '中秋節' },
+          { date: '2026-09-28', name: '教師節' },
+          { date: '2026-10-10', name: '國慶日' },
+          { date: '2026-10-25', name: '臺灣光復節' },
+          { date: '2026-12-25', name: '行憲紀念日' }
+        ];
+        const defaultHolidaysWithMoved = defaultHolidays.map((h: any) => ({
+          ...h,
+          movedDate: h.date
+        }));
+        setHolidays(defaultHolidaysWithMoved);
+        setDoc(doc(db, 'settings', 'holidays'), { list: defaultHolidaysWithMoved })
+          .catch(err => console.error("Initialize holidays error:", err));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 當 shifts 載入完畢，設定預設排班班別
+  useEffect(() => {
+    if (shifts.length > 0) {
+      const firstShiftStr = `${shifts[0].name} (${shifts[0].startTime} - ${shifts[0].endTime})`;
+      if (!schedShift || !shifts.some(s => `${s.name} (${s.startTime} - ${s.endTime})` === schedShift)) {
+        setSchedShift(firstShiftStr);
+      }
+      if (!quickSchedShift || !shifts.some(s => `${s.name} (${s.startTime} - ${s.endTime})` === quickSchedShift)) {
+        setQuickSchedShift(firstShiftStr);
+      }
+    }
+  }, [shifts, schedShift, quickSchedShift]);
+
+  const handleAddShift = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newShiftName.trim();
+    if (!name) return;
+    const start = newShiftStart.trim();
+    const end = newShiftEnd.trim();
+    
+    if (shifts.some(s => s.name === name)) {
+      alert('該班別名稱已經存在');
+      return;
+    }
+    
+    const updatedShifts = [...shifts, { name, startTime: start, endTime: end }];
+    setShifts(updatedShifts);
+    setNewShiftName('');
+    try {
+      await setDoc(doc(db, 'settings', 'shifts'), { list: updatedShifts });
+    } catch (err) {
+      console.error("Failed to save shifts:", err);
+      alert('儲存班別失敗');
+    }
+  };
+
+  const handleDeleteShift = async (shiftName: string) => {
+    if (shifts.length <= 1) {
+      alert('必須保留至少一個班別');
+      return;
+    }
+    if (!window.confirm(`確定要刪除「${shiftName}」班別嗎？`)) return;
+    
+    const updatedShifts = shifts.filter(s => s.name !== shiftName);
+    setShifts(updatedShifts);
+    try {
+      await setDoc(doc(db, 'settings', 'shifts'), { list: updatedShifts });
+    } catch (err) {
+      console.error("Failed to delete shift:", err);
+      alert('刪除班別失敗');
+    }
+  };
+
+  const handleSaveInsuranceAndRules = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSettingsSaveMsg({ type: '', text: '' });
+    
+    const insData = {
+      laborRate: Number(cfgLaborRate),
+      nhiRate: Number(cfgNhiRate),
+      nhiAvgDependents: Number(cfgNhiAvgDeps),
+      employeeLaborRatio: Number(cfgEmpLaborRatio),
+      employerLaborRatio: Number(cfgEmprLaborRatio),
+      employeeNhiRatio: Number(cfgEmpNhiRatio),
+      employerNhiRatio: Number(cfgEmprNhiRatio)
+    };
+    
+    const rulesData = {
+      toleranceHours: Number(cfgToleranceHours)
+    };
+    
+    try {
+      await setDoc(doc(db, 'settings', 'insurance'), insData);
+      await setDoc(doc(db, 'settings', 'rules'), rulesData);
+      setSettingsSaveMsg({ type: 'success', text: '設定已成功儲存至雲端資料庫！' });
+      setTimeout(() => setSettingsSaveMsg({ type: '', text: '' }), 4000);
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+      setSettingsSaveMsg({ type: 'error', text: '儲存失敗，請檢查權限或連線。' });
+    }
+  };
+
+  const handleSaveOrMoveHoliday = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newHolidayName.trim();
+    const date = newHolidayDate.trim();
+    const movedDate = newHolidayMovedDate.trim() || date;
+    if (!name || !date) return;
+
+    let updatedList;
+    const existingIndex = holidays.findIndex(h => h.name.toLowerCase() === name.toLowerCase());
+    
+    const newItem = { name, date, movedDate };
+    
+    if (existingIndex >= 0) {
+      // 挪移日期
+      updatedList = [...holidays];
+      updatedList[existingIndex] = newItem;
+    } else {
+      // 新增假日
+      updatedList = [...holidays, newItem];
+    }
+
+    updatedList.sort((a, b) => a.date.localeCompare(b.date));
+
+    setHolidays(updatedList);
+    setNewHolidayName('');
+    setNewHolidayDate('');
+    setNewHolidayMovedDate('');
+    
+    try {
+      await setDoc(doc(db, 'settings', 'holidays'), { list: updatedList });
+      alert(`國定假日「${name}」已成功設定為：原始 ${date}，月薪挪移至 ${movedDate}！`);
+    } catch (err) {
+      console.error("Failed to save holiday:", err);
+      alert('儲存假日失敗');
+    }
+  };
+
+  const handleDeleteHoliday = async (holidayName: string) => {
+    if (!window.confirm(`確定要刪除「${holidayName}」國定假日嗎？`)) return;
+    const updatedList = holidays.filter(h => h.name !== holidayName);
+    setHolidays(updatedList);
+    try {
+      await setDoc(doc(db, 'settings', 'holidays'), { list: updatedList });
+    } catch (err) {
+      console.error("Failed to delete holiday:", err);
+      alert('刪除失敗');
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'schedules'));
@@ -393,20 +698,7 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleToggleScheduleStatus = async (id: string, currentStatus: string) => {
-    if (id === '1' || id === '2') {
-      alert('模擬資料無法直接修改，請建立真實資料進行操作。');
-      return;
-    }
-    try {
-      const newStatus = currentStatus === '已確認' ? '待確認' : '已確認';
-      await updateDoc(doc(db, 'schedules', id), {
-        status: newStatus
-      });
-    } catch (err) {
-      console.error("Failed to update schedule status:", err);
-    }
-  };
+
 
   const handleDeleteSchedule = async (id: string) => {
     if (id === '1' || id === '2') {
@@ -419,6 +711,69 @@ const AdminDashboard: React.FC = () => {
     } catch (err) {
       console.error("Failed to delete schedule:", err);
       alert('刪除失敗，請檢查權限');
+    }
+  };
+
+  // 快速排班與日曆輔助函式
+  const handlePrevMonth = () => {
+    if (viewMonth === 1) {
+      setViewMonth(12);
+      setViewYear(prev => prev - 1);
+    } else {
+      setViewMonth(prev => prev - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (viewMonth === 12) {
+      setViewMonth(1);
+      setViewYear(prev => prev + 1);
+    } else {
+      setViewMonth(prev => prev + 1);
+    }
+  };
+
+  const handleQuickAddSchedule = async (dateStr: string) => {
+    if (!quickSchedEmpId) {
+      alert('請先選擇員工以啟用快速排班模式。');
+      return;
+    }
+    const emp = employees.find(e => e.id === quickSchedEmpId);
+    if (!emp) {
+      alert('找不到該員工資料');
+      return;
+    }
+    const currentShift = quickSchedShift || (shifts.length > 0 ? `${shifts[0].name} (${shifts[0].startTime} - ${shifts[0].endTime})` : '早班 (09:00 - 18:00)');
+    
+    // 檢查該日期是否已有此員工排班，若是則點擊變為「刪除」（開關切換效果）
+    const existing = schedules.find(s => s.employeeId === quickSchedEmpId && s.date === dateStr);
+    if (existing) {
+      if (existing.id === '1' || existing.id === '2') {
+        alert('模擬排班無法刪除。');
+        return;
+      }
+      if (window.confirm(`${emp.name} 在 ${dateStr} 已經有排班 (${existing.shift})，確定要刪除此排班嗎？`)) {
+        try {
+          await deleteDoc(doc(db, 'schedules', existing.id));
+        } catch (err) {
+          console.error("Failed to delete quick schedule:", err);
+        }
+      }
+      return;
+    }
+
+    try {
+      await setDoc(doc(collection(db, 'schedules')), {
+        empName: emp.name,
+        employeeId: quickSchedEmpId,
+        date: dateStr,
+        shift: currentShift,
+        status: quickSchedStatus || '已確認',
+        timestamp: new Date().getTime()
+      });
+    } catch (err) {
+      console.error("Failed to quick add schedule:", err);
+      alert('建立排班失敗');
     }
   };
 
@@ -505,6 +860,7 @@ const AdminDashboard: React.FC = () => {
     setEditNhiSub(emp.nhiSub || 31800);
     setEditPensionSub(emp.pensionSub || 31800);
     setEditSupervisorId(emp.supervisorId || '');
+    setEditSalaryType(emp.salaryType || 'monthly');
     setShowEditEmployeeModal(true);
   };
 
@@ -523,7 +879,8 @@ const AdminDashboard: React.FC = () => {
         laborSub: Number(editLaborSub),
         nhiSub: Number(editNhiSub),
         pensionSub: Number(editPensionSub),
-        supervisorId: editSupervisorId
+        supervisorId: editSupervisorId,
+        salaryType: editSalaryType
       });
       setShowEditEmployeeModal(false);
     } catch (err) {
@@ -583,6 +940,7 @@ const AdminDashboard: React.FC = () => {
         let pensionSub = emp.pensionSub || 31800;
         let onboardDateStr = emp.onboardDate || '2025-01-01';
         let resignDateStr = emp.resignDate || null;
+        const salaryType = emp.salaryType || 'monthly';
 
         if (isMock) {
           if (emp.role && emp.role.includes('工程師')) {
@@ -592,7 +950,8 @@ const AdminDashboard: React.FC = () => {
           }
         }
 
-        const hourlyRate = monthlySalary / 240; // 僅以「底薪 / 240」計算時薪基準
+        const isHourly = salaryType === 'hourly';
+        const hourlyRate = isHourly ? monthlySalary : (monthlySalary / 240);
 
         // 篩選該員工當月的打卡
         const empAttendance = attendanceRecords.filter((rec: any) => 
@@ -601,9 +960,11 @@ const AdminDashboard: React.FC = () => {
         );
 
         const daysWorked = new Set(empAttendance.map((rec: any) => rec.date)).size;
+        
+        let calculatedBaseSalary = isHourly ? 0 : monthlySalary;
         let overtimePay = 0;
         
-        // 依每日工作日 (date) 的上班與下班時間計算加班費
+        // 依每日工作日 (date) 的上班與下班時間計算薪資
         const attendanceByDate: { [date: string]: any[] } = {};
         empAttendance.forEach((rec: any) => {
           if (!attendanceByDate[rec.date]) attendanceByDate[rec.date] = [];
@@ -622,24 +983,51 @@ const AdminDashboard: React.FC = () => {
             const inTime = parseTime(inRec.time);
             let outTime = parseTime(outRec.time);
             
-            // 處理跨夜下班時間 (若下班小時小於上班小時，代表跨日)
+            // 處理跨夜下班時間
             if (outTime < inTime) {
               outTime += 24;
             }
 
             if (outTime > inTime) {
               const hours = outTime - inTime;
-              if (hours > 8) {
-                const overtimeHours = hours - 8;
-                
-                // 依週六、週日、平日決定加班費類型 (一例一休預設模型)
-                const d = new Date(date);
-                const dayOfWeek = d.getDay();
-                let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
-                if (dayOfWeek === 6) dayType = 'rest'; // 週六休息日
-                else if (dayOfWeek === 0) dayType = 'holiday'; // 週日例假日
-                
-                overtimePay += calculateOvertimePay(hourlyRate, overtimeHours, dayType);
+              
+              if (isHourly) {
+                // 時薪制計算
+                const isOriginalHoliday = holidays.some(h => h.date === date);
+                if (isOriginalHoliday) {
+                  // 國定假日雙薪：1x 進底薪，1x 進加班費
+                  const regHours = Math.min(hours, 8);
+                  calculatedBaseSalary += regHours * hourlyRate;
+                  overtimePay += regHours * hourlyRate; // 額外 1 倍
+                  if (hours > 8) {
+                    overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
+                  }
+                } else {
+                  // 一般日
+                  calculatedBaseSalary += Math.min(hours, 8) * hourlyRate;
+                  if (hours > 8) {
+                    overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
+                  }
+                }
+              } else {
+                // 月薪制計算
+                const isMonthlyHoliday = holidays.some(h => h.movedDate ? h.movedDate === date : h.date === date);
+                if (isMonthlyHoliday) {
+                  // 國定假日/挪移假出勤：使用引擎計算（8小時內加發1倍薪資，超出部分加成）
+                  overtimePay += calculateOvertimePay(hourlyRate, hours, 'holiday');
+                } else {
+                  // 一般日/休息日/例假日：僅計算超過 8 小時之加班費
+                  if (hours > 8) {
+                    const overtimeHours = hours - 8;
+                    const d = new Date(date);
+                    const dayOfWeek = d.getDay();
+                    let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
+                    if (dayOfWeek === 6) dayType = 'rest';
+                    else if (dayOfWeek === 0) dayType = 'holiday';
+                    
+                    overtimePay += calculateOvertimePay(hourlyRate, overtimeHours, dayType);
+                  }
+                }
               }
             }
           }
@@ -655,19 +1043,20 @@ const AdminDashboard: React.FC = () => {
           onboardDateStr,
           resignDateStr,
           currentMonth,
-          { laborSub, nhiSub, pensionSub }
+          { laborSub, nhiSub, pensionSub },
+          insuranceRates
         );
 
         // 扣款項目：預扣代繳之員工勞健保自付額
         const deductions = ins.employeeLabor + ins.employeeNhi;
-        const netSalary = monthlySalary + overtimePay - deductions;
+        const netSalary = calculatedBaseSalary + overtimePay - deductions;
         
         const payrollId = `${emp.id}-${currentMonth}`;
         await setDoc(doc(db, 'payroll', payrollId), {
           empName: emp.name,
           employeeId: emp.id,
           month: currentMonth,
-          baseSalary: monthlySalary,
+          baseSalary: calculatedBaseSalary,
           overtime: overtimePay,
           deductions: deductions,
           netSalary: netSalary,
@@ -801,13 +1190,24 @@ const AdminDashboard: React.FC = () => {
     return matchesDate && matchesName;
   });
 
-  const filteredSchedules = schedules.filter(s => {
-    return s.empName?.toLowerCase().includes(schedSearch.toLowerCase());
-  });
-
   const filteredPayroll = payroll.filter(p => {
     return viewPayMonth ? p.month === viewPayMonth : true;
   });
+
+  // 取得當月天數與首日星期
+  const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
+  const firstDayOfWeek = new Date(viewYear, viewMonth - 1, 1).getDay(); // 0 = Sun, 6 = Sat
+
+  // 建立日曆網格格子
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    cells.push(null);
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push(d);
+  }
+
+
 
   return (
     <div className="admin-layout">
@@ -845,7 +1245,14 @@ const AdminDashboard: React.FC = () => {
           >
             💰 薪資計算
           </button>
-          <Link to="/" className="nav-item return-link" onClick={() => setIsSidebarOpen(false)}>
+          <button 
+            className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('settings'); setIsSidebarOpen(false); }}
+            style={{ marginTop: 'auto' }}
+          >
+            ⚙️ 系統設定
+          </button>
+          <Link to="/" className="nav-item return-link" style={{ marginTop: '0' }} onClick={() => setIsSidebarOpen(false)}>
             ⬅️ 返回前台打卡
           </Link>
         </nav>
@@ -878,10 +1285,37 @@ const AdminDashboard: React.FC = () => {
             {activeTab === 'employees' && '員工列表'}
             {activeTab === 'schedules' && '排班系統'}
             {activeTab === 'payroll' && '薪資計算'}
+            {activeTab === 'settings' && '系統設定'}
           </h1>
           <div className="admin-user" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span>管理員 (Admin)</span>
-            <div className="avatar">A</div>
+            <div 
+              className="avatar" 
+              style={{ cursor: 'pointer' }} 
+              onClick={() => setActiveTab('settings')}
+              title="進入設定"
+            >
+              A
+            </div>
+            <button
+              onClick={() => setActiveTab('settings')}
+              style={{
+                background: activeTab === 'settings' ? 'rgba(79, 70, 229, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                color: activeTab === 'settings' ? 'var(--primary)' : 'var(--text-main)',
+                border: activeTab === 'settings' ? '1px solid rgba(79, 70, 229, 0.2)' : '1px solid var(--border)',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '13px',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              ⚙️ 設定
+            </button>
             <button 
               onClick={handleSignOut}
               style={{
@@ -1022,6 +1456,7 @@ const AdminDashboard: React.FC = () => {
                       <th>姓名</th>
                       <th>電子信箱</th>
                       <th>職位</th>
+                      <th>計薪類型</th>
                       <th>帳號狀態</th>
                       <th>操作</th>
                     </tr>
@@ -1033,6 +1468,11 @@ const AdminDashboard: React.FC = () => {
                         <td data-label="姓名">{emp.name}</td>
                         <td data-label="電子信箱">{emp.email || 'N/A'}</td>
                         <td data-label="職位">{emp.role}</td>
+                        <td data-label="計薪類型">
+                          <span className={`badge`} style={{ backgroundColor: emp.salaryType === 'hourly' ? '#f3f4f6' : 'rgba(79, 70, 229, 0.1)', color: emp.salaryType === 'hourly' ? '#4b5563' : 'var(--primary)', fontWeight: '600', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>
+                            {emp.salaryType === 'hourly' ? '時薪工讀' : '月薪排班'}
+                          </span>
+                        </td>
                         <td data-label="帳號狀態">
                           <span className={`badge badge-${emp.status === 'active' ? 'success' : 'neutral'}`}>
                             {emp.status === 'active' ? '啟用中' : '已停用'}
@@ -1062,57 +1502,386 @@ const AdminDashboard: React.FC = () => {
             </div>
           )}
           {activeTab === 'schedules' && (
-            <div className="card">
-              <div className="card-header">
-                <h3>本週班表</h3>
-                <button className="btn-primary btn-sm" onClick={() => setShowScheduleModal(true)}>+ 新增排班</button>
-              </div>
+            <div className="schedule-layout">
+              {/* 控制區 */}
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <h3 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--primary)' }}>📅 {viewYear} 年 {viewMonth} 月 排班日曆</h3>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button onClick={handlePrevMonth} className="btn-text" style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: '6px' }}>◀</button>
+                      <button onClick={handleNextMonth} className="btn-text" style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: '6px' }}>▶</button>
+                    </div>
+                  </div>
 
-              {/* 排班搜尋篩選 */}
-              <div className="filters-row" style={{ display: 'flex', gap: '16px', padding: '16px 24px', backgroundColor: '#f9fafb', borderBottom: '1px solid var(--border)' }}>
-                <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: '600' }}>搜尋員工：</span>
-                  <input 
-                    type="text" 
-                    placeholder="輸入員工姓名..." 
-                    value={schedSearch} 
-                    onChange={(e) => setSchedSearch(e.target.value)} 
-                    style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
-                  />
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* 快速排班模式開關 */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', backgroundColor: isQuickSchedMode ? 'rgba(79, 70, 229, 0.1)' : 'transparent', padding: '6px 12px', borderRadius: '8px', border: `1px solid ${isQuickSchedMode ? 'rgba(79, 70, 229, 0.2)' : 'var(--border)'}`, transition: 'all 0.2s' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={isQuickSchedMode} 
+                        onChange={(e) => {
+                          setIsQuickSchedMode(e.target.checked);
+                          if (e.target.checked && employees.length > 0 && !quickSchedEmpId) {
+                            setQuickSchedEmpId(employees[0].id);
+                          }
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '13px', fontWeight: '700', color: isQuickSchedMode ? 'var(--primary)' : 'var(--text-muted)' }}>⚡ 啟用快速排班模式</span>
+                    </label>
+                    
+                    <button className="btn-primary btn-sm" onClick={() => {
+                      setSchedDate(`${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`);
+                      setShowScheduleModal(true);
+                    }}>+ 新增排班</button>
+                  </div>
                 </div>
+
+                {isQuickSchedMode && (
+                  <div className="glass-card" style={{ display: 'flex', gap: '16px', padding: '16px', borderRadius: '12px', backgroundColor: '#f5f3ff', border: '1px solid rgba(124, 58, 237, 0.15)', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ fontSize: '13px', fontWeight: '700', color: '#6d28d9' }}>⚡ 快速排班設定：</div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '600' }}>選擇員工：</span>
+                      <select 
+                        value={quickSchedEmpId} 
+                        onChange={(e) => setQuickSchedEmpId(e.target.value)}
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
+                      >
+                        {employees.map(emp => (
+                          <option key={emp.id} value={emp.id}>{emp.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '600' }}>選擇班別：</span>
+                      <select 
+                        value={quickSchedShift} 
+                        onChange={(e) => setQuickSchedShift(e.target.value)}
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
+                      >
+                        {shifts.map((s, idx) => {
+                          const val = `${s.name} (${s.startTime} - ${s.endTime})`;
+                          return <option key={idx} value={val}>{val}</option>;
+                        })}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '600' }}>狀態：</span>
+                      <select 
+                        value={quickSchedStatus} 
+                        onChange={(e) => setQuickSchedStatus(e.target.value)}
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
+                      >
+                        <option value="已確認">已確認</option>
+                        <option value="待確認">待確認</option>
+                      </select>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#7c3aed', fontWeight: '500' }}>
+                      💡 提示：設定後在日曆格子上點擊，可直接為該員工排班；若再次點擊則取消該日排班。
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="table-responsive">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>員工姓名</th>
-                      <th>日期</th>
-                      <th>班別時間</th>
-                      <th>狀態</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSchedules.map(schedule => (
-                      <tr key={schedule.id}>
-                        <td data-label="員工姓名">{schedule.empName}</td>
-                        <td data-label="日期">{schedule.date}</td>
-                        <td data-label="班別時間">{schedule.shift}</td>
-                        <td data-label="狀態">
-                          <span className={`badge badge-${schedule.status === '已確認' ? 'success' : 'warning'}`}>
-                            {schedule.status}
-                          </span>
-                        </td>
-                        <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          <button className="btn-text" onClick={() => handleToggleScheduleStatus(schedule.id, schedule.status)}>調整狀態</button>
-                          <button className="btn-text" style={{ color: 'var(--primary)' }} onClick={() => handleOpenEditSchedule(schedule)}>編輯</button>
-                          <button className="btn-text" style={{ color: '#ef4444' }} onClick={() => handleDeleteSchedule(schedule.id)}>刪除</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {/* 日曆網格與統計 */}
+              <div className="calendar-stats-container" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* 1. 日曆主體 */}
+                <div className="card" style={{ padding: '16px', overflowX: 'auto' }}>
+                  <div style={{ minWidth: '800px' }}>
+                    {/* 星期標頭 */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', marginBottom: '8px', textAlign: 'center', fontWeight: '700', fontSize: '14px' }}>
+                      <div style={{ color: '#ef4444' }}>日</div>
+                      <div>一</div>
+                      <div>二</div>
+                      <div>三</div>
+                      <div>四</div>
+                      <div>五</div>
+                      <div style={{ color: '#f59e0b' }}>六</div>
+                    </div>
+
+                    {/* 日曆網格 */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
+                      {cells.map((day, idx) => {
+                        if (day === null) {
+                          return <div key={`empty-${idx}`} style={{ backgroundColor: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: '8px', height: '120px' }}></div>;
+                        }
+
+                        const dateString = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const dayOfWeek = (idx % 7);
+                        const origHoliday = holidays.find(h => h.date === dateString);
+                        const movedHoliday = holidays.find(h => h.movedDate === dateString && h.movedDate !== h.date);
+                        
+                        // 計算當日排班
+                        const daySchedules = schedules.filter(s => s.date === dateString);
+                        
+                        // 決定格子的背景底色
+                        let cellBg = '#ffffff';
+                        let dateColor = 'var(--text-main)';
+                        let dayLabel = '';
+                        let badgeBg = '#fde68a';
+                        let badgeText = '#92400e';
+
+                        if (movedHoliday) {
+                          cellBg = '#f3e8ff'; // 月薪挪移假 (粉紫底)
+                          dateColor = '#7c3aed';
+                          dayLabel = `🔄 ${movedHoliday.name} (月薪挪移假)`;
+                          badgeBg = '#d8b4fe';
+                          badgeText = '#581c87';
+                        } else if (origHoliday) {
+                          cellBg = '#fee2e2'; // 原始國定假日 (粉紅底)
+                          dateColor = '#ef4444';
+                          if (origHoliday.movedDate !== origHoliday.date) {
+                            dayLabel = `🎉 ${origHoliday.name} (原)`;
+                          } else {
+                            dayLabel = `🎉 ${origHoliday.name}`;
+                          }
+                          badgeBg = '#fca5a5';
+                          badgeText = '#991b1b';
+                        } else if (dayOfWeek === 0) {
+                          cellBg = '#fff5f5'; // 週日例假日 (淺紅底)
+                          dateColor = '#ef4444';
+                          dayLabel = '例假日';
+                          badgeBg = '#fca5a5';
+                          badgeText = '#991b1b';
+                        } else if (dayOfWeek === 6) {
+                          cellBg = '#fef3c7'; // 週六休息日 (淺黃底)
+                          dateColor = '#d97706';
+                          dayLabel = '休息日';
+                          badgeBg = '#fde68a';
+                          badgeText = '#92400e';
+                        }
+
+                        return (
+                          <div 
+                            key={`day-${day}`} 
+                            onClick={() => {
+                              if (isQuickSchedMode) {
+                                handleQuickAddSchedule(dateString);
+                              }
+                            }}
+                            style={{
+                              backgroundColor: cellBg,
+                              border: isQuickSchedMode ? '2px dashed #7c3aed' : '1px solid var(--border)',
+                              borderRadius: '8px',
+                              height: '120px',
+                              padding: '6px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '4px',
+                              position: 'relative',
+                              cursor: isQuickSchedMode ? 'pointer' : 'default',
+                              transition: 'all 0.2s',
+                              boxShadow: isQuickSchedMode ? '0 0 8px rgba(124,58,237,0.1)' : 'none'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (isQuickSchedMode) e.currentTarget.style.borderColor = '#6d28d9';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (isQuickSchedMode) e.currentTarget.style.borderColor = '#7c3aed';
+                            }}
+                          >
+                            {/* 日期與放假標記 */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: '700', fontSize: '14px', color: dateColor }}>{day}</span>
+                              {dayLabel && (
+                                <span style={{ fontSize: '9px', fontWeight: '700', padding: '1px 3px', borderRadius: '4px', backgroundColor: badgeBg, color: badgeText, whiteSpace: 'nowrap' }}>
+                                  {dayLabel}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* 人力狀態摘要 */}
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                              今日：{daySchedules.length} 人
+                            </div>
+
+                            {/* 已排員工標籤列表 */}
+                            <div className="day-schedules-list" style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '3px',
+                              overflowY: 'auto',
+                              flex: 1,
+                              paddingRight: '2px'
+                            }}>
+                              {daySchedules.map(sched => (
+                                <div 
+                                  key={sched.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation(); // 阻止觸發格子點擊
+                                    handleOpenEditSchedule(sched);
+                                  }}
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    backgroundColor: sched.status === '已確認' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                    color: sched.status === '已確認' ? '#065f46' : '#92400e',
+                                    border: `1px solid ${sched.status === '已確認' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
+                                    borderRadius: '4px',
+                                    padding: '2px 4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${sched.empName} (${sched.shift})`}>
+                                    {sched.empName} ({sched.shift.split(' ')[0]})
+                                  </span>
+                                  <span 
+                                    onClick={(e) => {
+                                      e.stopPropagation(); // 阻止觸發編輯彈窗
+                                      handleDeleteSchedule(sched.id);
+                                    }}
+                                    style={{
+                                      fontSize: '12px',
+                                      fontWeight: '800',
+                                      marginLeft: '4px',
+                                      color: '#ef4444',
+                                      cursor: 'pointer',
+                                      padding: '0 2px'
+                                    }}
+                                    title="刪除排班"
+                                  >
+                                    ×
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* 常規新增按鈕 (非快速模式下) */}
+                            {!isQuickSchedMode && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSchedDate(dateString);
+                                  setShowScheduleModal(true);
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  right: '6px',
+                                  bottom: '6px',
+                                  width: '18px',
+                                  height: '18px',
+                                  borderRadius: '50%',
+                                  backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                                  color: 'var(--primary)',
+                                  fontSize: '12px',
+                                  fontWeight: '800',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer'
+                                }}
+                                title="在此日期新增排班"
+                              >
+                                +
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. 員工排班與休假統計表格 */}
+                <div className="card">
+                  <div className="card-header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--primary)' }}>📊 員工排班與休假統計 ({viewYear} 年 {viewMonth} 月)</h3>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>* 餐飲業排假模式：月薪員工應休天數以當月紅字（例休＋挪移後假日）計算；時薪工讀為彈性排班不設限制。</span>
+                  </div>
+
+                  <div className="table-responsive">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>員工姓名</th>
+                          <th>職位職稱</th>
+                          <th>應排工作天</th>
+                          <th>已排工作天</th>
+                          <th>還需排工作天</th>
+                          <th>當月應休天數</th>
+                          <th>當月已休天數</th>
+                          <th>還需排休天數</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {employees.map(emp => {
+                          const empMonthScheds = schedules.filter(s => 
+                            s.employeeId === emp.id && 
+                            s.date && 
+                            s.date.startsWith(`${viewYear}-${String(viewMonth).padStart(2, '0')}`)
+                          );
+                          const scheduledDays = empMonthScheds.length;
+                          const isHourly = emp.salaryType === 'hourly';
+
+                          // 針對月薪制計算個人應休與應排工作天
+                          let personalRedDaysCount = 0;
+                          for (let d = 1; d <= daysInMonth; d++) {
+                            const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                            const dayOfWeek = new Date(viewYear, viewMonth - 1, d).getDay();
+                            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                            const isMonthlyHoliday = holidays.some(h => h.movedDate ? h.movedDate === dateStr : h.date === dateStr);
+                            if (isWeekend || isMonthlyHoliday) {
+                              personalRedDaysCount++;
+                            }
+                          }
+                          const personalTargetWorkDays = daysInMonth - personalRedDaysCount;
+                          const remainingWorkDays = personalTargetWorkDays - scheduledDays;
+                          const actualOffDays = daysInMonth - scheduledDays;
+                          const remainingOffDays = personalRedDaysCount - actualOffDays;
+
+                          return (
+                            <tr key={emp.id}>
+                              <td data-label="員工姓名" style={{ fontWeight: '600' }}>{emp.name}</td>
+                              <td data-label="職位職稱">{emp.role}</td>
+                              <td data-label="應排工作天">{isHourly ? <span style={{ color: 'var(--text-muted)' }}>時薪工讀</span> : `${personalTargetWorkDays} 天`}</td>
+                              <td data-label="已排工作天">
+                                <span style={{
+                                  fontWeight: '700',
+                                  color: isHourly ? 'var(--text-main)' : (scheduledDays === personalTargetWorkDays ? '#10b981' : (scheduledDays > personalTargetWorkDays ? '#3b82f6' : '#f59e0b'))
+                                }}>
+                                  {scheduledDays} 天
+                                </span>
+                              </td>
+                              <td data-label="還需排工作天">
+                                {isHourly ? (
+                                  <span style={{ color: 'var(--text-muted)' }}>彈性排班</span>
+                                ) : remainingWorkDays === 0 ? (
+                                  <span style={{ color: '#10b981', fontWeight: '600' }}>✓ 已排滿</span>
+                                ) : remainingWorkDays > 0 ? (
+                                  <span style={{ color: '#f59e0b', fontWeight: '600' }}>還差 {remainingWorkDays} 天</span>
+                                ) : (
+                                  <span style={{ color: '#3b82f6', fontWeight: '600' }}>超排 {Math.abs(remainingWorkDays)} 天</span>
+                                )}
+                              </td>
+                              <td data-label="當月應休天數">{isHourly ? <span style={{ color: 'var(--text-muted)' }}>時薪工讀</span> : `${personalRedDaysCount} 天`}</td>
+                              <td data-label="當月已休天數">{actualOffDays} 天</td>
+                              <td data-label="還需排休天數">
+                                {isHourly ? (
+                                  <span style={{ color: 'var(--text-muted)' }}>彈性排班</span>
+                                ) : remainingOffDays === 0 ? (
+                                  <span style={{ color: '#10b981', fontWeight: '600' }}>✓ 符合</span>
+                                ) : remainingOffDays > 0 ? (
+                                  <span style={{ color: '#f59e0b', fontWeight: '600' }}>還差 {remainingOffDays} 天</span>
+                                ) : (
+                                  <span style={{ color: '#3b82f6', fontWeight: '600' }}>多休 {Math.abs(remainingOffDays)} 天</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
               </div>
             </div>
           )}
@@ -1211,6 +1980,468 @@ const AdminDashboard: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              
+              {settingsSaveMsg.text && (
+                <div style={{
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  backgroundColor: settingsSaveMsg.type === 'success' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                  color: settingsSaveMsg.type === 'success' ? '#10b981' : '#ef4444',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  border: `1px solid ${settingsSaveMsg.type === 'success' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`
+                }}>
+                  {settingsSaveMsg.type === 'success' ? '✅' : '⚠️'} {settingsSaveMsg.text}
+                </div>
+              )}
+
+              <div className="settings-grid" style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
+                gap: '24px'
+              }}>
+                {/* 1. 職位類別設定 */}
+                <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div className="card-header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--primary)' }}>💼 職位角色管理</h3>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {roles.map((role) => (
+                      <div key={role} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        backgroundColor: '#f9fafb',
+                        border: '1px solid var(--border)'
+                      }}>
+                        <span style={{ fontWeight: '500', fontSize: '14px' }}>{role}</span>
+                        <button 
+                          onClick={() => handleDeleteRole(role)}
+                          style={{
+                            color: '#ef4444',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                          }}
+                        >
+                          刪除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="自訂職位名稱（如：主廚）"
+                      value={customRoleName}
+                      onChange={(e) => setCustomRoleName(e.target.value)}
+                      style={{
+                        flex: 1,
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        fontSize: '14px'
+                      }}
+                    />
+                    <button 
+                      type="button"
+                      onClick={handleAddCustomRole}
+                      style={{
+                        backgroundColor: 'var(--primary)',
+                        color: '#fff',
+                        padding: '10px 16px',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '600'
+                      }}
+                    >
+                      新增
+                    </button>
+                  </form>
+                </div>
+
+                {/* 2. 班別時間設定 */}
+                <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div className="card-header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--primary)' }}>📅 班別時間設定</h3>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {shifts.map((s, index) => (
+                      <div key={index} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        backgroundColor: '#f9fafb',
+                        border: '1px solid var(--border)'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span style={{ fontWeight: '600', fontSize: '14px' }}>{s.name}</span>
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{s.startTime} - {s.endTime}</span>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteShift(s.name)}
+                          style={{
+                            color: '#ef4444',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                          }}
+                        >
+                          刪除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleAddShift} style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    backgroundColor: '#f3f4f6',
+                    marginTop: '8px'
+                  }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>新增班別</span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input 
+                        type="text" 
+                        required
+                        placeholder="名稱 (如: 假日班)"
+                        value={newShiftName}
+                        onChange={(e) => setNewShiftName(e.target.value)}
+                        style={{
+                          flex: 1.2,
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          fontSize: '13px',
+                          backgroundColor: '#fff'
+                        }}
+                      />
+                      <input 
+                        type="time" 
+                        required
+                        value={newShiftStart}
+                        onChange={(e) => setNewShiftStart(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '8px 6px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          fontSize: '13px',
+                          backgroundColor: '#fff'
+                        }}
+                      />
+                      <input 
+                        type="time" 
+                        required
+                        value={newShiftEnd}
+                        onChange={(e) => setNewShiftEnd(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '8px 6px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          fontSize: '13px',
+                          backgroundColor: '#fff'
+                        }}
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      style={{
+                        backgroundColor: 'var(--secondary)',
+                        color: '#fff',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        textAlign: 'center'
+                      }}
+                    >
+                      + 建立新班別
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* 3. 保費費率與差勤規則設定 */}
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div className="card-header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--primary)' }}>⚙️ 台灣勞健退費率與差勤規則</h3>
+                </div>
+
+                <form onSubmit={handleSaveInsuranceAndRules} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '20px'
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保總費率 (目前 12% = 0.12)</label>
+                      <input 
+                        type="number" 
+                        step="0.0001"
+                        required
+                        value={cfgLaborRate}
+                        onChange={(e) => setCfgLaborRate(Number(e.target.value))}
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>健保費率 (目前 5.17% = 0.0517)</label>
+                      <input 
+                        type="number" 
+                        step="0.0001"
+                        required
+                        value={cfgNhiRate}
+                        onChange={(e) => setCfgNhiRate(Number(e.target.value))}
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>健保平均眷屬數 (預設 0.56)</label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        required
+                        value={cfgNhiAvgDeps}
+                        onChange={(e) => setCfgNhiAvgDeps(Number(e.target.value))}
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保員工自付比例 (預設 20% = 0.2)</label>
+                      <input 
+                        type="number" 
+                        step="0.05"
+                        required
+                        value={cfgEmpLaborRatio}
+                        onChange={(e) => setCfgEmpLaborRatio(Number(e.target.value))}
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保雇主公提比例 (預設 70% = 0.7)</label>
+                      <input 
+                        type="number" 
+                        step="0.05"
+                        required
+                        value={cfgEmprLaborRatio}
+                        onChange={(e) => setCfgEmprLaborRatio(Number(e.target.value))}
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>健保員工自付比例 (預設 30% = 0.3)</label>
+                      <input 
+                        type="number" 
+                        step="0.05"
+                        required
+                        value={cfgEmpNhiRatio}
+                        onChange={(e) => setCfgEmpNhiRatio(Number(e.target.value))}
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>健保雇主公提比例 (預設 60% = 0.6)</label>
+                      <input 
+                        type="number" 
+                        step="0.05"
+                        required
+                        value={cfgEmprNhiRatio}
+                        onChange={(e) => setCfgEmprNhiRatio(Number(e.target.value))}
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>跨夜打卡匹配容許小時 (預設 4 小時)</label>
+                      <input 
+                        type="number" 
+                        required
+                        value={cfgToleranceHours}
+                        onChange={(e) => setCfgToleranceHours(Number(e.target.value))}
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                    <button 
+                      type="submit"
+                      style={{
+                        backgroundColor: 'var(--primary)',
+                        color: '#fff',
+                        padding: '12px 24px',
+                        borderRadius: '8px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        boxShadow: 'var(--shadow-md)'
+                      }}
+                    >
+                      💾 儲存所有費率與差勤規則
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* 4. 國定假日與挪移管理 */}
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div className="card-header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--primary)' }}>🎉 國定假日與挪移管理</h3>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                    * 說明：在此管理國定假日。若要「挪移」國定假日，輸入已存在的假日名稱（例如「端午節」）並選擇新的日期儲存，系統應休天數將會連動計算。
+                  </span>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', backgroundColor: '#f9fafb' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '4px' }}>目前登記之假日清單：</span>
+                    {holidays.length === 0 ? (
+                      <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>無登記國定假日</div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
+                        {holidays.map((h, index) => (
+                          <div key={index} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            backgroundColor: '#fff',
+                            border: '1px solid var(--border)',
+                            fontSize: '13px'
+                          }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontWeight: '600' }}>{h.name}</span>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                {h.movedDate && h.movedDate !== h.date ? `原 ${h.date} ➔ 移 ${h.movedDate}` : `${h.date}`}
+                              </span>
+                            </div>
+                            <button 
+                              type="button"
+                              onClick={() => handleDeleteHoliday(h.name)}
+                              style={{
+                                color: '#ef4444',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                              }}
+                            >
+                              刪除
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSaveOrMoveHoliday} style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    padding: '16px',
+                    borderRadius: '8px',
+                    backgroundColor: '#f3f4f6',
+                    marginTop: '8px'
+                  }}>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-muted)' }}>新增或挪移假日</span>
+                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600' }}>假日名稱 (例如：端午節)</label>
+                        <input 
+                          type="text" 
+                          required
+                          placeholder="請輸入假日名稱"
+                          value={newHolidayName}
+                          onChange={(e) => setNewHolidayName(e.target.value)}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            fontSize: '13px',
+                            backgroundColor: '#fff'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600' }}>原始日期</label>
+                        <input 
+                          type="date" 
+                          required
+                          value={newHolidayDate}
+                          onChange={(e) => setNewHolidayDate(e.target.value)}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            fontSize: '13px',
+                            backgroundColor: '#fff'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600' }}>月薪挪移日期 (選填)</label>
+                        <input 
+                          type="date" 
+                          value={newHolidayMovedDate}
+                          onChange={(e) => setNewHolidayMovedDate(e.target.value)}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            fontSize: '13px',
+                            backgroundColor: '#fff'
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <button 
+                      type="submit"
+                      style={{
+                        backgroundColor: 'var(--primary)',
+                        color: '#fff',
+                        padding: '10px 16px',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        textAlign: 'center',
+                        alignSelf: 'flex-start',
+                        marginTop: '4px'
+                      }}
+                    >
+                      💾 儲存 / 挪移假日
+                    </button>
+                  </form>
+                </div>
               </div>
             </div>
           )}
@@ -1376,7 +2607,21 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>月薪底薪 (經常性薪資 NT$)</label>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>計薪類型</label>
+                <select 
+                  value={newSalaryType} 
+                  onChange={(e) => setNewSalaryType(e.target.value as 'monthly' | 'hourly')}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="monthly">月薪排班</option>
+                  <option value="hourly">時薪工讀</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>
+                  {newSalaryType === 'hourly' ? '時薪底薪 (經常性薪資 NT$)' : '月薪底薪 (經常性薪資 NT$)'}
+                </label>
                 <input 
                   type="number" 
                   required 
@@ -1525,9 +2770,10 @@ const AdminDashboard: React.FC = () => {
                   onChange={(e) => setSchedShift(e.target.value)}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
-                  <option value="早班 (09:00 - 18:00)">早班 (09:00 - 18:00)</option>
-                  <option value="中班 (13:00 - 22:00)">中班 (13:00 - 22:00)</option>
-                  <option value="晚班 (18:00 - 02:00)">晚班 (18:00 - 02:00)</option>
+                  {shifts.map((s, idx) => {
+                    const str = `${s.name} (${s.startTime} - ${s.endTime})`;
+                    return <option key={idx} value={str}>{str}</option>;
+                  })}
                 </select>
               </div>
 
@@ -1609,9 +2855,10 @@ const AdminDashboard: React.FC = () => {
                   onChange={(e) => setEditSchedShift(e.target.value)}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
-                  <option value="早班 (09:00 - 18:00)">早班 (09:00 - 18:00)</option>
-                  <option value="中班 (13:00 - 22:00)">中班 (13:00 - 22:00)</option>
-                  <option value="晚班 (18:00 - 02:00)">晚班 (18:00 - 02:00)</option>
+                  {shifts.map((s, idx) => {
+                    const str = `${s.name} (${s.startTime} - ${s.endTime})`;
+                    return <option key={idx} value={str}>{str}</option>;
+                  })}
                 </select>
               </div>
 
@@ -2089,7 +3336,21 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>月薪底薪 (經常性薪資 NT$)</label>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>計薪類型</label>
+                <select 
+                  value={editSalaryType} 
+                  onChange={(e) => setEditSalaryType(e.target.value as 'monthly' | 'hourly')}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                >
+                  <option value="monthly">月薪排班</option>
+                  <option value="hourly">時薪工讀</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>
+                  {editSalaryType === 'hourly' ? '時薪底薪 (經常性薪資 NT$)' : '月薪底薪 (經常性薪資 NT$)'}
+                </label>
                 <input 
                   type="number" 
                   required 
