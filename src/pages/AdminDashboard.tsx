@@ -1903,6 +1903,43 @@ const AdminDashboard: React.FC = () => {
     return viewPayMonth ? p.month === viewPayMonth : true;
   });
 
+  const payrollSummary = (() => {
+    let totalGrossSalary = 0;
+    let totalEmployeeDeductions = 0;
+    let totalNetSalary = 0;
+    let totalEmployerInsurance = 0;
+    let totalLaborCost = 0;
+
+    filteredPayroll.forEach((p: any) => {
+      const gross = (p.baseSalary || 0) + 
+                    (p.mealAllowance || 0) + 
+                    (p.attendanceBonus || 0) + 
+                    (p.otherAllowance || 0) + 
+                    (p.overtime || 0);
+      
+      const empDed = (p.employeeLabor || 0) + (p.employeeNhi || 0);
+      const net = p.netSalary || 0;
+      const compIns = (p.employerLabor || 0) + (p.employerNhi || 0) + (p.employerPension || 0);
+      const leaveDed = p.leaveDeduction || 0;
+      const laborCost = (gross - leaveDed) + compIns;
+
+      totalGrossSalary += gross;
+      totalEmployeeDeductions += empDed;
+      totalNetSalary += net;
+      totalEmployerInsurance += compIns;
+      totalLaborCost += laborCost;
+    });
+
+    return {
+      totalGrossSalary,
+      totalEmployeeDeductions,
+      totalNetSalary,
+      totalEmployerInsurance,
+      totalLaborCost,
+      count: filteredPayroll.length
+    };
+  })();
+
   // 簽核與行政警示計算
   
   const today = new Date();
@@ -3174,6 +3211,98 @@ const AdminDashboard: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {/* 薪資計算總覽數據 */}
+              {filteredPayroll.length > 0 && (
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                  gap: '16px', 
+                  padding: '20px 24px', 
+                  backgroundColor: '#f8fafc', 
+                  borderBottom: '1px solid var(--border)' 
+                }}>
+                  <div style={{ 
+                    backgroundColor: '#fff', 
+                    borderRadius: '12px', 
+                    padding: '16px', 
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)', 
+                    border: '1px solid #e2e8f0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>應發薪資總和 (原本薪資)</span>
+                    <span style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>
+                      NT$ {payrollSummary.totalGrossSalary.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div style={{ 
+                    backgroundColor: '#fff', 
+                    borderRadius: '12px', 
+                    padding: '16px', 
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)', 
+                    border: '1px solid #e2e8f0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>員工自負總和 (代收款)</span>
+                    <span style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>
+                      NT$ {payrollSummary.totalEmployeeDeductions.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div style={{ 
+                    backgroundColor: '#fff', 
+                    borderRadius: '12px', 
+                    padding: '16px', 
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)', 
+                    border: '1px solid #e2e8f0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>實際發放薪資</span>
+                    <span style={{ fontSize: '20px', fontWeight: '700', color: '#10b981' }}>
+                      NT$ {payrollSummary.totalNetSalary.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div style={{ 
+                    backgroundColor: '#fff', 
+                    borderRadius: '12px', 
+                    padding: '16px', 
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)', 
+                    border: '1px solid #e2e8f0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>公司負擔勞健退總和</span>
+                    <span style={{ fontSize: '20px', fontWeight: '700', color: '#2563eb' }}>
+                      NT$ {payrollSummary.totalEmployerInsurance.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div style={{ 
+                    backgroundColor: '#eff6ff', 
+                    borderRadius: '12px', 
+                    padding: '16px', 
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.05)', 
+                    border: '1px solid #bfdbfe',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <span style={{ fontSize: '13px', color: '#1e40af', fontWeight: '600' }}>總人力成本</span>
+                    <span style={{ fontSize: '20px', fontWeight: '800', color: '#1d4ed8' }}>
+                      NT$ {payrollSummary.totalLaborCost.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="table-responsive">
                 <table className="data-table">
