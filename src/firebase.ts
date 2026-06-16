@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, getDocs, collection, query, where, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -19,5 +19,13 @@ export const db = getFirestore(app);
 
 // 初始化身分驗證 (Auth)
 export const auth = getAuth(app);
+
+// 將資料庫與操作函數公開至全域，以便在瀏覽器控制台執行批量操作
+if (typeof window !== 'undefined') {
+  (window as any).db = db;
+  (window as any).firebaseAdminHelpers = {
+    getDocs, collection, query, where, addDoc, doc, updateDoc, deleteDoc
+  };
+}
 
 export default app;
