@@ -93,9 +93,25 @@ const EmployeeClockIn: React.FC = () => {
   // ── 加班表單 ──
   const [otDate, setOtDate] = useState('');
   const [otHours, setOtHours] = useState<number>(2);
+  const [otStartTime, setOtStartTime] = useState('18:00');
+  const [otEndTime, setOtEndTime] = useState('20:00');
   const [otReason, setOtReason] = useState('');
   const [otSubmitting, setOtSubmitting] = useState(false);
   const [otMsg, setOtMsg] = useState({ type: '', text: '' });
+
+  // 自動依據加班時段計算加班時數
+  useEffect(() => {
+    if (otStartTime && otEndTime) {
+      const [startH, startM] = otStartTime.split(':').map(Number);
+      const [endH, endM] = otEndTime.split(':').map(Number);
+      let diffMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+      if (diffMinutes < 0) {
+        // 跨夜加班處理
+        diffMinutes += 24 * 60;
+      }
+      setOtHours(Number((diffMinutes / 60).toFixed(1)));
+    }
+  }, [otStartTime, otEndTime]);
 
   // ── 補卡申請表單 ──
   const [punchDate, setPunchDate] = useState('');
@@ -439,14 +455,64 @@ const EmployeeClockIn: React.FC = () => {
     setOtSubmitting(true);
     setOtMsg({ type: '', text: '' });
     try {
+      // 1. 取得當天打卡紀錄
+      const dayPunches = allAttendance.filter((rec: any) => rec.date === otDate);
+      if (dayPunches.length === 0) {
+        setOtMsg({ type: 'error', text: '當天無打卡紀錄，無法申請加班！' });
+        setOtSubmitting(false);
+        return;
+      }
+
+      // 2. 獲取打卡時間段
+      const punchTimes = dayPunches.map((rec: any) => rec.time).filter(Boolean).sort();
+      if (punchTimes.length === 0) {
+        setOtMsg({ type: 'error', text: '當天無有效打卡時間，無法申請加班！' });
+        setOtSubmitting(false);
+        return;
+      }
+
+      const minPunch = punchTimes[0];
+      const maxPunch = punchTimes[punchTimes.length - 1];
+
+      // 3. 判斷加班時段是否在打卡時段內
+      const [startH, startM] = otStartTime.split(':').map(Number);
+      const [endH, endM] = otEndTime.split(':').map(Number);
+      const isCrossMidnight = (endH * 60 + endM) < (startH * 60 + startM);
+
+      if (isCrossMidnight) {
+        // 跨夜加班至少開始時間需大於等於最早打卡時間
+        if (otStartTime < minPunch) {
+          setOtMsg({ type: 'error', text: `加班開始時間 (${otStartTime}) 必須在當天實際打卡時段 (${minPunch} ~ ${maxPunch}) 之內！` });
+          setOtSubmitting(false);
+          return;
+        }
+      } else {
+        // 同天加班，起迄時間必須完全在打卡區間內
+        if (otStartTime < minPunch || otEndTime > maxPunch) {
+          setOtMsg({ type: 'error', text: `加班時段 (${otStartTime} ~ ${otEndTime}) 必須在當天實際打卡時段 (${minPunch} ~ ${maxPunch}) 之內！` });
+          setOtSubmitting(false);
+          return;
+        }
+      }
+
+      // 4. 送出加班申請
       await addDoc(collection(db, 'overtime_requests'), {
         employeeId: user.uid,
         empName: employeeName || user.email || '未名員工',
-        date: otDate, hours: otHours, reason: otReason,
-        status: 'pending', timestamp: Date.now()
+        date: otDate,
+        startTime: otStartTime,
+        endTime: otEndTime,
+        hours: otHours,
+        reason: otReason,
+        status: 'pending',
+        timestamp: Date.now()
       });
       setOtMsg({ type: 'success', text: '加班申請已送出，等待主管審核' });
-      setOtDate(''); setOtHours(2); setOtReason('');
+      setOtDate(''); 
+      setOtStartTime('18:00');
+      setOtEndTime('20:00');
+      setOtHours(2); 
+      setOtReason('');
     } catch (err: any) {
       setOtMsg({ type: 'error', text: err.message || '送出失敗，請稍後再試' });
     } finally { setOtSubmitting(false); }
@@ -906,8 +972,18 @@ const EmployeeClockIn: React.FC = () => {
                         <input type="date" required value={otDate} onChange={e => setOtDate(e.target.value)} style={inputStyle} />
                       </div>
                       <div>
-                        <label style={labelStyle}>加班時數</label>
-                        <input type="number" min={0.5} max={12} step={0.5} value={otHours} onChange={e => setOtHours(Number(e.target.value))} style={inputStyle} />
+                        <label style={labelStyle}>加班時數 (根據時段自動計算)</label>
+                        <input type="number" min={0.5} max={24} step={0.1} value={otHours} onChange={e => setOtHours(Number(e.target.value))} style={inputStyle} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px' }}>
+                      <div>
+                        <label style={labelStyle}>加班開始時間</label>
+                        <input type="time" required value={otStartTime} onChange={e => setOtStartTime(e.target.value)} style={inputStyle} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>加班結束時間</label>
+                        <input type="time" required value={otEndTime} onChange={e => setOtEndTime(e.target.value)} style={inputStyle} />
                       </div>
                     </div>
                     <div style={{ marginTop: '10px' }}>
@@ -938,7 +1014,7 @@ const EmployeeClockIn: React.FC = () => {
                             const s = getStatusBadge(ot.status);
                             return (
                               <tr key={ot.id}>
-                                <td>{ot.date}</td>
+                                <td>{ot.date}{ot.startTime && ot.endTime ? ` (${ot.startTime}~${ot.endTime})` : ''}</td>
                                 <td>{ot.hours} h</td>
                                 <td style={{ maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ot.reason || '-'}</td>
                                 <td><span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: '600', color: s.color, backgroundColor: s.bg }}>{s.label}</span></td>

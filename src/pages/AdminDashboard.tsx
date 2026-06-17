@@ -3416,7 +3416,7 @@ const AdminDashboard: React.FC = () => {
                     {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>事由：{item.reason}</div>}
                   </div>}
                   {type === 'overtime' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
-                    加班日期：{item.date} ｜ {item.hours}小時
+                    加班日期：{item.date} ｜ {item.startTime && item.endTime ? `${item.startTime} ~ ${item.endTime} (` : ''}{item.hours}小時{item.startTime && item.endTime ? ')' : ''}
                     {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
                   </div>}
                   {type === 'punch' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
@@ -3548,7 +3548,7 @@ const AdminDashboard: React.FC = () => {
                                   <td>{typeLabel(item._type)}</td>
                                   <td style={{ fontSize: '12px', color: '#6b7280' }}>
                                     {item._type === 'leave' && `${LEAVE_TYPES.find(t => t.value === item.leaveType)?.label} ${item.startDate}~${item.endDate} ${item.hours}h`}
-                                    {item._type === 'overtime' && `${item.date} ${item.hours}h`}
+                                    {item._type === 'overtime' && `${item.date} ${item.startTime && item.endTime ? `${item.startTime}~${item.endTime} ` : ''}(${item.hours}h)`}
                                     {item._type === 'punch' && `${item.date} ${item.time} ${item.type}`}
                                     {item._type === 'appeal' && `${item.exceptionDate} [${item.exceptionType}]`}
                                   </td>
