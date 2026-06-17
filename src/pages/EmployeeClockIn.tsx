@@ -272,7 +272,7 @@ const EmployeeClockIn: React.FC = () => {
       if (!attByDate[rec.date]) attByDate[rec.date] = [];
       attByDate[rec.date].push(rec);
     });
-    const pastSchedules = mySchedules.filter(s => s.date < todayStr);
+    const pastSchedules = mySchedules.filter(s => s.date < todayStr && s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日');
     pastSchedules.forEach((sched: any) => {
       const date = sched.date;
       const dayAtt = attByDate[date] || [];
@@ -565,6 +565,7 @@ const EmployeeClockIn: React.FC = () => {
         employeeId: user.uid,
         empName: employeeName || user.email || '未名員工',
         exceptionId: appealTargetId,
+        attendanceId: targetEx?.recId || '',
         exceptionDate: targetEx?.date || '',
         exceptionType: targetEx?.type || '',
         reason: appealReason,

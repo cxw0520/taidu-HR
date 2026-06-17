@@ -602,10 +602,12 @@ const AdminDashboard: React.FC = () => {
   useEffect(() => {
     if (shifts.length > 0) {
       const firstShiftStr = `${shifts[0].name} (${shifts[0].startTime} - ${shifts[0].endTime})`;
-      if (!schedShift || !shifts.some(s => `${s.name} (${s.startTime} - ${s.endTime})` === schedShift)) {
+      const isSchedSpecial = schedShift === '例假' || schedShift === '休假' || schedShift === '國定假日';
+      if (!schedShift || (!shifts.some(s => `${s.name} (${s.startTime} - ${s.endTime})` === schedShift) && !isSchedSpecial)) {
         setSchedShift(firstShiftStr);
       }
-      if (!quickSchedShift || !shifts.some(s => `${s.name} (${s.startTime} - ${s.endTime})` === quickSchedShift)) {
+      const isQuickSpecial = quickSchedShift === '例假' || quickSchedShift === '休假' || quickSchedShift === '國定假日';
+      if (!quickSchedShift || (!shifts.some(s => `${s.name} (${s.startTime} - ${s.endTime})` === quickSchedShift) && !isQuickSpecial)) {
         setQuickSchedShift(firstShiftStr);
       }
     }
@@ -950,7 +952,39 @@ const AdminDashboard: React.FC = () => {
     catch (err) { console.error(err); alert('操作失敗'); }
   };
   const handleApproveAppeal = async (id: string) => {
-    try { await updateDoc(doc(db, 'attendance_appeals', id), { status: 'approved' }); }
+    try {
+      const appealSnap = await getDoc(doc(db, 'attendance_appeals', id));
+      if (!appealSnap.exists()) { alert('申訴不存在'); return; }
+      const appeal = appealSnap.data() as any;
+
+      // 1. 更新申訴狀態為已核准
+      await updateDoc(doc(db, 'attendance_appeals', id), { status: 'approved' });
+
+      // 2. 更新關聯的打卡記錄狀態為正常
+      if (appeal.attendanceId) {
+        await updateDoc(doc(db, 'attendance', appeal.attendanceId), { 
+          status: '正常',
+          note: `申訴核准（原因：${appeal.reason || ''}）`
+        });
+      } else if (appeal.employeeId && appeal.exceptionDate) {
+        // 容錯機制（相容舊資料與無打卡記錄之情況）：查詢該員工該天的打卡紀錄並更新
+        const attSnap = await getDocs(query(
+          collection(db, 'attendance'),
+          where('employeeId', '==', appeal.employeeId),
+          where('date', '==', appeal.exceptionDate)
+        ));
+        for (const docRef of attSnap.docs) {
+          const status = docRef.data().status;
+          if (status === '遲到' || status === '早退' || status === '異常') {
+            await updateDoc(doc(db, 'attendance', docRef.id), { 
+              status: '正常',
+              note: `申訴核准（原因：${appeal.reason || ''}）`
+            });
+          }
+        }
+      }
+      alert('✅ 申訴已核准，相關打卡狀態已更新為正常！');
+    }
     catch (err) { console.error(err); alert('操作失敗'); }
   };
   const handleRejectAppeal = async (id: string) => {
@@ -977,8 +1011,13 @@ const AdminDashboard: React.FC = () => {
       warnings.push('⚠️ 請假衝突：該員工此日已有核准的請假紀錄！');
     }
 
-    // 2. 七休一防呆：取前後7天檢查連續工作天
-    const empSchedules = schedules.filter(s => s.employeeId === empId);
+    // 如果是排休假，不需檢查七休一或輪班間隔
+    if (shiftStr === '例假' || shiftStr === '休假' || shiftStr === '國定假日') {
+      return warnings;
+    }
+
+    // 2. 七休一防呆：取前後7天檢查連續工作天 (排除排休假)
+    const empSchedules = schedules.filter(s => s.employeeId === empId && s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日');
     const datesToCheck: string[] = [];
     for (let i = -6; i <= 6; i++) {
       const d = new Date(dateStr);
@@ -1416,18 +1455,24 @@ const AdminDashboard: React.FC = () => {
       const leavesSnapshot = await getDocs(collection(db, 'leaves'));
       const approvedLeaves = leavesSnapshot.docs.map(d => d.data() as any).filter(l => l.status === 'approved');
 
+      const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
+      const schedulesList = schedulesSnapshot.docs.map(doc => doc.data() as any);
+
+      const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
+      const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
+
       const { calculatePayrollInsurance, calculateOvertimePay } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
         
         let monthlySalary = emp.monthlySalary || 32000;
-        let laborSub = emp.laborSub === 0 ? 0 : (emp.laborSub || 31800);
-        let nhiSub = emp.nhiSub === 0 ? 0 : (emp.nhiSub || 31800);
-        let pensionSub = emp.pensionSub === 0 ? 0 : (emp.pensionSub || 31800);
+        const salaryType = emp.salaryType || 'monthly';
+        let laborSub = emp.laborSub === 0 ? 0 : (emp.laborSub || (salaryType === 'hourly' ? 11100 : 29500));
+        let nhiSub = emp.nhiSub === 0 ? 0 : (emp.nhiSub || 29500);
+        let pensionSub = emp.pensionSub === 0 ? 0 : (emp.pensionSub || (salaryType === 'hourly' ? 11100 : 29500));
         let onboardDateStr = emp.onboardDate || '2025-01-01';
         let resignDateStr = emp.resignDate || null;
-        const salaryType = emp.salaryType || 'monthly';
         const nhiDependents = emp.nhiDependents || 0;
         const mealAllowance = emp.mealAllowance || 0;
         let attendanceBonus = emp.attendanceBonus || 0;
@@ -1455,7 +1500,7 @@ const AdminDashboard: React.FC = () => {
 
         empAttendance.forEach((rec: any) => {
           if (rec.type === '上班' && rec.time && rec.date) {
-            const dateSched = schedules.find((s: any) => s.employeeId === emp.id && s.date === rec.date);
+            const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === rec.date);
             if (dateSched) {
               let startTimeStr = dateSched.startTime || '';
               if (!startTimeStr) {
@@ -1470,10 +1515,11 @@ const AdminDashboard: React.FC = () => {
                 const expectedInMins = sh * 60 + sm;
                 const actualInMins = ah * 60 + am;
                 
-                // 晚於排班時間超過 1 分鐘算遲到
-                if (actualInMins > expectedInMins + 1) {
+                // 只有狀態為「遲到」的紀錄，或無狀態但時間大於排班時間+1分鐘時，才列入遲到計算（若經申訴核准為「正常」則排除）
+                const isLate = rec.status === '遲到' || (!rec.status && actualInMins > expectedInMins + 1);
+                if (isLate) {
                   lateCount++;
-                  lateMinutesTotal += (actualInMins - expectedInMins);
+                  lateMinutesTotal += Math.max(0, actualInMins - expectedInMins);
                 }
               }
             }
@@ -1488,6 +1534,13 @@ const AdminDashboard: React.FC = () => {
 
         const daysWorked = new Set(empAttendance.map((rec: any) => rec.date)).size;
         
+        // 取得該員工當月已核准的加班申請
+        const empOvertimeReqs = overtimeRecords.filter((req: any) => 
+          req.employeeId === emp.id && 
+          req.date && req.date.startsWith(monthStr) &&
+          req.status === 'approved'
+        );
+
         let calculatedBaseSalary = isHourly ? 0 : monthlySalary;
         let overtimePay = 0;
         
@@ -1498,104 +1551,113 @@ const AdminDashboard: React.FC = () => {
           attendanceByDate[rec.date].push(rec);
         });
 
-        Object.keys(attendanceByDate).forEach(date => {
-          const dayRecords = attendanceByDate[date];
-          const inRec = dayRecords.find(r => r.type === '上班');
-          const outRec = dayRecords.find(r => r.type === '下班');
-          if (inRec && outRec && inRec.time && outRec.time) {
-            const parseTime = (timeStr: string) => {
-              const [h, m] = timeStr.split(':').map(Number);
-              return h + m / 60;
-            };
-            const inTime = parseTime(inRec.time);
-            let outTime = parseTime(outRec.time);
-            if (outTime < inTime) outTime += 24;
+        // 1. 計算計時人員 (Hourly) 的平日底薪與國定假日雙薪 (自動計算，不需申報加班單，因為是排班內的工作時間)
+        if (isHourly) {
+          Object.keys(attendanceByDate).forEach(date => {
+            const dayRecords = attendanceByDate[date];
+            const inRec = dayRecords.find(r => r.type === '上班');
+            const outRec = dayRecords.find(r => r.type === '下班');
+            if (inRec && outRec && inRec.time && outRec.time) {
+              const parseTime = (timeStr: string) => {
+                const [h, m] = timeStr.split(':').map(Number);
+                return h + m / 60;
+              };
+              const inTime = parseTime(inRec.time);
+              let outTime = parseTime(outRec.time);
+              if (outTime < inTime) outTime += 24;
 
-            if (outTime > inTime) {
-              let hours = outTime - inTime;
-              
-              // 扣除排班中空/休息時間
-              const dateSched = schedules.find((s: any) => s.employeeId === emp.id && s.date === date);
-              if (dateSched) {
-                const shiftName = dateSched.shift.split(' (')[0];
-                const shiftDef = shifts.find(s => s.name === shiftName);
-                if (shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime) {
-                  const bStart = parseTime(shiftDef.breakStartTime);
-                  let bEnd = parseTime(shiftDef.breakEndTime);
-                  if (bEnd < bStart) bEnd += 24;
-                  
-                  let adjustedBStart = bStart;
-                  let adjustedBEnd = bEnd;
-                  if (adjustedBStart < inTime && adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
-                    adjustedBStart += 24;
-                    adjustedBEnd += 24;
-                  } else if (adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
-                    adjustedBStart += 24;
-                    adjustedBEnd += 24;
-                  } else if (adjustedBStart - 24 >= inTime) {
-                    adjustedBStart -= 24;
-                    adjustedBEnd -= 24;
+              if (outTime > inTime) {
+                let hours = outTime - inTime;
+                
+                // 扣除排班中空/休息時間
+                const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
+                if (dateSched) {
+                  const shiftName = dateSched.shift.split(' (')[0];
+                  const shiftDef = shifts.find(s => s.name === shiftName);
+                  if (shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime) {
+                    const bStart = parseTime(shiftDef.breakStartTime);
+                    let bEnd = parseTime(shiftDef.breakEndTime);
+                    if (bEnd < bStart) bEnd += 24;
+                    
+                    let adjustedBStart = bStart;
+                    let adjustedBEnd = bEnd;
+                    if (adjustedBStart < inTime && adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
+                      adjustedBStart += 24;
+                      adjustedBEnd += 24;
+                    } else if (adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
+                      adjustedBStart += 24;
+                      adjustedBEnd += 24;
+                    } else if (adjustedBStart - 24 >= inTime) {
+                      adjustedBStart -= 24;
+                      adjustedBEnd -= 24;
+                    }
+                    
+                    const startOverlap = Math.max(inTime, adjustedBStart);
+                    const endOverlap = Math.min(outTime, adjustedBEnd);
+                    const overlap = Math.max(0, endOverlap - startOverlap);
+                    hours = Math.max(0, hours - overlap);
                   }
-                  
-                  const startOverlap = Math.max(inTime, adjustedBStart);
-                  const endOverlap = Math.min(outTime, adjustedBEnd);
-                  const overlap = Math.max(0, endOverlap - startOverlap);
-                  hours = Math.max(0, hours - overlap);
                 }
-              }
 
-              if (isHourly) {
                 const isOriginalHoliday = holidays.some(h => h.date === date);
+                const regHours = Math.min(hours, 8);
+                calculatedBaseSalary += regHours * hourlyRate;
                 if (isOriginalHoliday) {
-                  const regHours = Math.min(hours, 8);
-                  calculatedBaseSalary += regHours * hourlyRate;
+                  // 國定假日工資加倍發給 (計時人員雙薪)
                   overtimePay += regHours * hourlyRate;
-                  if (hours > 8) overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
-                } else {
-                  calculatedBaseSalary += Math.min(hours, 8) * hourlyRate;
-                  if (hours > 8) overtimePay += calculateOvertimePay(hourlyRate, hours - 8, 'regular');
-                }
-              } else {
-                // ── 月薪員工加班費判斷（正確對照移轉假日）──
-                // holidays 集合結構：
-                //   h.date        = 原始國定假日日期
-                //   h.movedDate   = 移轉後實際放假日（若非 null 則以此日為假日）
-                //   h.workdayDate = 補班日（若非 null 則此日雖為周末卻要上班，視為平日）
-
-                // 判斷是否為「實際放假日」（含原始假日與移轉假日）
-                const isActualHoliday = holidays.some(h =>
-                  h.movedDate ? h.movedDate === date : h.date === date
-                );
-
-                // 判斷是否為「補班日」（周末但需補班，視同平日）
-                const isCompensatoryWorkday = holidays.some(h =>
-                  h.workdayDate && h.workdayDate === date
-                );
-
-                if (isActualHoliday) {
-                  // 國定假日出勤 → 例假日加班費率
-                  overtimePay += calculateOvertimePay(hourlyRate, hours, 'holiday');
-                } else if (hours > 8) {
-                  const overtimeHours = hours - 8;
-                  const d = new Date(date);
-                  const dayOfWeek = d.getDay();
-                  let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
-
-                  if (isCompensatoryWorkday) {
-                    // 補班日（周末補班）→ 視為平日，適用平日加班費
-                    dayType = 'regular';
-                  } else if (dayOfWeek === 6) {
-                    // 周六（休息日）→ 休息日加班費率
-                    dayType = 'rest';
-                  } else if (dayOfWeek === 0) {
-                    // 周日（例假日）→ 例假日加班費率
-                    dayType = 'holiday';
-                  }
-                  overtimePay += calculateOvertimePay(hourlyRate, overtimeHours, dayType);
                 }
               }
-
             }
+          });
+        }
+
+        // 2. 加休/加班費計算連動「已核准的加班申請書」
+        empOvertimeReqs.forEach((req: any) => {
+          // 判斷是否為「實際放假日」（含原始假日與移轉假日）
+          const isActualHoliday = holidays.some(h =>
+            h.movedDate ? h.movedDate === req.date : h.date === req.date
+          );
+
+          // 判斷是否為「補班日」（周末但需補班，視同平日）
+          const isCompensatoryWorkday = holidays.some(h =>
+            h.workdayDate && h.workdayDate === req.date
+          );
+
+          const d = new Date(req.date);
+          const dayOfWeek = d.getDay();
+
+          if (isHourly) {
+            // 時薪人員排班與出勤是彈性的
+            const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === req.date);
+            const shiftType = dateSched ? dateSched.shift : '';
+
+            if (shiftType === '休假') {
+              // 休息日加班費率
+              overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'rest');
+            } else if (shiftType === '例假') {
+              // 例假日加班費：時薪人員一律以 2.0 倍計算其實際加班時數，不適用 8 小時最低保證
+              overtimePay += Math.round(req.hours * hourlyRate * 2.0);
+            } else if (isActualHoliday) {
+              // 國定假日：前 8 小時已在第 1 部分以自動加倍發給 (兩倍薪水)
+              // 加班單的時數代表超過 8 小時的加班時數，以平日加班費率 (1.34 / 1.67) 計算
+              overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'regular');
+            } else {
+              // 平日或一般工作日：超過 8 小時的加班，以平日加班費率 (1.34 / 1.67) 計算
+              overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'regular');
+            }
+          } else {
+            // 月薪人員以行事曆判定加班日類型
+            let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
+            if (isActualHoliday) {
+              dayType = 'holiday';
+            } else if (isCompensatoryWorkday) {
+              dayType = 'regular';
+            } else if (dayOfWeek === 6) {
+              dayType = 'rest';
+            } else if (dayOfWeek === 0) {
+              dayType = 'holiday';
+            }
+            overtimePay += calculateOvertimePay(hourlyRate, req.hours, dayType);
           }
         });
 
@@ -2166,7 +2228,7 @@ const AdminDashboard: React.FC = () => {
     });
     
     // Scan schedules
-    schedules.filter(s => s.date < todayStr).forEach(sched => {
+    schedules.filter(s => s.date < todayStr && s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').forEach(sched => {
       const empId = sched.employeeId;
       const date = sched.date;
       const empLeaves = leavesMap[empId] || [];
@@ -2830,10 +2892,17 @@ const AdminDashboard: React.FC = () => {
                         onChange={(e) => setQuickSchedShift(e.target.value)}
                         style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
                       >
-                        {shifts.map((s, idx) => {
-                          const val = `${s.name} (${s.startTime} - ${s.endTime})`;
-                          return <option key={idx} value={val}>{val}</option>;
-                        })}
+                        <optgroup label="一般工作班別">
+                          {shifts.map((s, idx) => {
+                            const val = `${s.name} (${s.startTime} - ${s.endTime})`;
+                            return <option key={idx} value={val}>{val}</option>;
+                          })}
+                        </optgroup>
+                        <optgroup label="排休設定">
+                          <option value="例假">例假 (L)</option>
+                          <option value="休假">休假 (S)</option>
+                          <option value="國定假日">國定假日 (H)</option>
+                        </optgroup>
                       </select>
                     </div>
 
@@ -2977,49 +3046,63 @@ const AdminDashboard: React.FC = () => {
                               flex: 1,
                               paddingRight: '2px'
                             }}>
-                              {daySchedules.map(sched => (
-                                <div 
-                                  key={sched.id}
-                                  onClick={(e) => {
-                                    e.stopPropagation(); // 阻止觸發格子點擊
-                                    handleOpenEditSchedule(sched);
-                                  }}
-                                  style={{
-                                    fontSize: '11px',
-                                    fontWeight: '500',
-                                    backgroundColor: sched.status === '已確認' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                    color: sched.status === '已確認' ? '#065f46' : '#92400e',
-                                    border: `1px solid ${sched.status === '已確認' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
-                                    borderRadius: '4px',
-                                    padding: '2px 4px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${sched.empName} (${sched.shift})`}>
-                                    {sched.empName} ({sched.shift.split(' ')[0]})
-                                  </span>
-                                  <span 
+                              {daySchedules.map(sched => {
+                                let bg = sched.status === '已確認' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)';
+                                let txt = sched.status === '已確認' ? '#065f46' : '#92400e';
+                                let borderCol = sched.status === '已確認' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)';
+
+                                if (sched.shift === '例假') {
+                                  bg = '#fee2e2'; txt = '#b91c1c'; borderCol = '#fecdd3';
+                                } else if (sched.shift === '休假') {
+                                  bg = '#fef3c7'; txt = '#d97706'; borderCol = '#fde68a';
+                                } else if (sched.shift === '國定假日') {
+                                  bg = '#f3e8ff'; txt = '#7c3aed'; borderCol = '#e9d5ff';
+                                }
+
+                                return (
+                                  <div 
+                                    key={sched.id}
                                     onClick={(e) => {
-                                      e.stopPropagation(); // 阻止觸發編輯彈窗
-                                      handleDeleteSchedule(sched.id);
+                                      e.stopPropagation(); // 阻止觸發格子點擊
+                                      handleOpenEditSchedule(sched);
                                     }}
                                     style={{
-                                      fontSize: '12px',
-                                      fontWeight: '800',
-                                      marginLeft: '4px',
-                                      color: '#ef4444',
-                                      cursor: 'pointer',
-                                      padding: '0 2px'
+                                      fontSize: '11px',
+                                      fontWeight: '600',
+                                      backgroundColor: bg,
+                                      color: txt,
+                                      border: `1px solid ${borderCol}`,
+                                      borderRadius: '4px',
+                                      padding: '2px 4px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      cursor: 'pointer'
                                     }}
-                                    title="刪除排班"
                                   >
-                                    ×
-                                  </span>
-                                </div>
-                              ))}
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${sched.empName} (${sched.shift})`}>
+                                      {sched.empName} ({sched.shift.split(' ')[0]})
+                                    </span>
+                                    <span 
+                                      onClick={(e) => {
+                                        e.stopPropagation(); // 阻止觸發編輯彈窗
+                                        handleDeleteSchedule(sched.id);
+                                      }}
+                                      style={{
+                                        fontSize: '12px',
+                                        fontWeight: '800',
+                                        marginLeft: '4px',
+                                        color: '#ef4444',
+                                        cursor: 'pointer',
+                                        padding: '0 2px'
+                                      }}
+                                      title="刪除排班"
+                                    >
+                                      ×
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
 
                             {/* 常規新增按鈕 (非快速模式下) */}
@@ -3062,92 +3145,128 @@ const AdminDashboard: React.FC = () => {
                 <div className="card">
                   <div className="card-header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
                     <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--primary)' }}>📊 員工排班與休假統計 ({viewYear} 年 {viewMonth} 月)</h3>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>* 餐飲業排假模式：月薪員工應休天數以當月紅字（例休＋挪移後假日）計算；時薪工讀為彈性排班不設限制。</span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>* 餐飲業排假模式：月薪員工應休天數以當月紅字（例假＋休假＋假日）計算，並按類別統計；時薪工讀為彈性排班不設限制。</span>
                   </div>
 
-                  <div className="table-responsive">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>員工姓名</th>
-                          <th>職位職稱</th>
-                          <th>應排工作天</th>
-                          <th>已排工作天</th>
-                          <th>還需排工作天</th>
-                          <th>當月應休天數</th>
-                          <th>當月已休天數</th>
-                          <th>還需排休天數</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {employees.map(emp => {
-                          const empMonthScheds = schedules.filter(s => 
-                            s.employeeId === emp.id && 
-                            s.date && 
-                            s.date.startsWith(`${viewYear}-${String(viewMonth).padStart(2, '0')}`)
-                          );
-                          const scheduledDays = empMonthScheds.length;
-                          const isHourly = emp.salaryType === 'hourly';
+                  {(() => {
+                    // 計算當月是否有國定假日
+                    let monthlyHolidaysCount = 0;
+                    for (let d = 1; d <= daysInMonth; d++) {
+                      const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                      if (holidays.some(h => h.movedDate ? h.movedDate === dateStr : h.date === dateStr)) {
+                        monthlyHolidaysCount++;
+                      }
+                    }
+                    const hasMonthlyHolidays = monthlyHolidaysCount > 0;
 
-                          // 針對月薪制計算個人應休與應排工作天
-                          let personalRedDaysCount = 0;
-                          for (let d = 1; d <= daysInMonth; d++) {
-                            const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                            const dayOfWeek = new Date(viewYear, viewMonth - 1, d).getDay();
-                            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                            const isMonthlyHoliday = holidays.some(h => h.movedDate ? h.movedDate === dateStr : h.date === dateStr);
-                            if (isWeekend || isMonthlyHoliday) {
-                              personalRedDaysCount++;
-                            }
-                          }
-                          const personalTargetWorkDays = daysInMonth - personalRedDaysCount;
-                          const remainingWorkDays = personalTargetWorkDays - scheduledDays;
-                          const actualOffDays = daysInMonth - scheduledDays;
-                          const remainingOffDays = personalRedDaysCount - actualOffDays;
-
-                          return (
-                            <tr key={emp.id}>
-                              <td data-label="員工姓名" style={{ fontWeight: '600' }}>{emp.name}</td>
-                              <td data-label="職位職稱">{emp.role}</td>
-                              <td data-label="應排工作天">{isHourly ? <span style={{ color: 'var(--text-muted)' }}>時薪工讀</span> : `${personalTargetWorkDays} 天`}</td>
-                              <td data-label="已排工作天">
-                                <span style={{
-                                  fontWeight: '700',
-                                  color: isHourly ? 'var(--text-main)' : (scheduledDays === personalTargetWorkDays ? '#10b981' : (scheduledDays > personalTargetWorkDays ? '#3b82f6' : '#f59e0b'))
-                                }}>
-                                  {scheduledDays} 天
-                                </span>
-                              </td>
-                              <td data-label="還需排工作天">
-                                {isHourly ? (
-                                  <span style={{ color: 'var(--text-muted)' }}>彈性排班</span>
-                                ) : remainingWorkDays === 0 ? (
-                                  <span style={{ color: '#10b981', fontWeight: '600' }}>✓ 已排滿</span>
-                                ) : remainingWorkDays > 0 ? (
-                                  <span style={{ color: '#f59e0b', fontWeight: '600' }}>還差 {remainingWorkDays} 天</span>
-                                ) : (
-                                  <span style={{ color: '#3b82f6', fontWeight: '600' }}>超排 {Math.abs(remainingWorkDays)} 天</span>
-                                )}
-                              </td>
-                              <td data-label="當月應休天數">{isHourly ? <span style={{ color: 'var(--text-muted)' }}>時薪工讀</span> : `${personalRedDaysCount} 天`}</td>
-                              <td data-label="當月已休天數">{actualOffDays} 天</td>
-                              <td data-label="還需排休天數">
-                                {isHourly ? (
-                                  <span style={{ color: 'var(--text-muted)' }}>彈性排班</span>
-                                ) : remainingOffDays === 0 ? (
-                                  <span style={{ color: '#10b981', fontWeight: '600' }}>✓ 符合</span>
-                                ) : remainingOffDays > 0 ? (
-                                  <span style={{ color: '#f59e0b', fontWeight: '600' }}>還差 {remainingOffDays} 天</span>
-                                ) : (
-                                  <span style={{ color: '#3b82f6', fontWeight: '600' }}>多休 {Math.abs(remainingOffDays)} 天</span>
-                                )}
-                              </td>
+                    return (
+                      <div className="table-responsive">
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>員工姓名</th>
+                              <th>職位職稱</th>
+                              <th>應排工作天</th>
+                              <th>已排工作天</th>
+                              <th>還需排工作天</th>
+                              <th>例假 L (應/已/剩)</th>
+                              <th>休假 S (應/已/剩)</th>
+                              {hasMonthlyHolidays && <th>國定假日 H (應/已/剩)</th>}
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          </thead>
+                          <tbody>
+                            {employees.map(emp => {
+                              const empMonthScheds = schedules.filter(s => 
+                                s.employeeId === emp.id && 
+                                s.date && 
+                                s.date.startsWith(`${viewYear}-${String(viewMonth).padStart(2, '0')}`)
+                              );
+                              const isHourly = emp.salaryType === 'hourly';
+
+                              // 針對月薪制計算個人應休與應排工作天
+                              let targetSundays = 0;
+                              let targetSaturdays = 0;
+                              let targetHolidays = 0;
+                              
+                              for (let d = 1; d <= daysInMonth; d++) {
+                                const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                const dayOfWeek = new Date(viewYear, viewMonth - 1, d).getDay();
+                                const isMonthlyHoliday = holidays.some(h => h.movedDate ? h.movedDate === dateStr : h.date === dateStr);
+                                
+                                if (isMonthlyHoliday) {
+                                  targetHolidays++;
+                                } else if (dayOfWeek === 0) {
+                                  targetSundays++;
+                                } else if (dayOfWeek === 6) {
+                                  targetSaturdays++;
+                                }
+                              }
+
+                              const personalTargetWorkDays = daysInMonth - (targetSundays + targetSaturdays + targetHolidays);
+                              const scheduledWorkDays = empMonthScheds.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').length;
+                              const remainingWorkDays = personalTargetWorkDays - scheduledWorkDays;
+
+                              const scheduledRegularOff = empMonthScheds.filter(s => s.shift === '例假').length;
+                              const scheduledRestOff = empMonthScheds.filter(s => s.shift === '休假').length;
+                              const scheduledHolidayOff = empMonthScheds.filter(s => s.shift === '國定假日').length;
+
+                              const renderOffDayCell = (target: number, scheduled: number) => {
+                                if (isHourly) return <span style={{ color: 'var(--text-muted)' }}>-</span>;
+                                const remaining = target - scheduled;
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '12px' }}>
+                                    <div>應排: <strong>{target}</strong> 天</div>
+                                    <div>已排: <span style={{ color: '#2563eb', fontWeight: '600' }}>{scheduled}</span> 天</div>
+                                    <div>
+                                      剩餘: {remaining === 0 ? (
+                                        <span style={{ color: '#10b981', fontWeight: '700' }}>✓ 0</span>
+                                      ) : remaining > 0 ? (
+                                        <span style={{ color: '#f59e0b', fontWeight: '700' }}>{remaining}</span>
+                                      ) : (
+                                        <span style={{ color: '#ef4444', fontWeight: '700' }}>多排 {Math.abs(remaining)}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              };
+
+                              return (
+                                <tr key={emp.id}>
+                                  <td data-label="員工姓名" style={{ fontWeight: '600' }}>{emp.name}</td>
+                                  <td data-label="職位職稱">{emp.role}</td>
+                                  <td data-label="應排工作天">{isHourly ? <span style={{ color: 'var(--text-muted)' }}>時薪工讀</span> : `${personalTargetWorkDays} 天`}</td>
+                                  <td data-label="已排工作天">
+                                    <span style={{
+                                      fontWeight: '700',
+                                      color: isHourly ? 'var(--text-main)' : (scheduledWorkDays === personalTargetWorkDays ? '#10b981' : (scheduledWorkDays > personalTargetWorkDays ? '#3b82f6' : '#f59e0b'))
+                                    }}>
+                                      {scheduledWorkDays} 天
+                                    </span>
+                                  </td>
+                                  <td data-label="還需排工作天">
+                                    {isHourly ? (
+                                      <span style={{ color: 'var(--text-muted)' }}>彈性排班</span>
+                                    ) : remainingWorkDays === 0 ? (
+                                      <span style={{ color: '#10b981', fontWeight: '600' }}>✓ 已排滿</span>
+                                    ) : remainingWorkDays > 0 ? (
+                                      <span style={{ color: '#f59e0b', fontWeight: '600' }}>還差 {remainingWorkDays} 天</span>
+                                    ) : (
+                                      <span style={{ color: '#3b82f6', fontWeight: '600' }}>超排 {Math.abs(remainingWorkDays)} 天</span>
+                                    )}
+                                  </td>
+                                  <td data-label="例假 L (應/已/剩)">{renderOffDayCell(targetSundays, scheduledRegularOff)}</td>
+                                  <td data-label="休假 S (應/已/剩)">{renderOffDayCell(targetSaturdays, scheduledRestOff)}</td>
+                                  {hasMonthlyHolidays && (
+                                    <td data-label="國定假日 H (應/已/剩)">{renderOffDayCell(targetHolidays, scheduledHolidayOff)}</td>
+                                  )}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
                 </div>
 
               </div>
@@ -3415,10 +3534,23 @@ const AdminDashboard: React.FC = () => {
                     {LEAVE_TYPES.find(t => t.value === item.leaveType)?.label} ｜ {item.startDate}{item.startDate !== item.endDate ? ` ~ ${item.endDate}` : ''} ({item.periodLabel || '全天'}) ｜ {item.hours}h
                     {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>事由：{item.reason}</div>}
                   </div>}
-                  {type === 'overtime' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
-                    加班日期：{item.date} ｜ {item.startTime && item.endTime ? `${item.startTime} ~ ${item.endTime} (` : ''}{item.hours}小時{item.startTime && item.endTime ? ')' : ''}
-                    {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
-                  </div>}
+                  {type === 'overtime' && (() => {
+                    const empPunches = attendance.filter((rec: any) => rec.employeeId === item.employeeId && rec.date === item.date);
+                    const punchTimes = empPunches.map((rec: any) => rec.time).filter(Boolean).sort();
+                    const punchRangeStr = punchTimes.length > 0 
+                      ? `${punchTimes[0]} ~ ${punchTimes[punchTimes.length - 1]}` 
+                      : '無打卡紀錄';
+                    
+                    return (
+                      <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
+                        <div>加班日期：{item.date} ｜ {item.startTime && item.endTime ? `${item.startTime} ~ ${item.endTime} (` : ''}{item.hours}小時{item.startTime && item.endTime ? ')' : ''}</div>
+                        <div style={{ color: '#059669', fontWeight: '600', marginTop: '2px' }}>
+                          📅 當天打卡時段：{punchRangeStr}
+                        </div>
+                        {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
+                      </div>
+                    );
+                  })()}
                   {type === 'punch' && <div style={{ fontSize: '12px', color: '#374151', marginBottom: '6px' }}>
                     補卡日期：{item.date} ｜ 時間：{item.time} ｜ 類型：{item.type}
                     {item.reason && <div style={{ color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>原因：{item.reason}</div>}
@@ -3548,7 +3680,17 @@ const AdminDashboard: React.FC = () => {
                                   <td>{typeLabel(item._type)}</td>
                                   <td style={{ fontSize: '12px', color: '#6b7280' }}>
                                     {item._type === 'leave' && `${LEAVE_TYPES.find(t => t.value === item.leaveType)?.label} ${item.startDate}~${item.endDate} ${item.hours}h`}
-                                    {item._type === 'overtime' && `${item.date} ${item.startTime && item.endTime ? `${item.startTime}~${item.endTime} ` : ''}(${item.hours}h)`}
+                                    {item._type === 'overtime' && (() => {
+                                      const empPunches = attendance.filter((rec: any) => rec.employeeId === item.employeeId && rec.date === item.date);
+                                      const punchTimes = empPunches.map((rec: any) => rec.time).filter(Boolean).sort();
+                                      const punchRange = punchTimes.length > 0 ? ` [打卡: ${punchTimes[0]}~${punchTimes[punchTimes.length - 1]}]` : ' [無打卡]';
+                                      return (
+                                        <span>
+                                          {item.date} {item.startTime && item.endTime ? `${item.startTime}~${item.endTime} ` : ''}({item.hours}h)
+                                          <strong style={{ color: '#059669', marginLeft: '6px' }}>{punchRange}</strong>
+                                        </span>
+                                      );
+                                    })()}
                                     {item._type === 'punch' && `${item.date} ${item.time} ${item.type}`}
                                     {item._type === 'appeal' && `${item.exceptionDate} [${item.exceptionType}]`}
                                   </td>
@@ -4660,10 +4802,17 @@ const AdminDashboard: React.FC = () => {
                   onChange={(e) => setSchedShift(e.target.value)}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
-                  {shifts.map((s, idx) => {
-                    const str = `${s.name} (${s.startTime} - ${s.endTime})`;
-                    return <option key={idx} value={str}>{str}</option>;
-                  })}
+                  <optgroup label="一般工作班別">
+                    {shifts.map((s, idx) => {
+                      const str = `${s.name} (${s.startTime} - ${s.endTime})`;
+                      return <option key={idx} value={str}>{str}</option>;
+                    })}
+                  </optgroup>
+                  <optgroup label="排休設定">
+                    <option value="例假">例假 (L)</option>
+                    <option value="休假">休假 (S)</option>
+                    <option value="國定假日">國定假日 (H)</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -4745,10 +4894,17 @@ const AdminDashboard: React.FC = () => {
                   onChange={(e) => setEditSchedShift(e.target.value)}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
-                  {shifts.map((s, idx) => {
-                    const str = `${s.name} (${s.startTime} - ${s.endTime})`;
-                    return <option key={idx} value={str}>{str}</option>;
-                  })}
+                  <optgroup label="一般工作班別">
+                    {shifts.map((s, idx) => {
+                      const str = `${s.name} (${s.startTime} - ${s.endTime})`;
+                      return <option key={idx} value={str}>{str}</option>;
+                    })}
+                  </optgroup>
+                  <optgroup label="排休設定">
+                    <option value="例假">例假 (L)</option>
+                    <option value="休假">休假 (S)</option>
+                    <option value="國定假日">國定假日 (H)</option>
+                  </optgroup>
                 </select>
               </div>
 
