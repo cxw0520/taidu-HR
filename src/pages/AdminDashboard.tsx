@@ -3164,14 +3164,18 @@ const AdminDashboard: React.FC = () => {
                         <table className="data-table">
                           <thead>
                             <tr>
-                              <th>員工姓名</th>
-                              <th>職位職稱</th>
-                              <th>應排工作天</th>
-                              <th>已排工作天</th>
-                              <th>還需排工作天</th>
-                              <th>例假 L (應/已/剩)</th>
-                              <th>休假 S (應/已/剩)</th>
-                              {hasMonthlyHolidays && <th>國定假日 H (應/已/剩)</th>}
+                              <th rowSpan={2} style={{ verticalAlign: 'middle' }}>員工姓名</th>
+                              <th rowSpan={2} style={{ verticalAlign: 'middle' }}>職位職稱</th>
+                              <th rowSpan={2} style={{ verticalAlign: 'middle' }}>應排工作天</th>
+                              <th rowSpan={2} style={{ verticalAlign: 'middle' }}>已排工作天</th>
+                              <th rowSpan={2} style={{ verticalAlign: 'middle' }}>還需排工作天</th>
+                              <th colSpan={4} style={{ textAlign: 'center', backgroundColor: '#f3f4f6', color: 'var(--primary)', fontWeight: '700' }}>休假日</th>
+                            </tr>
+                            <tr>
+                              <th style={{ backgroundColor: '#f9fafb' }}>假別</th>
+                              <th style={{ backgroundColor: '#f9fafb' }}>應排</th>
+                              <th style={{ backgroundColor: '#f9fafb' }}>已排</th>
+                              <th style={{ backgroundColor: '#f9fafb' }}>剩餘</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -3210,56 +3214,84 @@ const AdminDashboard: React.FC = () => {
                               const scheduledRestOff = empMonthScheds.filter(s => s.shift === '休假').length;
                               const scheduledHolidayOff = empMonthScheds.filter(s => s.shift === '國定假日').length;
 
-                              const renderOffDayCell = (target: number, scheduled: number) => {
-                                if (isHourly) return <span style={{ color: 'var(--text-muted)' }}>-</span>;
-                                const remaining = target - scheduled;
+                              if (isHourly) {
                                 return (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '12px' }}>
-                                    <div>應排: <strong>{target}</strong> 天</div>
-                                    <div>已排: <span style={{ color: '#2563eb', fontWeight: '600' }}>{scheduled}</span> 天</div>
-                                    <div>
-                                      剩餘: {remaining === 0 ? (
-                                        <span style={{ color: '#10b981', fontWeight: '700' }}>✓ 0</span>
-                                      ) : remaining > 0 ? (
-                                        <span style={{ color: '#f59e0b', fontWeight: '700' }}>{remaining}</span>
-                                      ) : (
-                                        <span style={{ color: '#ef4444', fontWeight: '700' }}>多排 {Math.abs(remaining)}</span>
-                                      )}
-                                    </div>
-                                  </div>
+                                  <tr key={emp.id}>
+                                    <td data-label="員工姓名" style={{ fontWeight: '600' }}>{emp.name}</td>
+                                    <td data-label="職位職稱">{emp.role}</td>
+                                    <td data-label="應排工作天"><span style={{ color: 'var(--text-muted)' }}>時薪工讀</span></td>
+                                    <td data-label="已排工作天">
+                                      <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>
+                                        {scheduledWorkDays} 天
+                                      </span>
+                                    </td>
+                                    <td data-label="還需排工作天"><span style={{ color: 'var(--text-muted)' }}>彈性排班</span></td>
+                                    <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', backgroundColor: '#f9fafb' }}>
+                                      彈性排班，不設排休限制
+                                    </td>
+                                  </tr>
                                 );
+                              }
+
+                              const rowSpanVal = hasMonthlyHolidays ? 3 : 2;
+                              const renderRemainingText = (remaining: number) => {
+                                if (remaining === 0) {
+                                  return <span style={{ color: '#10b981', fontWeight: '700' }}>✓ 0</span>;
+                                } else if (remaining > 0) {
+                                  return <span style={{ color: '#f59e0b', fontWeight: '700' }}>{remaining}</span>;
+                                } else {
+                                  return <span style={{ color: '#ef4444', fontWeight: '700' }}>多排 {Math.abs(remaining)}</span>;
+                                }
                               };
 
                               return (
-                                <tr key={emp.id}>
-                                  <td data-label="員工姓名" style={{ fontWeight: '600' }}>{emp.name}</td>
-                                  <td data-label="職位職稱">{emp.role}</td>
-                                  <td data-label="應排工作天">{isHourly ? <span style={{ color: 'var(--text-muted)' }}>時薪工讀</span> : `${personalTargetWorkDays} 天`}</td>
-                                  <td data-label="已排工作天">
-                                    <span style={{
-                                      fontWeight: '700',
-                                      color: isHourly ? 'var(--text-main)' : (scheduledWorkDays === personalTargetWorkDays ? '#10b981' : (scheduledWorkDays > personalTargetWorkDays ? '#3b82f6' : '#f59e0b'))
-                                    }}>
-                                      {scheduledWorkDays} 天
-                                    </span>
-                                  </td>
-                                  <td data-label="還需排工作天">
-                                    {isHourly ? (
-                                      <span style={{ color: 'var(--text-muted)' }}>彈性排班</span>
-                                    ) : remainingWorkDays === 0 ? (
-                                      <span style={{ color: '#10b981', fontWeight: '600' }}>✓ 已排滿</span>
-                                    ) : remainingWorkDays > 0 ? (
-                                      <span style={{ color: '#f59e0b', fontWeight: '600' }}>還差 {remainingWorkDays} 天</span>
-                                    ) : (
-                                      <span style={{ color: '#3b82f6', fontWeight: '600' }}>超排 {Math.abs(remainingWorkDays)} 天</span>
-                                    )}
-                                  </td>
-                                  <td data-label="例假 L (應/已/剩)">{renderOffDayCell(targetSundays, scheduledRegularOff)}</td>
-                                  <td data-label="休假 S (應/已/剩)">{renderOffDayCell(targetSaturdays, scheduledRestOff)}</td>
+                                <React.Fragment key={emp.id}>
+                                  {/* 第一行：例假 */}
+                                  <tr>
+                                    <td rowSpan={rowSpanVal} data-label="員工姓名" style={{ fontWeight: '600', verticalAlign: 'middle' }}>{emp.name}</td>
+                                    <td rowSpan={rowSpanVal} data-label="職位職稱" style={{ verticalAlign: 'middle' }}>{emp.role}</td>
+                                    <td rowSpan={rowSpanVal} data-label="應排工作天" style={{ verticalAlign: 'middle' }}>{`${personalTargetWorkDays} 天`}</td>
+                                    <td rowSpan={rowSpanVal} data-label="已排工作天" style={{ verticalAlign: 'middle' }}>
+                                      <span style={{
+                                        fontWeight: '700',
+                                        color: scheduledWorkDays === personalTargetWorkDays ? '#10b981' : (scheduledWorkDays > personalTargetWorkDays ? '#3b82f6' : '#f59e0b')
+                                      }}>
+                                        {scheduledWorkDays} 天
+                                      </span>
+                                    </td>
+                                    <td rowSpan={rowSpanVal} data-label="還需排工作天" style={{ verticalAlign: 'middle' }}>
+                                      {remainingWorkDays === 0 ? (
+                                        <span style={{ color: '#10b981', fontWeight: '600' }}>✓ 已排滿</span>
+                                      ) : remainingWorkDays > 0 ? (
+                                        <span style={{ color: '#f59e0b', fontWeight: '600' }}>還差 {remainingWorkDays} 天</span>
+                                      ) : (
+                                        <span style={{ color: '#3b82f6', fontWeight: '600' }}>超排 {Math.abs(remainingWorkDays)} 天</span>
+                                      )}
+                                    </td>
+                                    <td data-label="假別" style={{ fontWeight: '600', color: '#b91c1c', backgroundColor: '#fef2f2' }}>例假 (L)</td>
+                                    <td data-label="應排">{targetSundays} 天</td>
+                                    <td data-label="已排" style={{ color: '#2563eb', fontWeight: '600' }}>{scheduledRegularOff} 天</td>
+                                    <td data-label="剩餘">{renderRemainingText(targetSundays - scheduledRegularOff)}</td>
+                                  </tr>
+
+                                  {/* 第二行：休假 */}
+                                  <tr>
+                                    <td data-label="假別" style={{ fontWeight: '600', color: '#d97706', backgroundColor: '#fffbeb' }}>休假 (S)</td>
+                                    <td data-label="應排">{targetSaturdays} 天</td>
+                                    <td data-label="已排" style={{ color: '#2563eb', fontWeight: '600' }}>{scheduledRestOff} 天</td>
+                                    <td data-label="剩餘">{renderRemainingText(targetSaturdays - scheduledRestOff)}</td>
+                                  </tr>
+
+                                  {/* 第三行：國定假日 (僅在當月有國定假日且月薪人員時顯示) */}
                                   {hasMonthlyHolidays && (
-                                    <td data-label="國定假日 H (應/已/剩)">{renderOffDayCell(targetHolidays, scheduledHolidayOff)}</td>
+                                    <tr>
+                                      <td data-label="假別" style={{ fontWeight: '600', color: '#7c3aed', backgroundColor: '#f5f3ff' }}>國定假日 (H)</td>
+                                      <td data-label="應排">{targetHolidays} 天</td>
+                                      <td data-label="已排" style={{ color: '#2563eb', fontWeight: '600' }}>{scheduledHolidayOff} 天</td>
+                                      <td data-label="剩餘">{renderRemainingText(targetHolidays - scheduledHolidayOff)}</td>
+                                    </tr>
                                   )}
-                                </tr>
+                                </React.Fragment>
                               );
                             })}
                           </tbody>
