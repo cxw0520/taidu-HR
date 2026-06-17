@@ -414,6 +414,11 @@ const AdminDashboard: React.FC = () => {
   const [quickSchedEmpId, setQuickSchedEmpId] = useState<string>('');
   const [quickSchedShift, setQuickSchedShift] = useState<string>('');
   const [quickSchedStatus, setQuickSchedStatus] = useState<string>('已確認');
+  
+  // 日曆篩選與精簡檢視狀態
+  const [calendarEmpFilter, setCalendarEmpFilter] = useState<string>('all');
+  const [calendarHideOff, setCalendarHideOff] = useState<boolean>(false);
+  const [calendarCompactMode, setCalendarCompactMode] = useState<boolean>(false);
 
   // 薪資篩選與月份 States
   const [payMonthFilter, setPayMonthFilter] = useState(new Date().toISOString().substring(0, 7));
@@ -2879,6 +2884,60 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
 
+                {/* 日曆檢視篩選與精簡面板 */}
+                <div style={{
+                  display: 'flex',
+                  gap: '16px',
+                  padding: '12px 16px',
+                  borderRadius: '10px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid var(--border)',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  marginTop: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-main)' }}>🔍 篩選與檢視設定：</span>
+                  </div>
+
+                  {/* 員工篩選 */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>員工篩選：</span>
+                    <select
+                      value={calendarEmpFilter}
+                      onChange={(e) => setCalendarEmpFilter(e.target.value)}
+                      style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
+                    >
+                      <option value="all">顯示全部員工</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.name} ({emp.salaryType === 'hourly' ? '工讀' : '正職'})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 隱藏休假人員 */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={calendarHideOff}
+                      onChange={(e) => setCalendarHideOff(e.target.checked)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>🏖️ 隱藏休假/例假人員</span>
+                  </label>
+
+                  {/* 精簡模式切換 */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', marginLeft: 'auto' }}>
+                    <input
+                      type="checkbox"
+                      checked={calendarCompactMode}
+                      onChange={(e) => setCalendarCompactMode(e.target.checked)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--primary)' }}>📊 啟用日曆精簡顯示模式</span>
+                  </label>
+                </div>
+
                 {isQuickSchedMode && (
                   <div className="glass-card" style={{ display: 'flex', gap: '16px', padding: '16px', borderRadius: '12px', backgroundColor: '#f5f3ff', border: '1px solid rgba(124, 58, 237, 0.15)', flexWrap: 'wrap', alignItems: 'center' }}>
                     <div style={{ fontSize: '13px', fontWeight: '700', color: '#6d28d9' }}>⚡ 快速排班設定：</div>
@@ -2964,19 +3023,24 @@ const AdminDashboard: React.FC = () => {
                         const origHoliday = holidays.find(h => h.date === dateString);
                         const movedHoliday = holidays.find(h => h.movedDate === dateString && h.movedDate !== h.date);
                         
-                        // 計算當日排班
-                        const daySchedules = schedules.filter(s => s.date === dateString);
-                        // 計算實際上班人力 (不包含 例假、休假、國定假日)
-                        const workingManpowerCount = daySchedules.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').length;
+                        // 計算當日原始排班
+                        const rawDaySchedules = schedules.filter(s => s.date === dateString);
 
-                        // 將當日排班排序：工作班別在前，休假班別在後
-                        const sortedDaySchedules = [...daySchedules].sort((a, b) => {
-                          const isOffA = a.shift === '例假' || a.shift === '休假' || a.shift === '國定假日';
-                          const isOffB = b.shift === '例假' || b.shift === '休假' || b.shift === '國定假日';
-                          if (isOffA && !isOffB) return 1;
-                          if (!isOffA && isOffB) return -1;
-                          return 0;
-                        });
+                        // 應用篩選控制面板狀態
+                        let filteredDayScheds = rawDaySchedules;
+                        if (calendarEmpFilter !== 'all') {
+                          filteredDayScheds = filteredDayScheds.filter(s => s.employeeId === calendarEmpFilter);
+                        }
+                        if (calendarHideOff) {
+                          filteredDayScheds = filteredDayScheds.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日');
+                        }
+
+                        // 計算實際上班人力 (以全部員工原始排班計算，不隨單人篩選或隱藏休假而改變，排除例假/休假/國定假日)
+                        const workingManpowerCount = rawDaySchedules.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').length;
+
+                        // 分流出上班班別與休假人員 (用於休假併列化與上班排序在前)
+                        const workScheds = filteredDayScheds.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日');
+                        const offScheds = filteredDayScheds.filter(s => s.shift === '例假' || s.shift === '休假' || s.shift === '國定假日');
                         
                         // 決定格子的背景底色
                         let cellBg = '#ffffff';
@@ -3055,27 +3119,27 @@ const AdminDashboard: React.FC = () => {
                               今日：{workingManpowerCount} 人
                             </div>
 
-                            {/* 已排員工標籤列表 */}
+                            {/* 已排員工標籤列表 (上班班別優先) */}
                             <div className="day-schedules-list" style={{
                               display: 'flex',
                               flexDirection: 'column',
-                              gap: '3px',
+                              gap: calendarCompactMode ? '2px' : '3px',
                               overflowY: 'auto',
                               flex: 1,
                               paddingRight: '2px'
                             }}>
-                              {sortedDaySchedules.map(sched => {
+                              {workScheds.map(sched => {
                                 let bg = sched.status === '已確認' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)';
                                 let txt = sched.status === '已確認' ? '#065f46' : '#92400e';
                                 let borderCol = sched.status === '已確認' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)';
 
-                                if (sched.shift === '例假') {
-                                  bg = '#fee2e2'; txt = '#b91c1c'; borderCol = '#fecdd3';
-                                } else if (sched.shift === '休假') {
-                                  bg = '#fef3c7'; txt = '#d97706'; borderCol = '#fde68a';
-                                } else if (sched.shift === '國定假日') {
-                                  bg = '#f3e8ff'; txt = '#7c3aed'; borderCol = '#e9d5ff';
-                                }
+                                // 精簡模式下縮寫姓名與班別名稱
+                                const displayName = calendarCompactMode 
+                                  ? (sched.empName.length > 2 ? sched.empName.slice(1) : sched.empName) 
+                                  : sched.empName;
+                                const displayShift = calendarCompactMode 
+                                  ? sched.shift.split(' ')[0].charAt(0) 
+                                  : sched.shift.split(' ')[0];
 
                                 return (
                                   <div 
@@ -3085,43 +3149,119 @@ const AdminDashboard: React.FC = () => {
                                       handleOpenEditSchedule(sched);
                                     }}
                                     style={{
-                                      fontSize: '11px',
+                                      fontSize: calendarCompactMode ? '10px' : '11px',
                                       fontWeight: '600',
                                       backgroundColor: bg,
                                       color: txt,
                                       border: `1px solid ${borderCol}`,
                                       borderRadius: '4px',
-                                      padding: '2px 4px',
+                                      padding: calendarCompactMode ? '1px 3px' : '2px 4px',
                                       display: 'flex',
                                       alignItems: 'center',
                                       justifyContent: 'space-between',
-                                      cursor: 'pointer'
+                                      cursor: 'pointer',
+                                      lineHeight: '1.2'
                                     }}
                                   >
                                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${sched.empName} (${sched.shift})`}>
-                                      {sched.empName} ({sched.shift.split(' ')[0]})
+                                      {displayName} ({displayShift})
                                     </span>
-                                    <span 
-                                      onClick={(e) => {
-                                        e.stopPropagation(); // 阻止觸發編輯彈窗
-                                        handleDeleteSchedule(sched.id);
-                                      }}
-                                      style={{
-                                        fontSize: '12px',
-                                        fontWeight: '800',
-                                        marginLeft: '4px',
-                                        color: '#ef4444',
-                                        cursor: 'pointer',
-                                        padding: '0 2px'
-                                      }}
-                                      title="刪除排班"
-                                    >
-                                      ×
-                                    </span>
+                                    {!calendarCompactMode && (
+                                      <span 
+                                        onClick={(e) => {
+                                          e.stopPropagation(); // 阻止觸發編輯彈窗
+                                          handleDeleteSchedule(sched.id);
+                                        }}
+                                        style={{
+                                          fontSize: '12px',
+                                          fontWeight: '800',
+                                          marginLeft: '4px',
+                                          color: '#ef4444',
+                                          cursor: 'pointer',
+                                          padding: '0 2px'
+                                        }}
+                                        title="刪除排班"
+                                      >
+                                        ×
+                                      </span>
+                                    )}
                                   </div>
                                 );
                               })}
                             </div>
+
+                            {/* 休假人員置底橫向圓圈標籤 */}
+                            {offScheds.length > 0 && (
+                              <div className="day-off-list" style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '3px',
+                                marginTop: 'auto',
+                                paddingTop: '4px',
+                                borderTop: '1px dashed #e2e8f0'
+                              }}>
+                                {offScheds.map(sched => {
+                                  let bg = '#fee2e2';
+                                  let txt = '#b91c1c';
+                                  let borderCol = '#fecdd3';
+                                  let typeChar = 'Ⓛ';
+
+                                  if (sched.shift === '休假') {
+                                    bg = '#fef3c7'; txt = '#d97706'; borderCol = '#fde68a'; typeChar = 'Ⓢ';
+                                  } else if (sched.shift === '國定假日') {
+                                    bg = '#f3e8ff'; txt = '#7c3aed'; borderCol = '#e9d5ff'; typeChar = 'Ⓗ';
+                                  }
+
+                                  const nameChar = sched.empName.charAt(sched.empName.length - 1);
+
+                                  return (
+                                    <div 
+                                      key={sched.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenEditSchedule(sched);
+                                      }}
+                                      style={{
+                                        fontSize: '10px',
+                                        fontWeight: '700',
+                                        backgroundColor: bg,
+                                        color: txt,
+                                        border: `1px solid ${borderCol}`,
+                                        borderRadius: '12px',
+                                        padding: '1px 5px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '2px',
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                      title={`${sched.empName} (${sched.shift})`}
+                                    >
+                                      <span style={{ fontSize: '11px', lineHeight: '1' }}>{typeChar}</span>
+                                      <span>{nameChar}</span>
+                                      {!calendarCompactMode && (
+                                        <span 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteSchedule(sched.id);
+                                          }}
+                                          style={{
+                                            fontSize: '10px',
+                                            fontWeight: '800',
+                                            marginLeft: '2px',
+                                            color: '#ef4444',
+                                            cursor: 'pointer'
+                                          }}
+                                          title="刪除"
+                                        >
+                                          ×
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
 
                             {/* 常規新增按鈕 (非快速模式下) */}
                             {!isQuickSchedMode && (
