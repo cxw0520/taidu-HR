@@ -228,15 +228,26 @@ const AdminDashboard: React.FC = () => {
       const records = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      }));
+      })) as any[];
+
+      const sortList = (list: any[]) => {
+        return [...list].sort((a, b) => {
+          const typeA = a.salaryType || 'monthly';
+          const typeB = b.salaryType || 'monthly';
+          if (typeA === 'monthly' && typeB === 'hourly') return -1;
+          if (typeA === 'hourly' && typeB === 'monthly') return 1;
+          return a.name.localeCompare(b.name, 'zh-Hant');
+        });
+      };
+
       if (records.length === 0) {
-        setEmployees([
-          { id: 'EMP001', name: '王小明', role: '工程師', status: 'active' },
-          { id: 'EMP002', name: '李大華', role: '設計師', status: 'active' },
-          { id: 'EMP003', name: '張小芬', role: '行銷', status: 'inactive' },
-        ]);
+        setEmployees(sortList([
+          { id: 'EMP001', name: '王小明', role: '工程師', status: 'active', salaryType: 'monthly' },
+          { id: 'EMP002', name: '李大華', role: '設計師', status: 'active', salaryType: 'monthly' },
+          { id: 'EMP003', name: '張小芬', role: '行銷', status: 'inactive', salaryType: 'monthly' },
+        ]));
       } else {
-        setEmployees(records);
+        setEmployees(sortList(records));
       }
     });
     return () => unsubscribe();
@@ -2955,6 +2966,17 @@ const AdminDashboard: React.FC = () => {
                         
                         // 計算當日排班
                         const daySchedules = schedules.filter(s => s.date === dateString);
+                        // 計算實際上班人力 (不包含 例假、休假、國定假日)
+                        const workingManpowerCount = daySchedules.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').length;
+
+                        // 將當日排班排序：工作班別在前，休假班別在後
+                        const sortedDaySchedules = [...daySchedules].sort((a, b) => {
+                          const isOffA = a.shift === '例假' || a.shift === '休假' || a.shift === '國定假日';
+                          const isOffB = b.shift === '例假' || b.shift === '休假' || b.shift === '國定假日';
+                          if (isOffA && !isOffB) return 1;
+                          if (!isOffA && isOffB) return -1;
+                          return 0;
+                        });
                         
                         // 決定格子的背景底色
                         let cellBg = '#ffffff';
@@ -2982,15 +3004,11 @@ const AdminDashboard: React.FC = () => {
                         } else if (dayOfWeek === 0) {
                           cellBg = '#fff5f5'; // 週日例假日 (淺紅底)
                           dateColor = '#ef4444';
-                          dayLabel = '例假日';
-                          badgeBg = '#fca5a5';
-                          badgeText = '#991b1b';
+                          dayLabel = '';
                         } else if (dayOfWeek === 6) {
                           cellBg = '#fef3c7'; // 週六休息日 (淺黃底)
                           dateColor = '#d97706';
-                          dayLabel = '休息日';
-                          badgeBg = '#fde68a';
-                          badgeText = '#92400e';
+                          dayLabel = '';
                         }
 
                         return (
@@ -3034,7 +3052,7 @@ const AdminDashboard: React.FC = () => {
 
                             {/* 人力狀態摘要 */}
                             <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' }}>
-                              今日：{daySchedules.length} 人
+                              今日：{workingManpowerCount} 人
                             </div>
 
                             {/* 已排員工標籤列表 */}
@@ -3046,7 +3064,7 @@ const AdminDashboard: React.FC = () => {
                               flex: 1,
                               paddingRight: '2px'
                             }}>
-                              {daySchedules.map(sched => {
+                              {sortedDaySchedules.map(sched => {
                                 let bg = sched.status === '已確認' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)';
                                 let txt = sched.status === '已確認' ? '#065f46' : '#92400e';
                                 let borderCol = sched.status === '已確認' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)';
