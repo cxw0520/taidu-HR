@@ -11,6 +11,7 @@ import { PayrollCalculator } from '../components/PayrollCalculator';
 import { LeavesManager } from '../components/LeavesManager';
 import { SettingsManager } from '../components/SettingsManager';
 import './AdminDashboard.css';
+import { isOffShift } from '../utils/taiwanHrEngine';
 
 const AdminDashboard: React.FC = () => {
   const {
@@ -50,7 +51,7 @@ const AdminDashboard: React.FC = () => {
       leavesMap[l.employeeId].push(l);
     });
     
-    schedules.filter(s => s.date < todayStr && s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').forEach(sched => {
+    schedules.filter(s => s.date < todayStr && !isOffShift(s.shift)).forEach(sched => {
       const empId = sched.employeeId;
       const date = sched.date;
       const empLeaves = leavesMap[empId] || [];

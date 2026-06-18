@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 
+import { isOffShift } from '../utils/taiwanHrEngine';
+
 const Scheduler: React.FC = () => {
   const {
     employees,
@@ -111,12 +113,12 @@ const Scheduler: React.FC = () => {
       warnings.push('⚠️ 請假衝突：該員工此日已有核准的請假紀錄！');
     }
 
-    if (shiftStr === '例假' || shiftStr === '休假' || shiftStr === '國定假日') {
+    if (isOffShift(shiftStr)) {
       return warnings;
     }
 
     // (2) 7-1 Rule
-    const empSchedules = schedules.filter(s => s.employeeId === empId && s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日');
+    const empSchedules = schedules.filter(s => s.employeeId === empId && !isOffShift(s.shift));
     const allDates = [...new Set([...empSchedules.map((s: any) => s.date), dateStr])].sort();
     let maxStreak = 0;
     let streak = 0;
@@ -532,15 +534,15 @@ const Scheduler: React.FC = () => {
                   filteredDayScheds = filteredDayScheds.filter(s => s.employeeId === calendarEmpFilter);
                 }
                 if (calendarHideOff) {
-                  filteredDayScheds = filteredDayScheds.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日');
+                  filteredDayScheds = filteredDayScheds.filter(s => !isOffShift(s.shift));
                 }
 
                 // Daily Manpower count: excludes off days
-                const workingManpowerCount = rawDaySchedules.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').length;
+                const workingManpowerCount = rawDaySchedules.filter(s => !isOffShift(s.shift)).length;
 
                 // Split work shifts and off days for flow styling
-                const workScheds = filteredDayScheds.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日');
-                const offScheds = filteredDayScheds.filter(s => s.shift === '例假' || s.shift === '休假' || s.shift === '國定假日');
+                const workScheds = filteredDayScheds.filter(s => !isOffShift(s.shift));
+                const offScheds = filteredDayScheds.filter(s => isOffShift(s.shift));
                 
                 // Color formatting
                 let cellBg = '#ffffff';
@@ -819,7 +821,7 @@ const Scheduler: React.FC = () => {
                       }
 
                       const personalTargetWorkDays = daysInMonth - (targetSundays + targetSaturdays + targetHolidays);
-                      const scheduledWorkDays = empMonthScheds.filter(s => s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').length;
+                      const scheduledWorkDays = empMonthScheds.filter(s => !isOffShift(s.shift)).length;
                       const remainingWorkDays = personalTargetWorkDays - scheduledWorkDays;
 
                       const scheduledRegularOff = empMonthScheds.filter(s => s.shift === '例假').length;

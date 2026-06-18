@@ -7,6 +7,7 @@ import {
   doc, getDoc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
+import { isOffShift } from '../utils/taiwanHrEngine';
 
 const LEAVE_TYPES = [
   { value: 'sick',        label: '病假 (半薪)',  yearlyDays: 30 },
@@ -272,7 +273,8 @@ const EmployeeClockIn: React.FC = () => {
       if (!attByDate[rec.date]) attByDate[rec.date] = [];
       attByDate[rec.date].push(rec);
     });
-    const pastSchedules = mySchedules.filter(s => s.date < todayStr && s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日');
+    const pastSchedules = mySchedules.filter(s => s.date < todayStr && !isOffShift(s.shift));
+
     pastSchedules.forEach((sched: any) => {
       const date = sched.date;
       const dayAtt = attByDate[date] || [];

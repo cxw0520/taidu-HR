@@ -1,6 +1,8 @@
 import React from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 
+import { isOffShift } from '../utils/taiwanHrEngine';
+
 interface AdminHomeProps {
   setActiveTab: (tab: 'attendance' | 'employees' | 'schedules' | 'payroll' | 'leaves' | 'settings') => void;
 }
@@ -70,7 +72,7 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
       leavesMap[l.employeeId].push(l);
     });
     
-    schedules.filter(s => s.date < todayStr && s.shift !== '例假' && s.shift !== '休假' && s.shift !== '國定假日').forEach(sched => {
+    schedules.filter(s => s.date < todayStr && !isOffShift(s.shift)).forEach(sched => {
       const empId = sched.employeeId;
       const date = sched.date;
       const empLeaves = leavesMap[empId] || [];
