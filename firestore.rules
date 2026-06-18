@@ -9,10 +9,15 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && 
-             request.auth.token.email != null && 
-             request.auth.token.email.lower() == 'taidu.patisserie.2025@gmail.com';
+      return isSignedIn() && (
+        (request.auth.token.email != null && request.auth.token.email.lower() == 'taidu.patisserie.2025@gmail.com') ||
+        (exists(/databases/$(database)/documents/employees/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.isAdmin == true ||
+          get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'admin'
+        ))
+      );
     }
+
 
     function isOwner(uid) {
       return isSignedIn() && request.auth.uid == uid;

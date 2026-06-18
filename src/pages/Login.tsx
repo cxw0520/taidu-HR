@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import './Login.css';
 
 const Login: React.FC = () => {
@@ -20,12 +21,27 @@ const Login: React.FC = () => {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
-      if (user.email === 'taidu.patisserie.2025@gmail.com') {
+      let isAdmin = user.email === 'taidu.patisserie.2025@gmail.com';
+      try {
+        const docRef = doc(db, 'employees', user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.role === 'admin' || data.isAdmin === true) {
+            isAdmin = true;
+          }
+        }
+      } catch (dbErr) {
+        console.error("Query employee admin status error on login:", dbErr);
+      }
+
+      if (isAdmin) {
         navigate('/admin');
       } else {
         navigate('/');
       }
     } catch (err: any) {
+
       console.error(err);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         setError('電子信箱或密碼錯誤');
