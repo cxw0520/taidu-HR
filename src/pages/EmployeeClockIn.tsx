@@ -7,7 +7,7 @@ import {
   doc, getDoc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
-import { isOffShift } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus } from '../utils/taiwanHrEngine';
 
 const LEAVE_TYPES = [
   { value: 'sick',        label: '病假 (半薪)',  yearlyDays: 30 },
@@ -70,6 +70,7 @@ const EmployeeClockIn: React.FC = () => {
   const [myOvertimes, setMyOvertimes] = useState<any[]>([]);
   const [myPunchCorrections, setMyPunchCorrections] = useState<any[]>([]);
   const [myAppeals, setMyAppeals] = useState<any[]>([]);
+  const [shiftsList, setShiftsList] = useState<any[]>([]);
 
   // ── 請假表單 ──
   const [leaveType, setLeaveType] = useState('sick');
@@ -154,7 +155,7 @@ const EmployeeClockIn: React.FC = () => {
 
   // ── 系統設定監聽 ──
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, 'settings', 'rules'), (docSnap) => {
+    const unsubRules = onSnapshot(doc(db, 'settings', 'rules'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data) {
@@ -166,7 +167,15 @@ const EmployeeClockIn: React.FC = () => {
         }
       }
     });
-    return () => unsubscribe();
+    const unsubShifts = onSnapshot(doc(db, 'settings', 'shifts'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && data.list) {
+          setShiftsList(data.list);
+        }
+      }
+    });
+    return () => { unsubRules(); unsubShifts(); };
   }, []);
 
   // ── 員工資料監聽 ──
@@ -280,21 +289,47 @@ const EmployeeClockIn: React.FC = () => {
       const dayAtt = attByDate[date] || [];
       const hasLeave = myLeaves.some(l => l.startDate <= date && l.endDate >= date && l.status === 'approved');
       if (hasLeave) return;
-      const inRec = dayAtt.find(r => r.type === '上班');
-      const outRec = dayAtt.find(r => r.type === '下班');
-      if (!inRec && !outRec) {
-        list.push({ id: `absent-${date}`, date, type: '曠職', message: `當天有班表 (${sched.shift})，但無任何打卡紀錄。`, recId: '' });
-      } else if (!inRec || !outRec) {
-        list.push({ id: `miss-${date}`, date, type: '缺卡', message: `打卡不完整：${inRec ? '已打上班但缺下班卡' : '已打下班但缺上班卡'}。`, recId: inRec?.id || outRec?.id || '' });
+
+      const shiftName = (sched.shift || '').split(' (')[0];
+      const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
+      const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+
+      const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      const actualPunches = dayAtt.length;
+      const hasApprovedOvertime = myOvertimes.some(ot => ot.date === date && ot.status === 'approved');
+      const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
+
+      if (actualPunches === 0) {
+        list.push({ id: `absent-${date}`, date, type: '曠職', message: `當天有班表 (${sched.shift})，但無 any 打卡紀錄。`, recId: '' });
+      } else if (actualPunches < expectedPunches) {
+        let missingDetail = '';
+        if (expectsFour) {
+          missingDetail = `應打卡 4 次，實際僅打卡 ${actualPunches} 次。`;
+        } else {
+          missingDetail = `${inRecs.length === 0 ? '缺上班卡' : '缺下班卡'}。`;
+        }
+        list.push({ id: `miss-${date}`, date, type: '缺卡', message: `打卡不完整：${missingDetail}`, recId: inRecs[0]?.id || outRecs[0]?.id || '' });
       } else {
-        const statuses = dayAtt.map(r => r.status).filter(s => s && s !== '正常');
-        if (statuses.length > 0) {
-          list.push({ id: `exc-${date}`, date, type: statuses.join('、'), message: `打卡時間：上班 ${inRec.time || '-'} / 下班 ${outRec.time || '-'} (班表: ${sched.shift})。`, recId: inRec.id });
+        let startTimeStr = '';
+        let endTimeStr = '';
+        const timeMatch = (sched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+        if (timeMatch) {
+          startTimeStr = timeMatch[1];
+          endTimeStr = timeMatch[2];
+        }
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr);
+        const dayStatuses = [];
+        if (isLate) dayStatuses.push('遲到');
+        if (isEarly) dayStatuses.push('早退');
+        
+        if (dayStatuses.length > 0) {
+          list.push({ id: `exc-${date}`, date, type: dayStatuses.join('、'), message: `打卡時間：上班 ${inRecs.map(r => r.time).join(', ') || '-'} / 下班 ${outRecs.map(r => r.time).join(', ') || '-'} (班表: ${sched.shift})。`, recId: inRecs[0]?.id || '' });
         }
       }
     });
     return list.sort((a, b) => b.date.localeCompare(a.date));
-  }, [allAttendance, mySchedules, myLeaves, user]);
+  }, [allAttendance, mySchedules, myLeaves, myOvertimes, user, shiftsList]);
 
   // ── 打卡 ──
   const handleClockIn = (type: 'in' | 'out') => {
@@ -332,8 +367,32 @@ const EmployeeClockIn: React.FC = () => {
               const expectedIn  = new Date(yr, mo - 1, dy, sh, sm);
               let   expectedOut = new Date(yr, mo - 1, dy, eh, em);
               if (expectedOut < expectedIn) expectedOut.setDate(expectedOut.getDate() + 1);
-              if (type === 'in'  && now.getTime() > expectedIn.getTime()  + 60000) clockStatus = '遲到';
-              if (type === 'out' && now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';
+
+              const shiftName = (matchedSched.shift || '').split(' (')[0];
+              const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
+              const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+
+              const dateAtts = allAttendance.filter((r: any) => r.date === matchResult.workDate);
+              const inCount = dateAtts.filter((r: any) => r.type === '上班').length;
+              const outCount = dateAtts.filter((r: any) => r.type === '下班').length;
+
+              if (type === 'in') {
+                if (inCount === 0) {
+                  if (now.getTime() > expectedIn.getTime() + 60000) clockStatus = '遲到';
+                } else {
+                  clockStatus = '正常';
+                }
+              } else if (type === 'out') {
+                const totalShiftDuration = expectedOut.getTime() - expectedIn.getTime();
+                const elapsed = now.getTime() - expectedIn.getTime();
+                const isFinalOut = outCount > 0 || (expectsFour ? (elapsed > totalShiftDuration * 0.6) : true);
+
+                if (isFinalOut) {
+                  if (now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';
+                } else {
+                  clockStatus = '正常';
+                }
+              }
             }
           } else {
             clockStatus = '異常';
@@ -726,13 +785,17 @@ const EmployeeClockIn: React.FC = () => {
                   const dateStr = `${calYear}-${String(calMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                   const sched = schedMap[dateStr];
                   const dayAtts = attMap[dateStr] || [];
-                  const hasIn  = dayAtts.some(r => r.type === '上班');
-                  const hasOut = dayAtts.some(r => r.type === '下班');
                   const isToday   = dateStr === todayStr;
                   const isFuture  = dateStr > todayStr;
                   const dow = new Date(dateStr).getDay();
                   const hasLeave  = myLeaves.some(l => l.startDate <= dateStr && l.endDate >= dateStr && l.status === 'approved');
-                  const isException = sched && !isFuture && !hasLeave && (!hasIn || !hasOut);
+                  
+                  const shiftName = sched ? (sched.shift || '').split(' (')[0] : '';
+                  const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
+                  const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+                  const hasApprovedOvertime = myOvertimes.some(ot => ot.date === dateStr && ot.status === 'approved');
+                  const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
+                  const isException = sched && !isFuture && !hasLeave && (dayAtts.length < expectedPunches);
                   const shiftShort = sched ? (sched.shift || '').replace(/\s*\(.*?\)/, '').slice(0, 4) : '';
                   const shiftTime  = sched ? ((sched.shift || '').match(/\((.+?)\)/) || [])[1] || '' : '';
 
@@ -772,8 +835,12 @@ const EmployeeClockIn: React.FC = () => {
                       {/* 打卡狀態圓點 */}
                       {sched && !isFuture && !hasLeave && (
                         <div style={{ display: 'flex', gap: '3px', marginTop: '2px' }}>
-                          <div title="上班卡" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: hasIn ? '#10b981' : '#ef4444' }} />
-                          <div title="下班卡" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: hasOut ? '#10b981' : '#ef4444' }} />
+                          {dayAtts.map((att: any, attIdx: number) => (
+                            <div key={attIdx} title={`${att.type} (${att.time})`} style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }} />
+                          ))}
+                          {Array.from({ length: Math.max(0, expectedPunches - dayAtts.length) }).map((_, missingIdx) => (
+                            <div key={`m-${missingIdx}`} title="缺卡" style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
+                          ))}
                         </div>
                       )}
 

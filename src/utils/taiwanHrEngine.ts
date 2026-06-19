@@ -330,3 +330,50 @@ export function isOffShift(shiftName: string): boolean {
   if (name === '例假' || name === '休假' || name === '國定假日' || name === '排休' || name === '公休') return true;
   return (name.includes('休') || name.includes('例') || name.includes('假')) && !name.includes('班');
 }
+
+/**
+ * 依據排班與當天所有打卡紀錄，動態判斷第一筆上班是否遲到，以及最後一筆下班是否早退
+ */
+export function evaluatePunchesStatus(
+  dayAtts: any[],
+  startTimeStr: string,
+  endTimeStr: string
+) {
+  let isLate = false;
+  let isEarly = false;
+
+  if (!startTimeStr || !endTimeStr) {
+    return { isLate, isEarly };
+  }
+
+  const inRecs = dayAtts.filter(r => r.type === '上班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const outRecs = dayAtts.filter(r => r.type === '下班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+
+  if (inRecs.length > 0 && inRecs[0].time) {
+    const [sh, sm] = startTimeStr.split(':').map(Number);
+    const [ah, am] = inRecs[0].time.split(':').map(Number);
+    if (inRecs[0].status === '遲到' || (ah * 60 + am) > (sh * 60 + sm + 1)) {
+      isLate = true;
+    }
+  }
+
+  if (outRecs.length > 0 && outRecs[outRecs.length - 1].time) {
+    const [sh, sm] = startTimeStr.split(':').map(Number);
+    const [eh, em] = endTimeStr.split(':').map(Number);
+    const expectedInMins = sh * 60 + sm;
+    let expectedOutMins = eh * 60 + em;
+    if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60; // 跨夜
+
+    const lastOut = outRecs[outRecs.length - 1];
+    const [ah, am] = lastOut.time.split(':').map(Number);
+    let actualOutMins = ah * 60 + am;
+    if (actualOutMins < expectedInMins) actualOutMins += 24 * 60; // 跨夜
+
+    if (lastOut.status === '早退' || actualOutMins < expectedOutMins - 1) {
+      isEarly = true;
+    }
+  }
+
+  return { isLate, isEarly };
+}
+

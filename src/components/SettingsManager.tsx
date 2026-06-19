@@ -27,6 +27,8 @@ export const SettingsManager: React.FC = () => {
   const [newShiftEnd, setNewShiftEnd] = useState('18:00');
   const [newShiftBreakStart, setNewShiftBreakStart] = useState('');
   const [newShiftBreakEnd, setNewShiftBreakEnd] = useState('');
+  const [breakType, setBreakType] = useState<'time' | 'duration'>('time');
+  const [newShiftBreakDuration, setNewShiftBreakDuration] = useState<number>(0);
 
   // 3. Insurance & Rules Form States
   const [cfgLaborRate, setCfgLaborRate] = useState(0.12);
@@ -116,8 +118,9 @@ export const SettingsManager: React.FC = () => {
       name, 
       startTime: start, 
       endTime: end,
-      breakStartTime: newShiftBreakStart.trim(),
-      breakEndTime: newShiftBreakEnd.trim()
+      breakStartTime: breakType === 'time' ? newShiftBreakStart.trim() : '',
+      breakEndTime: breakType === 'time' ? newShiftBreakEnd.trim() : '',
+      breakDuration: breakType === 'duration' ? Number(newShiftBreakDuration) : 0
     }];
 
     try {
@@ -125,6 +128,7 @@ export const SettingsManager: React.FC = () => {
       setNewShiftName('');
       setNewShiftBreakStart('');
       setNewShiftBreakEnd('');
+      setNewShiftBreakDuration(0);
       alert(`✅ 班別「${name}」已成功建立！`);
     } catch (err) {
       console.error("Failed to save shifts:", err);
@@ -393,7 +397,7 @@ export const SettingsManager: React.FC = () => {
                   <span style={{ fontWeight: '600', fontSize: '14px' }}>{s.name}</span>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                     時間：{s.startTime} - {s.endTime}
-                    {s.breakStartTime && s.breakEndTime && ` (休息：${s.breakStartTime} - ${s.breakEndTime})`}
+                    {s.breakStartTime && s.breakEndTime ? ` (休息：${s.breakStartTime} - ${s.breakEndTime})` : s.breakDuration ? ` (休息時間：${s.breakDuration} 分鐘)` : ''}
                   </span>
                 </div>
                 <button 
@@ -470,43 +474,83 @@ export const SettingsManager: React.FC = () => {
                 }}
               />
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>中空休息：</span>
-              <input 
-                type="time" 
-                value={newShiftBreakStart}
-                onChange={(e) => setNewShiftBreakStart(e.target.value)}
-                style={{
-                  flex: 1,
-                  padding: '6px 8px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  fontSize: '12px',
-                  backgroundColor: '#fff'
-                }}
-              />
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>至</span>
-              <input 
-                type="time" 
-                value={newShiftBreakEnd}
-                onChange={(e) => setNewShiftBreakEnd(e.target.value)}
-                style={{
-                  flex: 1,
-                  padding: '6px 8px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  fontSize: '12px',
-                  backgroundColor: '#fff'
-                }}
-              />
-              {(newShiftBreakStart || newShiftBreakEnd) && (
-                <button 
-                  type="button" 
-                  onClick={() => { setNewShiftBreakStart(''); setNewShiftBreakEnd(''); }}
-                  style={{ fontSize: '11px', color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }}
-                >
-                  清除
-                </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>休息類型：</span>
+                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input type="radio" name="breakType" checked={breakType === 'time'} onChange={() => setBreakType('time')} />
+                  固定時間
+                </label>
+                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input type="radio" name="breakType" checked={breakType === 'duration'} onChange={() => setBreakType('duration')} />
+                  固定時長
+                </label>
+              </div>
+
+              {breakType === 'time' ? (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>時間區間：</span>
+                  <input 
+                    type="time" 
+                    value={newShiftBreakStart}
+                    onChange={(e) => setNewShiftBreakStart(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      fontSize: '12px',
+                      backgroundColor: '#fff'
+                    }}
+                  />
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>至</span>
+                  <input 
+                    type="time" 
+                    value={newShiftBreakEnd}
+                    onChange={(e) => setNewShiftBreakEnd(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      fontSize: '12px',
+                      backgroundColor: '#fff'
+                    }}
+                  />
+                  {(newShiftBreakStart || newShiftBreakEnd) && (
+                    <button 
+                      type="button" 
+                      onClick={() => { setNewShiftBreakStart(''); setNewShiftBreakEnd(''); }}
+                      style={{ fontSize: '11px', color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }}
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>休息時長：</span>
+                  <select
+                    value={newShiftBreakDuration}
+                    onChange={(e) => setNewShiftBreakDuration(Number(e.target.value))}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      fontSize: '12px',
+                      backgroundColor: '#fff'
+                    }}
+                  >
+                    <option value={0}>不休息 (0 分鐘)</option>
+                    {Array.from({ length: 12 }).map((_, i) => {
+                      const minutes = (i + 1) * 5;
+                      return (
+                        <option key={minutes} value={minutes}>{minutes} 分鐘</option>
+                      );
+                    })}
+                  </select>
+                </div>
               )}
             </div>
             <button 

@@ -11,7 +11,7 @@ import { PayrollCalculator } from '../components/PayrollCalculator';
 import { LeavesManager } from '../components/LeavesManager';
 import { SettingsManager } from '../components/SettingsManager';
 import './AdminDashboard.css';
-import { isOffShift } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus } from '../utils/taiwanHrEngine';
 
 const AdminDashboard: React.FC = () => {
   const {
@@ -21,6 +21,7 @@ const AdminDashboard: React.FC = () => {
     attendanceAppeals,
     schedules,
     attendance,
+    shifts,
     loading
   } = useAdminData();
 
@@ -60,38 +61,62 @@ const AdminDashboard: React.FC = () => {
       if (hasLeave) return;
       
       const dayAtt = (attMap[empId] && attMap[empId][date]) || [];
-      const inRec = dayAtt.find(r => r.type === '上班');
-      const outRec = dayAtt.find(r => r.type === '下班');
+      const shiftName = (sched.shift || '').split(' (')[0];
+      const matchedShiftDef = (shifts || []).find(s => s.name === shiftName);
+      const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+
+      const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      const actualPunches = dayAtt.length;
+      const hasApprovedOvertime = (overtimeReqs || []).some(ot => ot.employeeId === empId && ot.date === date && ot.status === 'approved');
+      const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
       
-      if (!inRec && !outRec) {
+      if (actualPunches === 0) {
         list.push({
           empName: sched.empName,
           date,
           type: '曠職',
           message: `無打卡紀錄 (${sched.shift})`
         });
-      } else if (!inRec || !outRec) {
+      } else if (actualPunches < expectedPunches) {
+        let msg = '';
+        if (expectsFour) {
+          msg = `打卡不完整：預計 4 次，實際僅打卡 ${actualPunches} 次 (${sched.shift})`;
+        } else {
+          msg = `${inRecs.length === 0 ? '缺上班卡' : '缺下班卡'} (${sched.shift})`;
+        }
         list.push({
           empName: sched.empName,
           date,
           type: '缺卡',
-          message: `${inRec ? '缺下班卡' : '缺上班卡'} (${sched.shift})`
+          message: msg
         });
       } else {
-        const statuses = dayAtt.map(r => r.status).filter(s => s && s !== '正常');
-        if (statuses.length > 0) {
+        let startTimeStr = '';
+        let endTimeStr = '';
+        const timeMatch = (sched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+        if (timeMatch) {
+          startTimeStr = timeMatch[1];
+          endTimeStr = timeMatch[2];
+        }
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr);
+        const dayStatuses = [];
+        if (isLate) dayStatuses.push('遲到');
+        if (isEarly) dayStatuses.push('早退');
+        
+        if (dayStatuses.length > 0) {
           list.push({
             empName: sched.empName,
             date,
-            type: statuses.join('、'),
-            message: `上班 ${inRec.time || '-'} / 下班 ${outRec.time || '-'} (班表: ${sched.shift})`
+            type: dayStatuses.join('、'),
+            message: `上班 ${inRecs.map(r => r.time).join(', ') || '-'} / 下班 ${outRecs.map(r => r.time).join(', ') || '-'} (班表: ${sched.shift})`
           });
         }
       }
     });
     
     return list;
-  }, [schedules, attendance, leaves]);
+  }, [schedules, attendance, leaves, shifts, overtimeReqs]);
 
   const pendingLeaves = leaves.filter(l => l.status === 'pending').length;
   const pendingOvertimes = overtimeReqs.filter(o => o.status === 'pending').length;

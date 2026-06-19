@@ -182,28 +182,37 @@ export const PayrollCalculator: React.FC = () => {
         let lateCount = 0;
         let lateMinutesTotal = 0;
 
+        // Group '上班' records by date and find the earliest check-in for each day
+        const firstInRecordsByDate: { [date: string]: any } = {};
         empAttendance.forEach((rec: any) => {
           if (rec.type === '上班' && rec.time && rec.date) {
-            const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === rec.date);
-            if (dateSched) {
-              let startTimeStr = dateSched.startTime || '';
-              if (!startTimeStr) {
-                const timeMatch = (dateSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
-                if (timeMatch) {
-                  startTimeStr = timeMatch[1];
-                }
+            if (!firstInRecordsByDate[rec.date] || rec.time < firstInRecordsByDate[rec.date].time) {
+              firstInRecordsByDate[rec.date] = rec;
+            }
+          }
+        });
+
+        Object.keys(firstInRecordsByDate).forEach(date => {
+          const rec = firstInRecordsByDate[date];
+          const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
+          if (dateSched) {
+            let startTimeStr = dateSched.startTime || '';
+            if (!startTimeStr) {
+              const timeMatch = (dateSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+              if (timeMatch) {
+                startTimeStr = timeMatch[1];
               }
-              if (startTimeStr) {
-                const [sh, sm] = startTimeStr.split(':').map(Number);
-                const [ah, am] = rec.time.split(':').map(Number);
-                const expectedInMins = sh * 60 + sm;
-                const actualInMins = ah * 60 + am;
-                
-                const isLate = rec.status === '遲到' || (!rec.status && actualInMins > expectedInMins + 1);
-                if (isLate) {
-                  lateCount++;
-                  lateMinutesTotal += Math.max(0, actualInMins - expectedInMins);
-                }
+            }
+            if (startTimeStr) {
+              const [sh, sm] = startTimeStr.split(':').map(Number);
+              const [ah, am] = rec.time.split(':').map(Number);
+              const expectedInMins = sh * 60 + sm;
+              const actualInMins = ah * 60 + am;
+              
+              const isLate = rec.status === '遲到' || (!rec.status && actualInMins > expectedInMins + 1);
+              if (isLate) {
+                lateCount++;
+                lateMinutesTotal += Math.max(0, actualInMins - expectedInMins);
               }
             }
           }
@@ -241,46 +250,84 @@ export const PayrollCalculator: React.FC = () => {
         if (isHourly) {
           Object.keys(attendanceByDate).forEach(date => {
             const dayRecords = attendanceByDate[date];
-            const inRec = dayRecords.find(r => r.type === '上班');
-            const outRec = dayRecords.find(r => r.type === '下班');
-            if (inRec && outRec && inRec.time && outRec.time) {
-              const parseTime = (timeStr: string) => {
-                const [h, m] = timeStr.split(':').map(Number);
-                return h + m / 60;
-              };
-              const inTime = parseTime(inRec.time);
-              let outTime = parseTime(outRec.time);
-              if (outTime < inTime) outTime += 24;
+            const parseTime = (timeStr: string) => {
+              const [h, m] = timeStr.split(':').map(Number);
+              return h + m / 60;
+            };
 
-              if (outTime > inTime) {
-                let hours = outTime - inTime;
-                
+            // Filter and sort punches chronologically
+            const dayPunches = dayRecords
+              .filter(r => (r.type === '上班' || r.type === '下班') && r.time)
+              .sort((a, b) => a.time.localeCompare(b.time));
+
+            if (dayPunches.length >= 2) {
+              let hours = 0;
+              let punchPairsCount = 0;
+              let firstInTime = 0;
+              let lastOutTime = 0;
+
+              for (let i = 0; i < dayPunches.length; i++) {
+                if (dayPunches[i].type === '上班') {
+                  let nextOutIndex = -1;
+                  for (let j = i + 1; j < dayPunches.length; j++) {
+                    if (dayPunches[j].type === '下班') {
+                      nextOutIndex = j;
+                      break;
+                    }
+                  }
+                  if (nextOutIndex !== -1) {
+                    const inTime = parseTime(dayPunches[i].time);
+                    let outTime = parseTime(dayPunches[nextOutIndex].time);
+                    if (outTime < inTime) outTime += 24;
+
+                    if (punchPairsCount === 0) {
+                      firstInTime = inTime;
+                    }
+                    lastOutTime = outTime;
+
+                    hours += (outTime - inTime);
+                    punchPairsCount++;
+                    i = nextOutIndex;
+                  }
+                }
+              }
+
+              if (hours > 0) {
                 const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
                 if (dateSched) {
                   const shiftName = dateSched.shift.split(' (')[0];
                   const shiftDef = shifts.find(s => s.name === shiftName);
-                  if (shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime) {
-                    const bStart = parseTime(shiftDef.breakStartTime);
-                    let bEnd = parseTime(shiftDef.breakEndTime);
-                    if (bEnd < bStart) bEnd += 24;
-                    
-                    let adjustedBStart = bStart;
-                    let adjustedBEnd = bEnd;
-                    if (adjustedBStart < inTime && adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
-                      adjustedBStart += 24;
-                      adjustedBEnd += 24;
-                    } else if (adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
-                      adjustedBStart += 24;
-                      adjustedBEnd += 24;
-                    } else if (adjustedBStart - 24 >= inTime) {
-                      adjustedBStart -= 24;
-                      adjustedBEnd -= 24;
+                  if (shiftDef) {
+                    // Only deduct break if the employee did not punch for the break (i.e. they only have 1 punch pair)
+                    // If they have 2 pairs, they already punched out/in for break, so hours naturally excludes the break.
+                    if (punchPairsCount === 1) {
+                      if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
+                        const bStart = parseTime(shiftDef.breakStartTime);
+                        let bEnd = parseTime(shiftDef.breakEndTime);
+                        if (bEnd < bStart) bEnd += 24;
+
+                        let adjustedBStart = bStart;
+                        let adjustedBEnd = bEnd;
+                        if (adjustedBStart < firstInTime && adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
+                          adjustedBStart += 24;
+                          adjustedBEnd += 24;
+                        } else if (adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
+                          adjustedBStart += 24;
+                          adjustedBEnd += 24;
+                        } else if (adjustedBStart - 24 >= firstInTime) {
+                          adjustedBStart -= 24;
+                          adjustedBEnd -= 24;
+                        }
+
+                        const startOverlap = Math.max(firstInTime, adjustedBStart);
+                        const endOverlap = Math.min(lastOutTime, adjustedBEnd);
+                        const overlap = Math.max(0, endOverlap - startOverlap);
+                        hours = Math.max(0, hours - overlap);
+                      } else if (shiftDef.breakDuration > 0) {
+                        // Deduct duration in hours
+                        hours = Math.max(0, hours - (shiftDef.breakDuration / 60));
+                      }
                     }
-                    
-                    const startOverlap = Math.max(inTime, adjustedBStart);
-                    const endOverlap = Math.min(outTime, adjustedBEnd);
-                    const overlap = Math.max(0, endOverlap - startOverlap);
-                    hours = Math.max(0, hours - overlap);
                   }
                 }
 
@@ -294,6 +341,7 @@ export const PayrollCalculator: React.FC = () => {
             }
           });
         }
+
 
         // 2. Overtime calculation
         empOvertimeReqs.forEach((req: any) => {
@@ -398,10 +446,15 @@ export const PayrollCalculator: React.FC = () => {
             );
             if (!hasLeave) {
               const dayAtt = empAttendance.filter((rec: any) => rec.date === dateStr);
-              const hasIn = dayAtt.some((r: any) => r.type === '上班');
-              const hasOut = dayAtt.some((r: any) => r.type === '下班');
-              if (!hasIn) missedPunchCount++;
-              if (!hasOut) missedPunchCount++;
+              const shiftName = (daySched.shift || '').split(' (')[0];
+              const shiftDef = shifts.find(s => s.name === shiftName);
+              const expectsFour = shiftDef ? ((shiftDef.breakStartTime && shiftDef.breakEndTime) || (shiftDef.breakDuration > 0)) : false;
+              const hasApprovedOvertime = empOvertimeReqs.some((ot: any) => ot.date === dateStr);
+              const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
+              
+              if (dayAtt.length < expectedPunches) {
+                missedPunchCount += (expectedPunches - dayAtt.length);
+              }
             }
           }
         }
