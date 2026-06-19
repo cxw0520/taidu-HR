@@ -78,9 +78,10 @@ const EmployeeManager: React.FC = () => {
   const [newNhiDependents, setNewNhiDependents] = useState<number>(0);
 
   // Allowances
-  const [newMealAllowance, setNewMealAllowance] = useState<number>(0);
   const [newAttendanceBonus, setNewAttendanceBonus] = useState<number>(0);
   const [newOtherAllowance, setNewOtherAllowance] = useState<number>(0);
+  const [newRoleAllowance, setNewRoleAllowance] = useState<number>(0);
+  const [newEvaluationAllowance, setNewEvaluationAllowance] = useState<number>(0);
 
   // Base64 Files
   const [newFileIdCard, setNewFileIdCard] = useState<string>('');
@@ -118,9 +119,10 @@ const EmployeeManager: React.FC = () => {
   const [editPensionSub, setEditPensionSub] = useState<number>(31800);
   const [editSupervisorId, setEditSupervisorId] = useState('');
   const [editNhiDependents, setEditNhiDependents] = useState<number>(0);
-  const [editMealAllowance, setEditMealAllowance] = useState<number>(0);
   const [editAttendanceBonus, setEditAttendanceBonus] = useState<number>(0);
   const [editOtherAllowance, setEditOtherAllowance] = useState<number>(0);
+  const [editRoleAllowance, setEditRoleAllowance] = useState<number>(0);
+  const [editEvaluationAllowance, setEditEvaluationAllowance] = useState<number>(0);
   
   const [editFileIdCard, setEditFileIdCard] = useState<string>('');
   const [editFileBankbook, setEditFileBankbook] = useState<string>('');
@@ -181,9 +183,10 @@ const EmployeeManager: React.FC = () => {
         supervisorId: newSupervisorId,
         salaryType: newSalaryType,
         nhiDependents: Number(newNhiDependents),
-        mealAllowance: Number(newMealAllowance),
         attendanceBonus: Number(newAttendanceBonus),
         otherAllowance: Number(newOtherAllowance),
+        roleAllowance: Number(newRoleAllowance),
+        evaluationAllowance: Number(newEvaluationAllowance),
         fileIdCard: newFileIdCard,
         fileBankbook: newFileBankbook,
         fileContract: newFileContract,
@@ -211,9 +214,10 @@ const EmployeeManager: React.FC = () => {
       setNewSupervisorId('');
       setNewSalaryType('monthly');
       setNewNhiDependents(0);
-      setNewMealAllowance(0);
       setNewAttendanceBonus(0);
       setNewOtherAllowance(0);
+      setNewRoleAllowance(0);
+      setNewEvaluationAllowance(0);
       setNewFileIdCard('');
       setNewFileBankbook('');
       setNewFileContract('');
@@ -265,9 +269,10 @@ const EmployeeManager: React.FC = () => {
     setEditPensionSub(emp.pensionSub === 0 ? 0 : findClosestGrade(emp.pensionSub || 31800, pensionGrades));
     setEditSupervisorId(emp.supervisorId || '');
     setEditNhiDependents(emp.nhiDependents || 0);
-    setEditMealAllowance(emp.mealAllowance || 0);
     setEditAttendanceBonus(emp.attendanceBonus || 0);
     setEditOtherAllowance(emp.otherAllowance || 0);
+    setEditRoleAllowance(emp.roleAllowance || 0);
+    setEditEvaluationAllowance(emp.evaluationAllowance || 0);
     setEditFileIdCard(emp.fileIdCard || '');
     setEditFileBankbook(emp.fileBankbook || '');
     setEditFileContract(emp.fileContract || '');
@@ -297,9 +302,10 @@ const EmployeeManager: React.FC = () => {
         supervisorId: editSupervisorId,
         salaryType: editSalaryType,
         nhiDependents: Number(editNhiDependents),
-        mealAllowance: Number(editMealAllowance),
         attendanceBonus: Number(editAttendanceBonus),
         otherAllowance: Number(editOtherAllowance),
+        roleAllowance: Number(editRoleAllowance),
+        evaluationAllowance: Number(editEvaluationAllowance),
         fileIdCard: editFileIdCard,
         fileBankbook: editFileBankbook,
         fileContract: editFileContract,
@@ -537,17 +543,23 @@ const EmployeeManager: React.FC = () => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: '600' }}>伙食津貼 (每月)</label>
-                  <input type="number" value={newMealAllowance} onChange={(e) => setNewMealAllowance(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '12px', fontWeight: '600' }}>全勤獎金 (每月)</label>
                   <input type="number" value={newAttendanceBonus} onChange={(e) => setNewAttendanceBonus(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
                 </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>其他津貼 (每月)</label>
+                  <input type="number" value={newOtherAllowance} onChange={(e) => setNewOtherAllowance(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+                </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '12px', fontWeight: '600' }}>其他津貼 (每月)</label>
-                <input type="number" value={newOtherAllowance} onChange={(e) => setNewOtherAllowance(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>職務加給 (每月)</label>
+                  <input type="number" value={newRoleAllowance} onChange={(e) => setNewRoleAllowance(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>考核加給 (每月)</label>
+                  <input type="number" value={newEvaluationAllowance} onChange={(e) => setNewEvaluationAllowance(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+                </div>
               </div>
 
               {/* 檔案上傳 */}
@@ -749,17 +761,23 @@ const EmployeeManager: React.FC = () => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: '600' }}>伙食津貼 (每月)</label>
-                  <input type="number" value={editMealAllowance} onChange={(e) => setEditMealAllowance(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '12px', fontWeight: '600' }}>全勤獎金 (每月)</label>
                   <input type="number" value={editAttendanceBonus} onChange={(e) => setEditAttendanceBonus(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
                 </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>其他津貼 (每月)</label>
+                  <input type="number" value={editOtherAllowance} onChange={(e) => setEditOtherAllowance(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+                </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '12px', fontWeight: '600' }}>其他津貼 (每月)</label>
-                <input type="number" value={editOtherAllowance} onChange={(e) => setEditOtherAllowance(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>職務加給 (每月)</label>
+                  <input type="number" value={editRoleAllowance} onChange={(e) => setEditRoleAllowance(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>考核加給 (每月)</label>
+                  <input type="number" value={editEvaluationAllowance} onChange={(e) => setEditEvaluationAllowance(Number(e.target.value))} style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px' }} />
+                </div>
               </div>
 
               {/* 檔案附件 */}

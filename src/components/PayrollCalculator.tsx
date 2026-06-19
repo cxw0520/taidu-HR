@@ -28,8 +28,20 @@ export const PayrollCalculator: React.FC = () => {
   const [addPayEmployeeId, setAddPayEmployeeId] = useState('');
   const [addPayMonth, setAddPayMonth] = useState('');
   const [addPayBaseSalary, setAddPayBaseSalary] = useState<number>(32000);
+  const [addPayAttendanceBonus, setAddPayAttendanceBonus] = useState<number>(0);
+  const [addPayOtherAllowance, setAddPayOtherAllowance] = useState<number>(0);
+  const [addPayRoleAllowance, setAddPayRoleAllowance] = useState<number>(0);
+  const [addPayEvaluationAllowance, setAddPayEvaluationAllowance] = useState<number>(0);
   const [addPayOvertime, setAddPayOvertime] = useState<number>(0);
   const [addPayDeductions, setAddPayDeductions] = useState<number>(1200);
+
+  // Manual payroll creation states for attendance
+  const [addPayLateMinutes, setAddPayLateMinutes] = useState<number>(0);
+  const [addPayWeekdayOvertime, setAddPayWeekdayOvertime] = useState<number>(0);
+  const [addPayRestDayOvertime, setAddPayRestDayOvertime] = useState<number>(0);
+  const [addPayHolidayOvertime, setAddPayHolidayOvertime] = useState<number>(0);
+  const [addPayLeaveHours, setAddPayLeaveHours] = useState<number>(0);
+  const [addPayMissedPunches, setAddPayMissedPunches] = useState<number>(0);
 
   // Edit payroll states
   const [showEditPayrollModal, setShowEditPayrollModal] = useState(false);
@@ -37,8 +49,21 @@ export const PayrollCalculator: React.FC = () => {
   const [editPayEmployeeName, setEditPayEmployeeName] = useState('');
   const [editPayMonth, setEditPayMonth] = useState('');
   const [editPayBaseSalary, setEditPayBaseSalary] = useState<number>(0);
+  const [editPayAttendanceBonus, setEditPayAttendanceBonus] = useState<number>(0);
+  const [editPayOtherAllowance, setEditPayOtherAllowance] = useState<number>(0);
+  const [editPayRoleAllowance, setEditPayRoleAllowance] = useState<number>(0);
+  const [editPayEvaluationAllowance, setEditPayEvaluationAllowance] = useState<number>(0);
   const [editPayOvertime, setEditPayOvertime] = useState<number>(0);
   const [editPayDeductions, setEditPayDeductions] = useState<number>(0);
+
+  // Edit payroll states for attendance
+  const [editPayLateMinutes, setEditPayLateMinutes] = useState<number>(0);
+  const [editPayWeekdayOvertime, setEditPayWeekdayOvertime] = useState<number>(0);
+  const [editPayRestDayOvertime, setEditPayRestDayOvertime] = useState<number>(0);
+  const [editPayHolidayOvertime, setEditPayHolidayOvertime] = useState<number>(0);
+  const [editPayLeaveHours, setEditPayLeaveHours] = useState<number>(0);
+  const [editPayMissedPunches, setEditPayMissedPunches] = useState<number>(0);
+
   const [editPayStatus, setEditPayStatus] = useState('待審核');
 
   // Filtered payroll
@@ -58,9 +83,10 @@ export const PayrollCalculator: React.FC = () => {
 
     filteredPayroll.forEach((p: any) => {
       const gross = (p.baseSalary || 0) + 
-                    (p.mealAllowance || 0) + 
                     (p.attendanceBonus || 0) + 
                     (p.otherAllowance || 0) + 
+                    (p.roleAllowance || 0) + 
+                    (p.evaluationAllowance || 0) + 
                     (p.overtime || 0);
       
       const empDed = (p.employeeLabor || 0) + (p.employeeNhi || 0);
@@ -118,7 +144,7 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
@@ -131,9 +157,10 @@ export const PayrollCalculator: React.FC = () => {
         let onboardDateStr = emp.onboardDate || '2025-01-01';
         let resignDateStr = emp.resignDate || null;
         const nhiDependents = emp.nhiDependents || 0;
-        const mealAllowance = emp.mealAllowance || 0;
         let attendanceBonus = emp.attendanceBonus || 0;
         const otherAllowance = emp.otherAllowance || 0;
+        const roleAllowance = emp.roleAllowance || 0;
+        const evaluationAllowance = emp.evaluationAllowance || 0;
 
         if (isMock) {
           if (emp.role && emp.role.includes('工程師')) {
@@ -198,6 +225,10 @@ export const PayrollCalculator: React.FC = () => {
 
         let calculatedBaseSalary = isHourly ? 0 : monthlySalary;
         let overtimePay = 0;
+        
+        let weekdayOvertimeHours = 0;
+        let restDayOvertimeHours = 0;
+        let holidayOvertimeHours = 0;
         
         const attendanceByDate: { [date: string]: any[] } = {};
         empAttendance.forEach((rec: any) => {
@@ -283,23 +314,34 @@ export const PayrollCalculator: React.FC = () => {
 
             if (shiftType === '休假') {
               overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'rest');
+              restDayOvertimeHours += req.hours;
             } else if (shiftType === '例假') {
               overtimePay += Math.round(req.hours * hourlyRate * 2.0);
+              holidayOvertimeHours += req.hours;
             } else if (isActualHoliday) {
               overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'regular');
+              holidayOvertimeHours += req.hours;
             } else {
               overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'regular');
+              weekdayOvertimeHours += req.hours;
             }
           } else {
             let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
             if (isActualHoliday) {
               dayType = 'holiday';
+              holidayOvertimeHours += req.hours;
             } else if (isCompensatoryWorkday) {
               dayType = 'regular';
+              weekdayOvertimeHours += req.hours;
             } else if (dayOfWeek === 6) {
               dayType = 'rest';
+              restDayOvertimeHours += req.hours;
             } else if (dayOfWeek === 0) {
               dayType = 'holiday';
+              holidayOvertimeHours += req.hours;
+            } else {
+              dayType = 'regular';
+              weekdayOvertimeHours += req.hours;
             }
             overtimePay += calculateOvertimePay(hourlyRate, req.hours, dayType);
           }
@@ -312,6 +354,7 @@ export const PayrollCalculator: React.FC = () => {
         const dailyRate = monthlySalary / 30;
         let personalLeaveDays = 0;
         let sickLeaveDays = 0;
+        let totalLeaveHours = 0;
         
         const empLeaves = approvedLeaves.filter(l => l.employeeId === emp.id);
         for (const lv of empLeaves) {
@@ -332,6 +375,35 @@ export const PayrollCalculator: React.FC = () => {
           
           if (lv.leaveType === 'personal') personalLeaveDays += days;
           else if (lv.leaveType === 'sick') sickLeaveDays += days;
+
+          const totalDays = Math.round((new Date(lvEnd).getTime() - new Date(lvStart).getTime()) / 86400000) + 1;
+          const leaveHours = lv.hours || (totalDays * 8);
+          const monthLeaveHours = (days / totalDays) * leaveHours;
+          totalLeaveHours += monthLeaveHours;
+        }
+
+        // Calculate missed punch count
+        let missedPunchCount = 0;
+        const [yr, mo] = monthStr.split('-').map(Number);
+        const daysInMonthCount = new Date(yr, mo, 0).getDate();
+        for (let d = 1; d <= daysInMonthCount; d++) {
+          const dateStr = `${monthStr}-${String(d).padStart(2, '0')}`;
+          const daySched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === dateStr);
+          if (daySched && !isOffShift(daySched.shift)) {
+            const hasLeave = approvedLeaves.some(l => 
+              l.employeeId === emp.id && 
+              l.startDate <= dateStr && 
+              l.endDate >= dateStr &&
+              l.status === 'approved'
+            );
+            if (!hasLeave) {
+              const dayAtt = empAttendance.filter((rec: any) => rec.date === dateStr);
+              const hasIn = dayAtt.some((r: any) => r.type === '上班');
+              const hasOut = dayAtt.some((r: any) => r.type === '下班');
+              if (!hasIn) missedPunchCount++;
+              if (!hasOut) missedPunchCount++;
+            }
+          }
         }
         
         const leaveDeduction = Math.round(personalLeaveDays * dailyRate * 1.0 + sickLeaveDays * dailyRate * 0.5);
@@ -345,7 +417,7 @@ export const PayrollCalculator: React.FC = () => {
         );
 
         const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction;
-        const totalAllowance = mealAllowance + attendanceBonus + otherAllowance;
+        const totalAllowance = attendanceBonus + otherAllowance + roleAllowance + evaluationAllowance;
         const netSalary = calculatedBaseSalary + totalAllowance + overtimePay - deductions;
         
         const payrollId = `${emp.id}-${monthStr}`;
@@ -357,10 +429,13 @@ export const PayrollCalculator: React.FC = () => {
           employeeId: emp.id,
           month: monthStr,
           baseSalary: calculatedBaseSalary,
-          mealAllowance,
           attendanceBonus,
           attendanceBonusNote,
           otherAllowance,
+          roleAllowance,
+          evaluationAllowance,
+          empRole: emp.role || '',
+          onboardDate: onboardDateStr,
           overtime: overtimePay,
           leaveDeduction,
           personalLeaveDays,
@@ -370,6 +445,12 @@ export const PayrollCalculator: React.FC = () => {
           status: existingRecord ? existingRecord.status : '待審核',
           isPublished,
           timestamp: new Date().getTime(),
+          lateMinutes: lateMinutesTotal,
+          weekdayOvertime: weekdayOvertimeHours,
+          restDayOvertime: restDayOvertimeHours,
+          holidayOvertime: holidayOvertimeHours,
+          leaveHours: Math.round(totalLeaveHours * 10) / 10,
+          missedPunches: missedPunchCount,
           laborDays: ins.laborDays,
           employeeLabor: ins.employeeLabor,
           employerLabor: ins.employerLabor,
@@ -491,8 +572,18 @@ export const PayrollCalculator: React.FC = () => {
     setEditPayEmployeeName(record.empName);
     setEditPayMonth(record.month);
     setEditPayBaseSalary(record.baseSalary || 0);
+    setEditPayAttendanceBonus(record.attendanceBonus || 0);
+    setEditPayOtherAllowance(record.otherAllowance || 0);
+    setEditPayRoleAllowance(record.roleAllowance || 0);
+    setEditPayEvaluationAllowance(record.evaluationAllowance || 0);
     setEditPayOvertime(record.overtime || 0);
     setEditPayDeductions(record.deductions || 0);
+    setEditPayLateMinutes(record.lateMinutes || 0);
+    setEditPayWeekdayOvertime(record.weekdayOvertime || 0);
+    setEditPayRestDayOvertime(record.restDayOvertime || 0);
+    setEditPayHolidayOvertime(record.holidayOvertime || 0);
+    setEditPayLeaveHours(record.leaveHours || 0);
+    setEditPayMissedPunches(record.missedPunches || 0);
     setEditPayStatus(record.status);
     setShowEditPayrollModal(true);
   };
@@ -500,13 +591,29 @@ export const PayrollCalculator: React.FC = () => {
   const handleUpdatePayroll = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const net = Number(editPayBaseSalary) + Number(editPayOvertime) - Number(editPayDeductions);
+      const net = Number(editPayBaseSalary) +
+                  Number(editPayAttendanceBonus) +
+                  Number(editPayOtherAllowance) +
+                  Number(editPayRoleAllowance) +
+                  Number(editPayEvaluationAllowance) +
+                  Number(editPayOvertime) -
+                  Number(editPayDeductions);
       await updateDoc(doc(db, 'payroll', editPayrollId), {
         baseSalary: Number(editPayBaseSalary),
+        attendanceBonus: Number(editPayAttendanceBonus),
+        otherAllowance: Number(editPayOtherAllowance),
+        roleAllowance: Number(editPayRoleAllowance),
+        evaluationAllowance: Number(editPayEvaluationAllowance),
         overtime: Number(editPayOvertime),
         deductions: Number(editPayDeductions),
         netSalary: net,
-        status: editPayStatus
+        status: editPayStatus,
+        lateMinutes: Number(editPayLateMinutes),
+        weekdayOvertime: Number(editPayWeekdayOvertime),
+        restDayOvertime: Number(editPayRestDayOvertime),
+        holidayOvertime: Number(editPayHolidayOvertime),
+        leaveHours: Number(editPayLeaveHours),
+        missedPunches: Number(editPayMissedPunches)
       });
       setShowEditPayrollModal(false);
     } catch (err) {
@@ -525,7 +632,13 @@ export const PayrollCalculator: React.FC = () => {
       const emp = employees.find(e => e.id === addPayEmployeeId);
       const empName = emp ? emp.name : '未知員工';
       const monthStr = addPayMonth || new Date().toISOString().substring(0, 7);
-      const net = Number(addPayBaseSalary) + Number(addPayOvertime) - Number(addPayDeductions);
+      const net = Number(addPayBaseSalary) +
+                  Number(addPayAttendanceBonus) +
+                  Number(addPayOtherAllowance) +
+                  Number(addPayRoleAllowance) +
+                  Number(addPayEvaluationAllowance) +
+                  Number(addPayOvertime) -
+                  Number(addPayDeductions);
       const payrollId = `${addPayEmployeeId}-${monthStr}`;
 
       await setDoc(doc(db, 'payroll', payrollId), {
@@ -533,17 +646,39 @@ export const PayrollCalculator: React.FC = () => {
         employeeId: addPayEmployeeId,
         month: monthStr,
         baseSalary: Number(addPayBaseSalary),
+        attendanceBonus: Number(addPayAttendanceBonus),
+        otherAllowance: Number(addPayOtherAllowance),
+        roleAllowance: Number(addPayRoleAllowance),
+        evaluationAllowance: Number(addPayEvaluationAllowance),
         overtime: Number(addPayOvertime),
         deductions: Number(addPayDeductions),
         netSalary: net,
+        empRole: emp?.role || '',
+        onboardDate: emp?.onboardDate || '',
         status: '待審核',
         isPublished: false,
-        timestamp: new Date().getTime()
+        timestamp: new Date().getTime(),
+        lateMinutes: Number(addPayLateMinutes),
+        weekdayOvertime: Number(addPayWeekdayOvertime),
+        restDayOvertime: Number(addPayRestDayOvertime),
+        holidayOvertime: Number(addPayHolidayOvertime),
+        leaveHours: Number(addPayLeaveHours),
+        missedPunches: Number(addPayMissedPunches)
       });
 
       setShowAddPayrollModal(false);
       setAddPayEmployeeId('');
       setAddPayBaseSalary(32000);
+      setAddPayAttendanceBonus(0);
+      setAddPayOtherAllowance(0);
+      setAddPayRoleAllowance(0);
+      setAddPayEvaluationAllowance(0);
+      setAddPayLateMinutes(0);
+      setAddPayWeekdayOvertime(0);
+      setAddPayRestDayOvertime(0);
+      setAddPayHolidayOvertime(0);
+      setAddPayLeaveHours(0);
+      setAddPayMissedPunches(0);
       setAddPayOvertime(0);
       setAddPayDeductions(1200);
     } catch (err) {
@@ -564,12 +699,13 @@ export const PayrollCalculator: React.FC = () => {
   };
 
   const handleExportPayrollCSV = () => {
-    const headers = ['員工姓名', '結算月份', '底薪', '伙食津貼', '全勤獎金', '其他津貼', '加班費', '請假扣薪', '勞保自付', '健保自付', '實發薪資', '狀態'];
+    const headers = ['員工姓名', '結算月份', '底薪', '職務加給', '考核加給', '全勤獎金', '其他津貼', '加班費', '請假扣薪', '勞保自付', '健保自付', '實發薪資', '狀態'];
     const rows = filteredPayroll.map((r: any) => [
       `"${r.empName || ''}"`,
       r.month || '',
       r.baseSalary || 0,
-      r.mealAllowance || 0,
+      r.roleAllowance || 0,
+      r.evaluationAllowance || 0,
       r.attendanceBonus || 0,
       r.otherAllowance || 0,
       r.overtime || 0,
@@ -749,7 +885,17 @@ export const PayrollCalculator: React.FC = () => {
               <tr key={record.id}>
                 <td data-label="員工姓名">{record.empName}</td>
                 <td data-label="結算月份">{record.month}</td>
-                <td data-label="底薪">NT$ {record.baseSalary?.toLocaleString()}</td>
+                <td data-label="底薪">
+                  <div style={{ fontWeight: '600' }}>NT$ {record.baseSalary?.toLocaleString()}</div>
+                  {((record.roleAllowance || 0) > 0 || (record.evaluationAllowance || 0) > 0 || (record.attendanceBonus || 0) > 0 || (record.otherAllowance || 0) > 0) && (
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', lineHeight: '1.4', backgroundColor: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      {(record.roleAllowance || 0) > 0 && <div>💼 職加: +{(record.roleAllowance || 0).toLocaleString()}</div>}
+                      {(record.evaluationAllowance || 0) > 0 && <div>🏆 考加: +{(record.evaluationAllowance || 0).toLocaleString()}</div>}
+                      {(record.attendanceBonus || 0) > 0 && <div>💯 全勤: +{(record.attendanceBonus || 0).toLocaleString()}</div>}
+                      {(record.otherAllowance || 0) > 0 && <div>📦 其他: +{(record.otherAllowance || 0).toLocaleString()}</div>}
+                    </div>
+                  )}
+                </td>
                 <td data-label="加班費">NT$ {record.overtime?.toLocaleString()}</td>
                 <td data-label="扣款 (勞健保)">-NT$ {record.deductions?.toLocaleString()}</td>
                 <td data-label="實發薪資" style={{ fontWeight: '600', color: 'var(--primary)' }}>
@@ -822,11 +968,11 @@ export const PayrollCalculator: React.FC = () => {
                     setAddPayEmployeeId(empId);
                     const emp = employees.find(x => x.id === empId);
                     if (emp) {
-                      let base = 32000;
-                      if (emp.role && emp.role.includes('工程師')) base = 45000;
-                      else if (emp.role && emp.role.includes('設計師')) base = 38000;
-                      else if (emp.role && emp.role.includes('專案經理')) base = 50000;
-                      setAddPayBaseSalary(base);
+                      setAddPayBaseSalary(emp.monthlySalary || 32000);
+                      setAddPayAttendanceBonus(emp.attendanceBonus || 0);
+                      setAddPayOtherAllowance(emp.otherAllowance || 0);
+                      setAddPayRoleAllowance(emp.roleAllowance || 0);
+                      setAddPayEvaluationAllowance(emp.evaluationAllowance || 0);
                     }
                   }}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
@@ -860,6 +1006,28 @@ export const PayrollCalculator: React.FC = () => {
                 />
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>職務加給 (NT$)</label>
+                  <input type="number" required value={addPayRoleAllowance} onChange={(e) => setAddPayRoleAllowance(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>考核加給 (NT$)</label>
+                  <input type="number" required value={addPayEvaluationAllowance} onChange={(e) => setAddPayEvaluationAllowance(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>全勤獎金 (NT$)</label>
+                  <input type="number" required value={addPayAttendanceBonus} onChange={(e) => setAddPayAttendanceBonus(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>其他津貼 (NT$)</label>
+                  <input type="number" required value={addPayOtherAllowance} onChange={(e) => setAddPayOtherAllowance(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>加班費 (NT$)</label>
                 <input 
@@ -880,6 +1048,43 @@ export const PayrollCalculator: React.FC = () => {
                   onChange={(e) => setAddPayDeductions(Number(e.target.value))} 
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
                 />
+              </div>
+
+              <div style={{ fontSize: '13px', fontWeight: '700', borderBottom: '1px solid #e5e7eb', paddingBottom: '4px', marginTop: '10px', color: 'var(--primary)' }}>
+                考勤統計資料
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>遲到時數（分鐘）</label>
+                  <input type="number" required value={addPayLateMinutes} onChange={(e) => setAddPayLateMinutes(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時數</label>
+                  <input type="number" required value={addPayLeaveHours} onChange={(e) => setAddPayLeaveHours(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>未打卡次數</label>
+                  <input type="number" required value={addPayMissedPunches} onChange={(e) => setAddPayMissedPunches(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>平日加班時數</label>
+                  <input type="number" required value={addPayWeekdayOvertime} onChange={(e) => setAddPayWeekdayOvertime(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>休息日加班時數</label>
+                  <input type="number" required value={addPayRestDayOvertime} onChange={(e) => setAddPayRestDayOvertime(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>節日加班時數</label>
+                  <input type="number" required value={addPayHolidayOvertime} onChange={(e) => setAddPayHolidayOvertime(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
@@ -960,6 +1165,28 @@ export const PayrollCalculator: React.FC = () => {
                 />
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>職務加給 (NT$)</label>
+                  <input type="number" required value={editPayRoleAllowance} onChange={(e) => setEditPayRoleAllowance(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>考核加給 (NT$)</label>
+                  <input type="number" required value={editPayEvaluationAllowance} onChange={(e) => setEditPayEvaluationAllowance(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>全勤獎金 (NT$)</label>
+                  <input type="number" required value={editPayAttendanceBonus} onChange={(e) => setEditPayAttendanceBonus(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>其他津貼 (NT$)</label>
+                  <input type="number" required value={editPayOtherAllowance} onChange={(e) => setEditPayOtherAllowance(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>加班費 (NT$)</label>
                 <input 
@@ -980,6 +1207,43 @@ export const PayrollCalculator: React.FC = () => {
                   onChange={(e) => setEditPayDeductions(Number(e.target.value))} 
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
                 />
+              </div>
+
+              <div style={{ fontSize: '13px', fontWeight: '700', borderBottom: '1px solid #e5e7eb', paddingBottom: '4px', marginTop: '10px', color: 'var(--primary)' }}>
+                考勤統計資料
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>遲到時數（分鐘）</label>
+                  <input type="number" required value={editPayLateMinutes} onChange={(e) => setEditPayLateMinutes(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時數</label>
+                  <input type="number" required value={editPayLeaveHours} onChange={(e) => setEditPayLeaveHours(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>未打卡次數</label>
+                  <input type="number" required value={editPayMissedPunches} onChange={(e) => setEditPayMissedPunches(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>平日加班時數</label>
+                  <input type="number" required value={editPayWeekdayOvertime} onChange={(e) => setEditPayWeekdayOvertime(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>休息日加班時數</label>
+                  <input type="number" required value={editPayRestDayOvertime} onChange={(e) => setEditPayRestDayOvertime(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>節日加班時數</label>
+                  <input type="number" required value={editPayHolidayOvertime} onChange={(e) => setEditPayHolidayOvertime(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
