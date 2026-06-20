@@ -1065,13 +1065,16 @@ export const PayrollCalculator: React.FC = () => {
                   </div>
                 </td>
                 <td data-label="人力成本" style={{ fontWeight: '600', color: '#1e293b' }}>
-                  NT$ {(
+                  <div>NT$ {(
                     (record.netSalary || 0) + 
                     ((record.employeeLabor !== undefined && record.employeeNhi !== undefined) ? ((record.employeeLabor || 0) + (record.employeeNhi || 0)) : ((record.deductions || 0) - (record.leaveDeduction || 0))) + 
                     (record.employerLabor || 0) + 
                     (record.employerNhi || 0) + 
                     (record.employerPension || 0)
-                  ).toLocaleString()}
+                  ).toLocaleString()}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal', marginTop: '2px' }}>
+                    (薪資總額 + 雇主負擔 + 勞退)
+                  </div>
                 </td>
                 <td data-label="實發薪資" style={{ fontWeight: '600', color: 'var(--primary)' }}>
                   NT$ {record.netSalary?.toLocaleString()}

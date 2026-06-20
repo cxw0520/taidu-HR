@@ -16,10 +16,70 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
     attendanceAppeals,
     attendance,
     schedules,
-    shifts
+    shifts,
+    payroll
   } = useAdminData();
 
   const today = new Date();
+
+  const currentMonthStr = React.useMemo(() => {
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  }, [today]);
+
+  const [costMonth, setCostMonth] = React.useState(currentMonthStr);
+
+  const payrollMonths = React.useMemo(() => {
+    const months = Array.from(new Set((payroll || []).map(p => p.month).filter(Boolean)));
+    if (!months.includes(currentMonthStr)) {
+      months.push(currentMonthStr);
+    }
+    return months.sort((a, b) => b.localeCompare(a));
+  }, [payroll, currentMonthStr]);
+
+  const segments = React.useMemo(() => {
+    const monthPayroll = (payroll || []).filter(p => p.month === costMonth);
+    
+    let grossSalarySum = 0;
+    let employerIns = 0;
+    let pension = 0;
+
+    monthPayroll.forEach(p => {
+      const ins = (p.employeeLabor !== undefined && p.employeeNhi !== undefined)
+        ? ((p.employeeLabor || 0) + (p.employeeNhi || 0))
+        : Math.max(0, (p.deductions || 0) - (p.leaveDeduction || 0));
+      grossSalarySum += (p.netSalary || 0) + ins;
+      employerIns += (p.employerLabor || 0) + (p.employerNhi || 0);
+      pension += p.employerPension || 0;
+    });
+
+    const total = grossSalarySum + employerIns + pension;
+    
+    if (total === 0) {
+      return { total, list: [] };
+    }
+
+    const items = [
+      { name: '薪資總額 (含員工自付額)', value: grossSalarySum, color: '#4f46e5', label: '薪資' },
+      { name: '雇主負擔勞健保', value: employerIns, color: '#f59e0b', label: '雇負' },
+      { name: '雇主提撥勞退(6%)', value: pension, color: '#10b981', label: '勞退' },
+    ];
+
+    let currentOffset = 0;
+    const itemsWithDraw = items.map(item => {
+      const percentage = item.value / total;
+      const strokeDashoffset = 251.2 * (1 - percentage);
+      const rotation = -90 + (currentOffset * 360);
+      currentOffset += percentage;
+      return {
+        ...item,
+        percentage,
+        strokeDashoffset,
+        rotation
+      };
+    });
+
+    return { total, list: itemsWithDraw };
+  }, [payroll, costMonth]);
 
   // 1. 試用期警示 (到職未滿 90 天)
   const probationEmployees = employees.filter(emp => {
@@ -146,6 +206,93 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
 
   return (
     <div className="alerts-approvals-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+      {/* 本月人事成本卡 */}
+      <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '20px' }}>💰</span>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>人事成本概覽</h3>
+          </div>
+          <select 
+            value={costMonth} 
+            onChange={(e) => setCostMonth(e.target.value)} 
+            style={{ 
+              padding: '4px 8px', 
+              borderRadius: '6px', 
+              border: '1px solid #d1d5db', 
+              fontSize: '13px', 
+              fontWeight: '600',
+              backgroundColor: '#fff', 
+              cursor: 'pointer' 
+            }}
+          >
+            {payrollMonths.map(m => (
+              <option key={m} value={m}>{m.substring(0, 4)}年{m.substring(5, 7)}月</option>
+            ))}
+          </select>
+        </div>
+
+        {segments.total > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>
+            <div style={{ position: 'relative', width: '150px', height: '150px' }}>
+              <svg width="100%" height="100%" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="8" />
+                {segments.list.map((item, idx) => (
+                  <circle
+                    key={idx}
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="transparent"
+                    stroke={item.color}
+                    strokeWidth="8"
+                    strokeDasharray="251.2"
+                    strokeDashoffset={item.strokeDashoffset}
+                    strokeLinecap="round"
+                    transform={`rotate(${item.rotation} 50 50)`}
+                    style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+                  />
+                ))}
+              </svg>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>總人事成本</span>
+                <span style={{ fontSize: '15px', fontWeight: '800', color: '#1e293b', marginTop: '2px' }}>NT$ {segments.total.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {segments.list.map((item, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px solid #f1f5f9', paddingBottom: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: item.color }} />
+                    <span style={{ color: '#475569', fontWeight: '500' }}>{item.name}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>{(item.percentage * 100).toFixed(1)}%</span>
+                    <span style={{ fontWeight: '700', color: '#1e293b' }}>NT$ {item.value.toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center', padding: '20px 0' }}>
+            <div style={{ position: 'relative', width: '150px', height: '150px' }}>
+              <svg width="100%" height="100%" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="8" />
+              </svg>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>無薪資資料</span>
+                <span style={{ fontSize: '15px', fontWeight: '800', color: '#94a3b8', marginTop: '2px' }}>NT$ 0</span>
+              </div>
+            </div>
+            <div style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center' }}>
+              此月份尚未生成薪資結算資料，請至「薪資結算」頁面進行計算。
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* 快速跳轉審核卡 */}
       <div className="card" style={{ padding: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
