@@ -360,7 +360,14 @@ const EmployeeManager: React.FC = () => {
             {employees.map(emp => (
               <tr key={emp.id}>
                 <td data-label="員工編號" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{emp.id}</td>
-                <td data-label="姓名" style={{ fontWeight: '600' }}>{emp.name}</td>
+                <td data-label="姓名">
+                  <div style={{ fontWeight: '600' }}>{emp.name}</div>
+                  {emp.emergencyContactName && (
+                    <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px', fontWeight: '400' }}>
+                      ☎️ 緊急聯絡: {emp.emergencyContactName} ({emp.emergencyContactRelation || '關係未填'}) {emp.emergencyContactPhone || '電話未填'}
+                    </div>
+                  )}
+                </td>
                 <td data-label="電子信箱">{emp.email || 'N/A'}</td>
                 <td data-label="職位">{emp.role}</td>
                 <td data-label="計薪類型">

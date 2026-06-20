@@ -7,7 +7,7 @@ import {
   doc, getDoc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
-import { isOffShift, evaluatePunchesStatus } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
 
 const LEAVE_TYPES = [
   { value: 'sick',        label: '病假 (半薪)',  yearlyDays: 30 },
@@ -294,8 +294,8 @@ const EmployeeClockIn: React.FC = () => {
       const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
       const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
 
-      const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-      const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+      const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
       const actualPunches = dayAtt.length;
       const hasApprovedOvertime = myOvertimes.some(ot => ot.date === date && ot.status === 'approved');
       const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
@@ -346,7 +346,10 @@ const EmployeeClockIn: React.FC = () => {
       async (position) => {
         const { latitude, longitude } = position.coords;
         setLocationState({ status: 'success', message: '定位成功', coords: { lat: latitude, lng: longitude } });
-        const timeStr = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const timeStr = `${hh}:${mm}`;
         const actionStr = type === 'in' ? '上班' : '下班';
         try {
           const { getDocs, query: fQuery, collection: fCol, where: fWhere } = await import('firebase/firestore');
@@ -525,7 +528,7 @@ const EmployeeClockIn: React.FC = () => {
       }
 
       // 2. 獲取打卡時間段
-      const punchTimes = dayPunches.map((rec: any) => rec.time).filter(Boolean).sort();
+      const punchTimes = dayPunches.map((rec: any) => rec.time).filter(Boolean).sort((a, b) => parseTimeStrToMinutes(a) - parseTimeStrToMinutes(b));
       if (punchTimes.length === 0) {
         setOtMsg({ type: 'error', text: '當天無有效打卡時間，無法申請加班！' });
         setOtSubmitting(false);

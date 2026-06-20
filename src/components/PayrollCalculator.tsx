@@ -144,7 +144,7 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
@@ -204,10 +204,8 @@ export const PayrollCalculator: React.FC = () => {
               }
             }
             if (startTimeStr) {
-              const [sh, sm] = startTimeStr.split(':').map(Number);
-              const [ah, am] = rec.time.split(':').map(Number);
-              const expectedInMins = sh * 60 + sm;
-              const actualInMins = ah * 60 + am;
+              const expectedInMins = parseTimeStrToMinutes(startTimeStr);
+              const actualInMins = parseTimeStrToMinutes(rec.time);
               
               const isLate = rec.status === '遲到' || (!rec.status && actualInMins > expectedInMins + 1);
               if (isLate) {
@@ -251,14 +249,13 @@ export const PayrollCalculator: React.FC = () => {
           Object.keys(attendanceByDate).forEach(date => {
             const dayRecords = attendanceByDate[date];
             const parseTime = (timeStr: string) => {
-              const [h, m] = timeStr.split(':').map(Number);
-              return h + m / 60;
+              return parseTimeStrToMinutes(timeStr) / 60;
             };
 
             // Filter and sort punches chronologically
             const dayPunches = dayRecords
               .filter(r => (r.type === '上班' || r.type === '下班') && r.time)
-              .sort((a, b) => a.time.localeCompare(b.time));
+              .sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
 
             if (dayPunches.length >= 2) {
               let hours = 0;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 
-import { isOffShift, evaluatePunchesStatus } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
 
 interface AdminHomeProps {
   setActiveTab: (tab: 'attendance' | 'employees' | 'schedules' | 'payroll' | 'leaves' | 'settings') => void;
@@ -86,8 +86,8 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
       const matchedShiftDef = (shifts || []).find(s => s.name === shiftName);
       const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
 
-      const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-      const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+      const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
       const actualPunches = dayAtt.length;
       const hasApprovedOvertime = (overtimeReqs || []).some(ot => ot.employeeId === empId && ot.date === date && ot.status === 'approved');
       const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;

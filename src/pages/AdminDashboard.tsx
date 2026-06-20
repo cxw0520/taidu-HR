@@ -11,7 +11,7 @@ import { PayrollCalculator } from '../components/PayrollCalculator';
 import { LeavesManager } from '../components/LeavesManager';
 import { SettingsManager } from '../components/SettingsManager';
 import './AdminDashboard.css';
-import { isOffShift, evaluatePunchesStatus } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
 
 const AdminDashboard: React.FC = () => {
   const {
@@ -65,8 +65,8 @@ const AdminDashboard: React.FC = () => {
       const matchedShiftDef = (shifts || []).find(s => s.name === shiftName);
       const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
 
-      const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-      const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+      const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
       const actualPunches = dayAtt.length;
       const hasApprovedOvertime = (overtimeReqs || []).some(ot => ot.employeeId === empId && ot.date === date && ot.status === 'approved');
       const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;

@@ -243,8 +243,12 @@ export function assignClockToWorkDate(
 
     if (!startTime || !endTime) continue;
 
-    const [startH, startM] = startTime.split(':').map(Number);
-    const [endH, endM] = endTime.split(':').map(Number);
+    const startMins = parseTimeStrToMinutes(startTime);
+    const endMins = parseTimeStrToMinutes(endTime);
+    const startH = Math.floor(startMins / 60);
+    const startM = startMins % 60;
+    const endH = Math.floor(endMins / 60);
+    const endM = endMins % 60;
     
     const schedYear = Number(workDate.substring(0, 4));
     const schedMonth = Number(workDate.substring(5, 7));
@@ -332,6 +336,23 @@ export function isOffShift(shiftName: string): boolean {
 }
 
 /**
+ * 羅布斯（Robust）時間字串解析器
+ * 支援 24小時制 (e.g. "17:30")、中文12小時制 (e.g. "下午05:30", "上午09:00")、英文AM/PM (e.g. "05:30 PM")
+ * 回傳當天起算的分鐘數
+ */
+export function parseTimeStrToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const match = timeStr.match(/(\d{1,2})\s*:\s*(\d{2})/);
+  if (!match) return 0;
+  let h = Number(match[1]);
+  const m = Number(match[2]);
+  const lowerStr = timeStr.toLowerCase();
+  if ((timeStr.includes('下午') || lowerStr.includes('pm')) && h < 12) h += 12;
+  if ((timeStr.includes('上午') || lowerStr.includes('am')) && h === 12) h = 0;
+  return h * 60 + m;
+}
+
+/**
  * 依據排班與當天所有打卡紀錄，動態判斷第一筆上班是否遲到，以及最後一筆下班是否早退
  */
 export function evaluatePunchesStatus(
@@ -346,27 +367,24 @@ export function evaluatePunchesStatus(
     return { isLate, isEarly };
   }
 
-  const inRecs = dayAtts.filter(r => r.type === '上班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-  const outRecs = dayAtts.filter(r => r.type === '下班').sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const inRecs = dayAtts.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+  const outRecs = dayAtts.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
 
   if (inRecs.length > 0 && inRecs[0].time) {
-    const [sh, sm] = startTimeStr.split(':').map(Number);
-    const [ah, am] = inRecs[0].time.split(':').map(Number);
-    if (inRecs[0].status === '遲到' || (ah * 60 + am) > (sh * 60 + sm + 1)) {
+    const expectedInMins = parseTimeStrToMinutes(startTimeStr);
+    const actualInMins = parseTimeStrToMinutes(inRecs[0].time);
+    if (inRecs[0].status === '遲到' || actualInMins > (expectedInMins + 1)) {
       isLate = true;
     }
   }
 
   if (outRecs.length > 0 && outRecs[outRecs.length - 1].time) {
-    const [sh, sm] = startTimeStr.split(':').map(Number);
-    const [eh, em] = endTimeStr.split(':').map(Number);
-    const expectedInMins = sh * 60 + sm;
-    let expectedOutMins = eh * 60 + em;
+    const expectedInMins = parseTimeStrToMinutes(startTimeStr);
+    let expectedOutMins = parseTimeStrToMinutes(endTimeStr);
     if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60; // 跨夜
 
     const lastOut = outRecs[outRecs.length - 1];
-    const [ah, am] = lastOut.time.split(':').map(Number);
-    let actualOutMins = ah * 60 + am;
+    let actualOutMins = parseTimeStrToMinutes(lastOut.time);
     if (actualOutMins < expectedInMins) actualOutMins += 24 * 60; // 跨夜
 
     if (lastOut.status === '早退' || actualOutMins < expectedOutMins - 1) {

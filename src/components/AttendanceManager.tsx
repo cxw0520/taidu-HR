@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
+import { parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
 
 const AttendanceManager: React.FC = () => {
   const {
@@ -114,12 +115,11 @@ const AttendanceManager: React.FC = () => {
       let totalHours = 0;
       dates.forEach(date => {
         const dayRecords = empDates[date];
-        const sortedRecs = dayRecords.filter(r => r.time).sort((a, b) => a.time.localeCompare(b.time));
+        const sortedRecs = dayRecords.filter(r => r.time).sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
 
         let dayHours = 0;
         const parseTime = (timeStr: string) => {
-          const [h, m] = timeStr.split(':').map(Number);
-          return h + m / 60;
+          return parseTimeStrToMinutes(timeStr) / 60;
         };
 
         let segments = 0;
