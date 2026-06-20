@@ -373,27 +373,46 @@ const EmployeeClockIn: React.FC = () => {
 
               const shiftName = (matchedSched.shift || '').split(' (')[0];
               const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
-              const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+              const hasFixedBreak = matchedShiftDef && matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime;
 
               const dateAtts = allAttendance.filter((r: any) => r.date === matchResult.workDate);
               const inCount = dateAtts.filter((r: any) => r.type === '上班').length;
               const outCount = dateAtts.filter((r: any) => r.type === '下班').length;
 
+              let expectedBreakIn: Date | null = null;
+              let expectedBreakOut: Date | null = null;
+
+              if (hasFixedBreak) {
+                const [bsh, bsm] = matchedShiftDef.breakStartTime.split(':').map(Number);
+                const [beh, bem] = matchedShiftDef.breakEndTime.split(':').map(Number);
+                
+                let bStart = new Date(yr, mo - 1, dy, bsh, bsm);
+                if (bStart < expectedIn) bStart.setDate(bStart.getDate() + 1);
+                
+                let bEnd = new Date(yr, mo - 1, dy, beh, bem);
+                if (bEnd < expectedIn) bEnd.setDate(bEnd.getDate() + 1);
+                
+                expectedBreakIn = bStart;
+                expectedBreakOut = bEnd;
+              }
+
               if (type === 'in') {
                 if (inCount === 0) {
                   if (now.getTime() > expectedIn.getTime() + 60000) clockStatus = '遲到';
+                } else if (inCount === 1 && hasFixedBreak && expectedBreakOut) {
+                  if (now.getTime() > expectedBreakOut.getTime() + 60000) clockStatus = '遲到';
                 } else {
                   clockStatus = '正常';
                 }
               } else if (type === 'out') {
-                const totalShiftDuration = expectedOut.getTime() - expectedIn.getTime();
-                const elapsed = now.getTime() - expectedIn.getTime();
-                const isFinalOut = outCount > 0 || (expectsFour ? (elapsed > totalShiftDuration * 0.6) : true);
-
-                if (isFinalOut) {
-                  if (now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';
+                if (hasFixedBreak) {
+                  if (outCount === 0 && expectedBreakIn) {
+                    if (now.getTime() < expectedBreakIn.getTime() - 60000) clockStatus = '早退';
+                  } else {
+                    if (now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';
+                  }
                 } else {
-                  clockStatus = '正常';
+                  if (now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';
                 }
               }
             }

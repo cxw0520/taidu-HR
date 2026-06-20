@@ -368,15 +368,19 @@ export function evaluatePunchesStatus(
   const inRecs = dayAtts.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
   const outRecs = dayAtts.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
 
-  if (inRecs.length > 0 && inRecs[0].time) {
+  if (inRecs.some(r => r.status === '遲到')) {
+    isLate = true;
+  } else if (inRecs.length > 0 && inRecs[0].time) {
     const expectedInMins = parseTimeStrToMinutes(startTimeStr);
     const actualInMins = parseTimeStrToMinutes(inRecs[0].time);
-    if (inRecs[0].status === '遲到' || actualInMins > (expectedInMins + 1)) {
+    if (actualInMins > (expectedInMins + 1)) {
       isLate = true;
     }
   }
 
-  if (outRecs.length > 0 && outRecs[outRecs.length - 1].time) {
+  if (outRecs.some(r => r.status === '早退')) {
+    isEarly = true;
+  } else if (outRecs.length > 0 && outRecs[outRecs.length - 1].time) {
     const expectedInMins = parseTimeStrToMinutes(startTimeStr);
     let expectedOutMins = parseTimeStrToMinutes(endTimeStr);
     if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60; // 跨夜
@@ -385,7 +389,7 @@ export function evaluatePunchesStatus(
     let actualOutMins = parseTimeStrToMinutes(lastOut.time);
     if (actualOutMins < expectedInMins) actualOutMins += 24 * 60; // 跨夜
 
-    if (lastOut.status === '早退' || actualOutMins < expectedOutMins - 1) {
+    if (actualOutMins < expectedOutMins - 1) {
       isEarly = true;
     }
   }

@@ -182,18 +182,19 @@ export const PayrollCalculator: React.FC = () => {
         let lateCount = 0;
         let lateMinutesTotal = 0;
 
-        // Group '上班' records by date and find the earliest check-in for each day
-        const firstInRecordsByDate: { [date: string]: any } = {};
+        // Group '上班' records by date
+        const allInRecordsByDate: { [date: string]: any[] } = {};
         empAttendance.forEach((rec: any) => {
           if (rec.type === '上班' && rec.time && rec.date) {
-            if (!firstInRecordsByDate[rec.date] || rec.time < firstInRecordsByDate[rec.date].time) {
-              firstInRecordsByDate[rec.date] = rec;
+            if (!allInRecordsByDate[rec.date]) {
+              allInRecordsByDate[rec.date] = [];
             }
+            allInRecordsByDate[rec.date].push(rec);
           }
         });
 
-        Object.keys(firstInRecordsByDate).forEach(date => {
-          const rec = firstInRecordsByDate[date];
+        Object.keys(allInRecordsByDate).forEach(date => {
+          const dayRecs = allInRecordsByDate[date].sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
           const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
           if (dateSched) {
             let startTimeStr = dateSched.startTime || '';
@@ -205,13 +206,26 @@ export const PayrollCalculator: React.FC = () => {
             }
             if (startTimeStr) {
               const expectedInMins = parseTimeStrToMinutes(startTimeStr);
-              const actualInMins = parseTimeStrToMinutes(rec.time);
               
-              const isLate = rec.status === '遲到' || (!rec.status && actualInMins > expectedInMins + 1);
-              if (isLate) {
-                lateCount++;
-                lateMinutesTotal += Math.max(0, actualInMins - expectedInMins);
-              }
+              // Get shift break info if any
+              const shiftName = dateSched.shift.split(' (')[0];
+              const shiftDef = shifts.find(s => s.name === shiftName);
+              const hasFixedBreak = shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime;
+              
+              dayRecs.forEach((rec, idx) => {
+                let expectedStart = expectedInMins;
+                if (hasFixedBreak && idx === 1) {
+                  expectedStart = parseTimeStrToMinutes(shiftDef.breakEndTime);
+                }
+                
+                const actualInMins = parseTimeStrToMinutes(rec.time);
+                const isLate = rec.status === '遲到' || (!rec.status && idx === 0 && actualInMins > expectedStart + 1) || (!rec.status && idx === 1 && hasFixedBreak && actualInMins > expectedStart + 1);
+                
+                if (isLate) {
+                  lateCount++;
+                  lateMinutesTotal += Math.max(0, actualInMins - expectedStart);
+                }
+              });
             }
           }
         });
