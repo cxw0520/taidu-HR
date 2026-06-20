@@ -107,13 +107,25 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   useEffect(() => {
     let unsubs: (() => void)[] = [];
+    const resolved = new Set<string>();
+    
+    const checkAllResolved = (key: string) => {
+      resolved.add(key);
+      if (resolved.size === 13) {
+        setLoading(false);
+      }
+    };
     
     // 1. Subscribe Employees
     const qEmp = query(collection(db, 'employees'));
     const unsubEmp = onSnapshot(qEmp, (snap) => {
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setEmployees(sortEmployeesList(records));
-    }, err => console.error("Subscribe employees error:", err));
+      checkAllResolved('employees');
+    }, err => {
+      console.error("Subscribe employees error:", err);
+      checkAllResolved('employees');
+    });
     unsubs.push(unsubEmp);
 
     // 2. Subscribe Attendance
@@ -121,7 +133,11 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const unsubAtt = onSnapshot(qAtt, (snap) => {
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       setAttendance(records);
-    }, err => console.error("Subscribe attendance error:", err));
+      checkAllResolved('attendance');
+    }, err => {
+      console.error("Subscribe attendance error:", err);
+      checkAllResolved('attendance');
+    });
     unsubs.push(unsubAtt);
 
     // 3. Subscribe Schedules
@@ -130,7 +146,11 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       setSchedules(records);
-    }, err => console.error("Subscribe schedules error:", err));
+      checkAllResolved('schedules');
+    }, err => {
+      console.error("Subscribe schedules error:", err);
+      checkAllResolved('schedules');
+    });
     unsubs.push(unsubSched);
 
     // 4. Subscribe Payroll
@@ -139,40 +159,62 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       setPayroll(records);
-    }, err => console.error("Subscribe payroll error:", err));
+      checkAllResolved('payroll');
+    }, err => {
+      console.error("Subscribe payroll error:", err);
+      checkAllResolved('payroll');
+    });
     unsubs.push(unsubPay);
 
-    // 5. Subscribe Leaves, Overtimes, Punch Corrections, Appeals
+    // 5. Subscribe Leaves
     const unsubLeaves = onSnapshot(query(collection(db, 'leaves')), (snap) => {
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       setLeaves(records);
-    }, err => console.error("Subscribe leaves error:", err));
+      checkAllResolved('leaves');
+    }, err => {
+      console.error("Subscribe leaves error:", err);
+      checkAllResolved('leaves');
+    });
     unsubs.push(unsubLeaves);
 
+    // 6. Subscribe Overtime
     const unsubOT = onSnapshot(query(collection(db, 'overtime_requests')), (snap) => {
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       setOvertimeReqs(records);
-    }, err => console.error("Subscribe overtimes error:", err));
+      checkAllResolved('overtime');
+    }, err => {
+      console.error("Subscribe overtimes error:", err);
+      checkAllResolved('overtime');
+    });
     unsubs.push(unsubOT);
 
+    // 7. Subscribe Punch Corrections
     const unsubPC = onSnapshot(query(collection(db, 'punch_corrections')), (snap) => {
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       setPunchCorrections(records);
-    }, err => console.error("Subscribe punch_corrections error:", err));
+      checkAllResolved('punch');
+    }, err => {
+      console.error("Subscribe punch_corrections error:", err);
+      checkAllResolved('punch');
+    });
     unsubs.push(unsubPC);
 
+    // 8. Subscribe Attendance Appeals
     const unsubAA = onSnapshot(query(collection(db, 'attendance_appeals')), (snap) => {
       const records = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       setAttendanceAppeals(records);
-    }, err => console.error("Subscribe appeals error:", err));
+      checkAllResolved('appeal');
+    }, err => {
+      console.error("Subscribe appeals error:", err);
+      checkAllResolved('appeal');
+    });
     unsubs.push(unsubAA);
 
-
-    // 6. Settings Subscriptions
+    // 9. Subscribe Roles Settings
     const unsubRoles = onSnapshot(doc(db, 'settings', 'roles'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -180,9 +222,14 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           setRoles(data.list);
         }
       }
+      checkAllResolved('roles');
+    }, err => {
+      console.error("Subscribe roles error:", err);
+      checkAllResolved('roles');
     });
     unsubs.push(unsubRoles);
 
+    // 10. Subscribe Shifts Settings
     const unsubShifts = onSnapshot(doc(db, 'settings', 'shifts'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -190,17 +237,27 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           setShifts(data.list);
         }
       }
+      checkAllResolved('shifts');
+    }, err => {
+      console.error("Subscribe shifts error:", err);
+      checkAllResolved('shifts');
     });
     unsubs.push(unsubShifts);
 
+    // 11. Subscribe Insurance Settings
     const unsubIns = onSnapshot(doc(db, 'settings', 'insurance'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setInsuranceRates(data);
       }
+      checkAllResolved('insurance');
+    }, err => {
+      console.error("Subscribe insurance error:", err);
+      checkAllResolved('insurance');
     });
     unsubs.push(unsubIns);
 
+    // 12. Subscribe Rules Settings
     const unsubRules = onSnapshot(doc(db, 'settings', 'rules'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -210,9 +267,14 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           setToleranceMinutes(data.toleranceHours * 60);
         }
       }
+      checkAllResolved('rules');
+    }, err => {
+      console.error("Subscribe rules error:", err);
+      checkAllResolved('rules');
     });
     unsubs.push(unsubRules);
 
+    // 13. Subscribe Holidays Settings
     const unsubHolidays = onSnapshot(doc(db, 'settings', 'holidays'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -224,10 +286,13 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           setHolidays(normalized);
         }
       }
+      checkAllResolved('holidays');
+    }, err => {
+      console.error("Subscribe holidays error:", err);
+      checkAllResolved('holidays');
     });
     unsubs.push(unsubHolidays);
 
-    setLoading(false);
     return () => unsubs.forEach(unsub => unsub());
   }, []);
 
