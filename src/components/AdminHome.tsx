@@ -115,7 +115,7 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
       } else {
         let startTimeStr = '';
         let endTimeStr = '';
-        const timeMatch = (sched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+        const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
         if (timeMatch) {
           startTimeStr = timeMatch[1];
           endTimeStr = timeMatch[2];

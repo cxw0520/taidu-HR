@@ -234,7 +234,7 @@ export function assignClockToWorkDate(
     let endTime = sched.endTime || '';
 
     if (!startTime || !endTime) {
-      const timeMatch = (sched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+      const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
       if (timeMatch) {
         startTime = timeMatch[1];
         endTime = timeMatch[2];

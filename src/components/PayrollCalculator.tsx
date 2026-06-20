@@ -199,7 +199,7 @@ export const PayrollCalculator: React.FC = () => {
           if (dateSched) {
             let startTimeStr = dateSched.startTime || '';
             if (!startTimeStr) {
-              const timeMatch = (dateSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+              const timeMatch = (dateSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
               if (timeMatch) {
                 startTimeStr = timeMatch[1];
               }
@@ -282,7 +282,7 @@ export const PayrollCalculator: React.FC = () => {
                 startTimeStr = dateSched.startTime || '';
                 endTimeStr = dateSched.endTime || '';
                 if (!startTimeStr || !endTimeStr) {
-                  const timeMatch = (dateSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+                  const timeMatch = (dateSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
                   if (timeMatch) {
                     if (!startTimeStr) startTimeStr = timeMatch[1];
                     if (!endTimeStr) endTimeStr = timeMatch[2];
@@ -509,14 +509,14 @@ export const PayrollCalculator: React.FC = () => {
           if (effectiveStart > effectiveEnd) continue;
           
           const days = Math.round((new Date(effectiveEnd).getTime() - new Date(effectiveStart).getTime()) / 86400000) + 1;
-          
-          if (lv.leaveType === 'personal') personalLeaveDays += days;
-          else if (lv.leaveType === 'sick') sickLeaveDays += days;
-
           const totalDays = Math.round((new Date(lvEnd).getTime() - new Date(lvStart).getTime()) / 86400000) + 1;
           const leaveHours = lv.hours || (totalDays * 8);
           const monthLeaveHours = (days / totalDays) * leaveHours;
           totalLeaveHours += monthLeaveHours;
+
+          const currentLeaveDays = monthLeaveHours / 8;
+          if (lv.leaveType === 'personal') personalLeaveDays += currentLeaveDays;
+          else if (lv.leaveType === 'sick') sickLeaveDays += currentLeaveDays;
         }
 
         // Calculate missed punch count

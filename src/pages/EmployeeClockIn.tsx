@@ -313,7 +313,7 @@ const EmployeeClockIn: React.FC = () => {
       } else {
         let startTimeStr = '';
         let endTimeStr = '';
-        const timeMatch = (sched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+        const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
         if (timeMatch) {
           startTimeStr = timeMatch[1];
           endTimeStr = timeMatch[2];
@@ -362,7 +362,7 @@ const EmployeeClockIn: React.FC = () => {
           const matchedSched = activeSchedules.find(s => s.id === matchResult.scheduleId);
           if (matchedSched) {
             const workDate = matchedSched.date || matchedSched.workDate || '';
-            const timeMatch = (matchedSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+            const timeMatch = (matchedSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
             if (timeMatch && workDate) {
               const [yr, mo, dy] = workDate.split('-').map(Number);
               const [sh, sm] = timeMatch[1].split(':').map(Number);

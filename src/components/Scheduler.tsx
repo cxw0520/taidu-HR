@@ -137,12 +137,12 @@ const Scheduler: React.FC = () => {
 
     // (3) Shift Gap
     const parseShiftEnd = (shift: string): number | null => {
-      const match = shift.match(/(\d{2}):(\d{2})\s*\)\s*$/);
+      const match = shift.match(/(\d{1,2}):(\d{2})\s*\)\s*$/);
       if (!match) return null;
       return parseInt(match[1]) + parseInt(match[2]) / 60;
     };
     const parseShiftStart = (shift: string): number | null => {
-      const match = shift.match(/\((\d{2}):(\d{2})/);
+      const match = shift.match(/\((\d{1,2}):(\d{2})/);
       if (!match) return null;
       return parseInt(match[1]) + parseInt(match[2]) / 60;
     };
