@@ -798,16 +798,19 @@ const EmployeeClockIn: React.FC = () => {
                   const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
                   const hasApprovedOvertime = myOvertimes.some(ot => ot.date === dateStr && ot.status === 'approved');
                   const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
-                  const isException = sched && !isFuture && !hasLeave && (dayAtts.length < expectedPunches);
+
+                  const isOff = sched ? isOffShift(sched.shift) : false;
+                  const isException = sched && !isOff && !isFuture && !hasLeave && (dayAtts.length < expectedPunches);
                   const shiftShort = sched ? (sched.shift || '').replace(/\s*\(.*?\)/, '').slice(0, 4) : '';
                   const shiftTime  = sched ? ((sched.shift || '').match(/\((.+?)\)/) || [])[1] || '' : '';
 
                   return (
                     <div key={dateStr} style={{
                       minHeight: '68px', borderRadius: '8px', padding: '5px 4px',
-                      backgroundColor: isToday ? 'rgba(79,70,229,0.08)' : sched ? 'rgba(16,185,129,0.05)' : '#fafafa',
+                      backgroundColor: isToday ? 'rgba(79,70,229,0.08)' : isOff ? '#f9fafb' : sched ? 'rgba(16,185,129,0.05)' : '#fafafa',
                       border: isToday ? '2px solid var(--primary)'
                         : isException ? '1px solid rgba(239,68,68,0.35)'
+                        : isOff ? '1px solid #e5e7eb'
                         : sched ? '1px solid rgba(16,185,129,0.25)'
                         : '1px solid var(--border)',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
@@ -819,14 +822,27 @@ const EmployeeClockIn: React.FC = () => {
 
                       {/* 班別標籤 */}
                       {sched && (
-                        <>
-                          <div style={{ fontSize: '10px', fontWeight: '700', color: '#fff', backgroundColor: '#10b981',
-                            borderRadius: '4px', padding: '1px 5px', whiteSpace: 'nowrap',
-                            maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shiftShort}</div>
-                          {shiftTime && (
-                            <div style={{ fontSize: '8px', color: '#6b7280', lineHeight: 1.3, textAlign: 'center', wordBreak: 'break-all' }}>{shiftTime}</div>
-                          )}
-                        </>
+                        isOff ? (
+                          <div style={{
+                            fontSize: '9px', fontWeight: '700',
+                            color: sched.shift === '休假' ? '#d97706' : sched.shift === '國定假日' ? '#7c3aed' : '#ef4444',
+                            backgroundColor: sched.shift === '休假' ? '#fef3c7' : sched.shift === '國定假日' ? '#f3e8ff' : '#fee2e2',
+                            borderRadius: '12px', padding: '1px 5px', whiteSpace: 'nowrap',
+                            maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis',
+                            border: `1px solid ${sched.shift === '休假' ? '#fde68a' : sched.shift === '國定假日' ? '#e9d5ff' : '#fecdd3'}`
+                          }}>
+                            {sched.shift === '例假' ? '例' : sched.shift === '休假' ? '休' : sched.shift === '國定假日' ? '國' : sched.shift.slice(0, 1)}
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: '10px', fontWeight: '700', color: '#fff', backgroundColor: '#10b981',
+                              borderRadius: '4px', padding: '1px 5px', whiteSpace: 'nowrap',
+                              maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shiftShort}</div>
+                            {shiftTime && (
+                              <div style={{ fontSize: '8px', color: '#6b7280', lineHeight: 1.3, textAlign: 'center', wordBreak: 'break-all' }}>{shiftTime}</div>
+                            )}
+                          </>
+                        )
                       )}
 
                       {/* 請假標示 */}
@@ -836,7 +852,7 @@ const EmployeeClockIn: React.FC = () => {
                       )}
 
                       {/* 打卡狀態圓點 */}
-                      {sched && !isFuture && !hasLeave && (
+                      {sched && !isOff && !isFuture && !hasLeave && (
                         <div style={{ display: 'flex', gap: '3px', marginTop: '2px' }}>
                           {dayAtts.map((att: any, attIdx: number) => (
                             <div key={attIdx} title={`${att.type} (${att.time})`} style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }} />

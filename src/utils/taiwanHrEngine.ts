@@ -326,13 +326,11 @@ export function calculateOvertimePay(hourlyRate: number, hours: number, dayType:
   return pay;
 }
 
-/**
- * 判斷是否為休假/休息班別（不需打卡紀錄）
- */
 export function isOffShift(shiftName: string): boolean {
-  const name = shiftName || '';
-  if (name === '例假' || name === '休假' || name === '國定假日' || name === '排休' || name === '公休') return true;
-  return (name.includes('休') || name.includes('例') || name.includes('假')) && !name.includes('班');
+  if (!shiftName) return false;
+  // Clean name by removing any time ranges or extra spaces
+  const cleanName = shiftName.split(' (')[0].trim();
+  return cleanName === '例假' || cleanName === '休假' || cleanName === '國定假日' || cleanName === '排休' || cleanName === '公休';
 }
 
 /**
