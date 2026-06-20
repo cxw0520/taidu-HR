@@ -205,125 +205,130 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
   const pendingAppeals = attendanceAppeals.filter(a => a.status === 'pending').length;
 
   return (
-    <div className="alerts-approvals-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
-      {/* 本月人事成本卡 */}
-      <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '20px' }}>💰</span>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>人事成本概覽</h3>
-          </div>
-          <select 
-            value={costMonth} 
-            onChange={(e) => setCostMonth(e.target.value)} 
-            style={{ 
-              padding: '4px 8px', 
-              borderRadius: '6px', 
-              border: '1px solid #d1d5db', 
-              fontSize: '13px', 
-              fontWeight: '600',
-              backgroundColor: '#fff', 
-              cursor: 'pointer' 
-            }}
-          >
-            {payrollMonths.map(m => (
-              <option key={m} value={m}>{m.substring(0, 4)}年{m.substring(5, 7)}月</option>
-            ))}
-          </select>
-        </div>
-
-        {segments.total > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>
-            <div style={{ position: 'relative', width: '150px', height: '150px' }}>
-              <svg width="100%" height="100%" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="8" />
-                {segments.list.map((item, idx) => (
-                  <circle
-                    key={idx}
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke={item.color}
-                    strokeWidth="8"
-                    strokeDasharray="251.2"
-                    strokeDashoffset={item.strokeDashoffset}
-                    strokeLinecap="round"
-                    transform={`rotate(${item.rotation} 50 50)`}
-                    style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-                  />
-                ))}
-              </svg>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>總人事成本</span>
-                <span style={{ fontSize: '15px', fontWeight: '800', color: '#1e293b', marginTop: '2px' }}>NT$ {segments.total.toLocaleString()}</span>
-              </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
+      {/* 上方兩欄區塊：人力成本與差勤待審核概覽 */}
+      <div className="alerts-approvals-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px' }}>
+        
+        {/* 本月人力成本卡 */}
+        <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '20px' }}>💰</span>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>人力成本</h3>
             </div>
-
-            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {segments.list.map((item, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px solid #f1f5f9', paddingBottom: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: item.color }} />
-                    <span style={{ color: '#475569', fontWeight: '500' }}>{item.name}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>{(item.percentage * 100).toFixed(1)}%</span>
-                    <span style={{ fontWeight: '700', color: '#1e293b' }}>NT$ {item.value.toLocaleString()}</span>
-                  </div>
-                </div>
+            <select 
+              value={costMonth} 
+              onChange={(e) => setCostMonth(e.target.value)} 
+              style={{ 
+                padding: '4px 8px', 
+                borderRadius: '6px', 
+                border: '1px solid #d1d5db', 
+                fontSize: '13px', 
+                fontWeight: '600',
+                backgroundColor: '#fff', 
+                cursor: 'pointer' 
+              }}
+            >
+              {payrollMonths.map(m => (
+                <option key={m} value={m}>{m.substring(0, 4)}年{m.substring(5, 7)}月</option>
               ))}
-            </div>
+            </select>
           </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center', padding: '20px 0' }}>
-            <div style={{ position: 'relative', width: '150px', height: '150px' }}>
-              <svg width="100%" height="100%" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="8" />
-              </svg>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>無薪資資料</span>
-                <span style={{ fontSize: '15px', fontWeight: '800', color: '#94a3b8', marginTop: '2px' }}>NT$ 0</span>
+
+          {segments.total > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>
+              <div style={{ position: 'relative', width: '150px', height: '150px' }}>
+                <svg width="100%" height="100%" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="8" />
+                  {segments.list.map((item, idx) => (
+                    <circle
+                      key={idx}
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      fill="transparent"
+                      stroke={item.color}
+                      strokeWidth="8"
+                      strokeDasharray="251.2"
+                      strokeDashoffset={item.strokeDashoffset}
+                      strokeLinecap="round"
+                      transform={`rotate(${item.rotation} 50 50)`}
+                      style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+                    />
+                  ))}
+                </svg>
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>總人力成本</span>
+                  <span style={{ fontSize: '15px', fontWeight: '800', color: '#1e293b', marginTop: '2px' }}>NT$ {segments.total.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {segments.list.map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px solid #f1f5f9', paddingBottom: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: item.color }} />
+                      <span style={{ color: '#475569', fontWeight: '500' }}>{item.name}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>{(item.percentage * 100).toFixed(1)}%</span>
+                      <span style={{ fontWeight: '700', color: '#1e293b' }}>NT$ {item.value.toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-            <div style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center' }}>
-              此月份尚未生成薪資結算資料，請至「薪資結算」頁面進行計算。
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center', padding: '20px 0' }}>
+              <div style={{ position: 'relative', width: '150px', height: '150px' }}>
+                <svg width="100%" height="100%" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="8" />
+                </svg>
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>無薪資資料</span>
+                  <span style={{ fontSize: '15px', fontWeight: '800', color: '#94a3b8', marginTop: '2px' }}>NT$ 0</span>
+                </div>
+              </div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center' }}>
+                此月份尚未生成薪資結算資料，請至「薪資結算」頁面進行計算。
+              </div>
             </div>
+          )}
+        </div>
+
+        {/* 快速跳轉審核卡 */}
+        <div className="card" style={{ padding: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <span style={{ fontSize: '20px' }}>📋</span>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>差勤待審核概覽</h3>
           </div>
-        )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {[
+              { label: '請假申請', count: pendingLeaves, color: '#4f46e5', icon: '📄' },
+              { label: '加班申請', count: pendingOvertimes, color: '#059669', icon: '⏰' },
+              { label: '補卡申請', count: pendingCorrections, color: '#d97706', icon: '🔧' },
+              { label: '打卡異常申訴', count: pendingAppeals, color: '#7c3aed', icon: '📣' },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: '10px', backgroundColor: `rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '124,58,237'},0.06)`, border: `1px solid rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '124,58,237'},0.15)` }}>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>{item.icon} {item.label}</span>
+                {item.count > 0
+                  ? <span style={{ background: '#ef4444', color: '#fff', borderRadius: '99px', padding: '2px 10px', fontSize: '12px', fontWeight: '800' }}>{item.count} 待審</span>
+                  : <span style={{ color: '#10b981', fontSize: '12px', fontWeight: '600' }}>✅ 無待審</span>
+                }
+              </div>
+            ))}
+            <button
+              onClick={() => setActiveTab('leaves')}
+              style={{ marginTop: '8px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
+            >
+              前往差勤審核 →
+            </button>
+          </div>
+        </div>
+
       </div>
 
-      {/* 快速跳轉審核卡 */}
-      <div className="card" style={{ padding: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-          <span style={{ fontSize: '20px' }}>📋</span>
-          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--text-main)' }}>差勤待審核概覽</h3>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {[
-            { label: '請假申請', count: pendingLeaves, color: '#4f46e5', icon: '📄' },
-            { label: '加班申請', count: pendingOvertimes, color: '#059669', icon: '⏰' },
-            { label: '補卡申請', count: pendingCorrections, color: '#d97706', icon: '🔧' },
-            { label: '打卡異常申訴', count: pendingAppeals, color: '#7c3aed', icon: '📣' },
-          ].map(item => (
-            <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: '10px', backgroundColor: `rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '124,58,237'},0.06)`, border: `1px solid rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '124,58,237'},0.15)` }}>
-              <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>{item.icon} {item.label}</span>
-              {item.count > 0
-                ? <span style={{ background: '#ef4444', color: '#fff', borderRadius: '99px', padding: '2px 10px', fontSize: '12px', fontWeight: '800' }}>{item.count} 待審</span>
-                : <span style={{ color: '#10b981', fontSize: '12px', fontWeight: '600' }}>✅ 無待審</span>
-              }
-            </div>
-          ))}
-          <button
-            onClick={() => setActiveTab('leaves')}
-            style={{ marginTop: '8px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
-          >
-            前往差勤審核 →
-          </button>
-        </div>
-      </div>
-
-      {/* 行政警示區 */}
+      {/* 下方行政警示區 (滿版) */}
       <div className="card" style={{ padding: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
           <span style={{ fontSize: '20px' }}>🔔</span>

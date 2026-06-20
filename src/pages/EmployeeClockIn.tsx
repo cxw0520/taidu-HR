@@ -896,7 +896,7 @@ const EmployeeClockIn: React.FC = () => {
                 <span style={{ display:'flex', alignItems:'center', gap:'4px' }}><span style={{ width:'8px', height:'8px', borderRadius:'50%', backgroundColor:'#10b981', display:'inline-block' }} />已打卡</span>
                 <span style={{ display:'flex', alignItems:'center', gap:'4px' }}><span style={{ width:'8px', height:'8px', borderRadius:'50%', backgroundColor:'#ef4444', display:'inline-block' }} />未打卡</span>
                 <span style={{ display:'flex', alignItems:'center', gap:'4px' }}><span style={{ width:'10px', height:'10px', borderRadius:'3px', backgroundColor:'rgba(16,185,129,0.2)', border:'1px solid #10b981', display:'inline-block' }} />有班表</span>
-                <span>⚠️ 缺卡/暠職</span>
+                <span>⚠️ 缺卡/曠職</span>
                 <span style={{ color:'#d97706' }}>假 = 已核准請假</span>
               </div>
             </div>

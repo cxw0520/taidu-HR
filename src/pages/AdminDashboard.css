@@ -156,6 +156,18 @@
 .table-responsive {
   width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 769px) {
+  .table-responsive .data-table {
+    min-width: 1300px;
+    table-layout: auto;
+  }
+  .table-responsive .data-table th,
+  .table-responsive .data-table td {
+    white-space: nowrap;
+  }
 }
 
 .data-table {
