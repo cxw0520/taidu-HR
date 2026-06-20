@@ -519,6 +519,16 @@ export const PayrollCalculator: React.FC = () => {
           else if (lv.leaveType === 'sick') sickLeaveDays += currentLeaveDays;
         }
 
+        if (sickLeaveDays > 0 && attendanceBonus > 0) {
+          const sickBonusDeduction = Math.min(attendanceBonus, Math.round(sickLeaveDays * ((emp.attendanceBonus || 0) / 30)));
+          attendanceBonus -= sickBonusDeduction;
+          if (sickBonusDeduction > 0) {
+            attendanceBonusNote = attendanceBonusNote
+              ? `${attendanceBonusNote}；病假扣全勤 ${sickBonusDeduction} 元`
+              : `請病假 ${sickLeaveDays.toFixed(1)} 天，扣減全勤獎金 ${sickBonusDeduction} 元`;
+          }
+        }
+
         // Calculate missed punch count
         let missedPunchCount = 0;
         const [yr, mo] = monthStr.split('-').map(Number);
@@ -1016,6 +1026,9 @@ export const PayrollCalculator: React.FC = () => {
               <th>底薪</th>
               <th>加班費</th>
               <th>扣款 (勞健保)</th>
+              <th>扣款 (差勤)</th>
+              <th>雇主負擔勞健保</th>
+              <th>人力成本</th>
               <th>實發薪資</th>
               <th>狀態</th>
               <th>發佈狀態</th>
@@ -1039,7 +1052,27 @@ export const PayrollCalculator: React.FC = () => {
                   )}
                 </td>
                 <td data-label="加班費">NT$ {record.overtime?.toLocaleString()}</td>
-                <td data-label="扣款 (勞健保)">-NT$ {record.deductions?.toLocaleString()}</td>
+                <td data-label="扣款 (勞健保)">
+                  -NT$ {(((record.employeeLabor !== undefined && record.employeeNhi !== undefined) ? ((record.employeeLabor || 0) + (record.employeeNhi || 0)) : ((record.deductions || 0) - (record.leaveDeduction || 0)))).toLocaleString()}
+                </td>
+                <td data-label="扣款 (差勤)">
+                  -NT$ {(record.leaveDeduction || 0).toLocaleString()}
+                </td>
+                <td data-label="雇主負擔勞健保">
+                  <div>NT$ {((record.employerLabor || 0) + (record.employerNhi || 0)).toLocaleString()}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                    (勞: {record.employerLabor || 0} / 健: {record.employerNhi || 0} / 退6%: {record.employerPension || 0})
+                  </div>
+                </td>
+                <td data-label="人力成本" style={{ fontWeight: '600', color: '#1e293b' }}>
+                  NT$ {(
+                    (record.netSalary || 0) + 
+                    ((record.employeeLabor !== undefined && record.employeeNhi !== undefined) ? ((record.employeeLabor || 0) + (record.employeeNhi || 0)) : ((record.deductions || 0) - (record.leaveDeduction || 0))) + 
+                    (record.employerLabor || 0) + 
+                    (record.employerNhi || 0) + 
+                    (record.employerPension || 0)
+                  ).toLocaleString()}
+                </td>
                 <td data-label="實發薪資" style={{ fontWeight: '600', color: 'var(--primary)' }}>
                   NT$ {record.netSalary?.toLocaleString()}
                 </td>
