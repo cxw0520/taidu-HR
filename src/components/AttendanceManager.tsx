@@ -122,68 +122,157 @@ const AttendanceManager: React.FC = () => {
           return parseTimeStrToMinutes(timeStr) / 60;
         };
 
-        let segments = 0;
-        let i = 0;
-        while (i < sortedRecs.length) {
-          if (sortedRecs[i].type === '上班') {
-            let nextOut = null;
-            let j = i + 1;
-            while (j < sortedRecs.length) {
-              if (sortedRecs[j].type === '下班') {
-                nextOut = sortedRecs[j];
-                break;
-              }
-              j++;
+        const dateSched = schedules.find((s: any) => s.employeeId === empId && s.date === date);
+        let shiftDef: any = null;
+        let startTimeStr = '';
+        let endTimeStr = '';
+        if (dateSched) {
+          const shiftName = dateSched.shift.split(' (')[0];
+          shiftDef = shifts.find(s => s.name === shiftName);
+          startTimeStr = dateSched.startTime || '';
+          endTimeStr = dateSched.endTime || '';
+          if (!startTimeStr || !endTimeStr) {
+            const timeMatch = (dateSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+            if (timeMatch) {
+              if (!startTimeStr) startTimeStr = timeMatch[1];
+              if (!endTimeStr) endTimeStr = timeMatch[2];
             }
-            if (nextOut) {
-              const inTime = parseTime(sortedRecs[i].time);
-              let outTime = parseTime(nextOut.time);
-              if (outTime < inTime) outTime += 24;
-              dayHours += (outTime - inTime);
-              segments++;
-              i = j + 1;
-            } else {
-              i++;
-            }
-          } else {
-            i++;
           }
         }
 
-        if (segments === 1) {
-          const inRec = sortedRecs.find(r => r.type === '上班');
-          const outRec = sortedRecs.find(r => r.type === '下班');
-          if (inRec && outRec) {
-            const inTime = parseTime(inRec.time);
-            let outTime = parseTime(outRec.time);
-            if (outTime < inTime) outTime += 24;
+        const hasFixedBreak = shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime;
+        let start1 = 0;
+        let end1 = 0;
+        let start2 = 0;
+        let end2 = 0;
 
-            const dateSched = schedules.find((s: any) => s.employeeId === empId && s.date === date);
-            if (dateSched) {
-              const shiftName = dateSched.shift.split(' (')[0];
-              const shiftDef = shifts.find(s => s.name === shiftName);
-              if (shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime) {
+        if (dateSched && startTimeStr && endTimeStr) {
+          if (hasFixedBreak) {
+            start1 = parseTime(startTimeStr);
+            end1 = parseTime(shiftDef.breakStartTime);
+            if (end1 < start1) end1 += 24;
+
+            start2 = parseTime(shiftDef.breakEndTime);
+            if (start2 < start1) start2 += 24;
+
+            end2 = parseTime(endTimeStr);
+            if (end2 < start2) end2 += 24;
+          } else {
+            start1 = parseTime(startTimeStr);
+            end1 = parseTime(endTimeStr);
+            if (end1 < start1) end1 += 24;
+          }
+        }
+
+        // Count total punch pairs
+        let totalPairs = 0;
+        for (let k = 0; k < sortedRecs.length; k++) {
+          if (sortedRecs[k].type === '上班') {
+            for (let l = k + 1; l < sortedRecs.length; l++) {
+              if (sortedRecs[l].type === '下班') {
+                totalPairs++;
+                k = l;
+                break;
+              }
+            }
+          }
+        }
+
+        dayHours = 0;
+        let punchPairsCount = 0;
+        let firstInTime = 0;
+        let lastOutTime = 0;
+
+        let idx = 0;
+        while (idx < sortedRecs.length) {
+          if (sortedRecs[idx].type === '上班') {
+            let nextOut = null;
+            let nextOutIndex = -1;
+            for (let j = idx + 1; j < sortedRecs.length; j++) {
+              if (sortedRecs[j].type === '下班') {
+                nextOut = sortedRecs[j];
+                nextOutIndex = j;
+                break;
+              }
+            }
+            if (nextOut) {
+              const inTime = parseTime(sortedRecs[idx].time);
+              let outTime = parseTime(nextOut.time);
+              if (outTime < inTime) outTime += 24;
+
+              let effectiveIn = inTime;
+              let effectiveOut = outTime;
+
+              if (dateSched && startTimeStr && endTimeStr) {
+                let expectedStart = undefined;
+                let expectedEnd = undefined;
+
+                if (hasFixedBreak && totalPairs >= 2) {
+                  if (punchPairsCount === 0) {
+                    expectedStart = start1;
+                    expectedEnd = end1;
+                  } else if (punchPairsCount === 1) {
+                    expectedStart = start2;
+                    expectedEnd = end2;
+                  }
+                } else {
+                  if (punchPairsCount === 0) {
+                    expectedStart = start1;
+                    expectedEnd = hasFixedBreak ? end2 : end1;
+                  }
+                }
+
+                if (expectedStart !== undefined) {
+                  effectiveIn = Math.max(inTime, expectedStart);
+                }
+                if (expectedEnd !== undefined) {
+                  effectiveOut = Math.min(outTime, expectedEnd);
+                }
+              }
+
+              if (punchPairsCount === 0) {
+                firstInTime = effectiveIn;
+              }
+              lastOutTime = effectiveOut;
+
+              dayHours += Math.max(0, effectiveOut - effectiveIn);
+              punchPairsCount++;
+              idx = nextOutIndex + 1;
+            } else {
+              idx++;
+            }
+          } else {
+            idx++;
+          }
+        }
+
+        if (dayHours > 0) {
+          if (dateSched && shiftDef) {
+            if (punchPairsCount === 1) {
+              if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
                 const bStart = parseTime(shiftDef.breakStartTime);
                 let bEnd = parseTime(shiftDef.breakEndTime);
                 if (bEnd < bStart) bEnd += 24;
 
                 let adjustedBStart = bStart;
                 let adjustedBEnd = bEnd;
-                if (adjustedBStart < inTime && adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
+                if (adjustedBStart < firstInTime && adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
                   adjustedBStart += 24;
                   adjustedBEnd += 24;
-                } else if (adjustedBStart + 24 >= inTime && adjustedBStart + 24 <= outTime) {
+                } else if (adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
                   adjustedBStart += 24;
                   adjustedBEnd += 24;
-                } else if (adjustedBStart - 24 >= inTime) {
+                } else if (adjustedBStart - 24 >= firstInTime) {
                   adjustedBStart -= 24;
                   adjustedBEnd -= 24;
                 }
 
-                const startOverlap = Math.max(inTime, adjustedBStart);
-                const endOverlap = Math.min(outTime, adjustedBEnd);
+                const startOverlap = Math.max(firstInTime, adjustedBStart);
+                const endOverlap = Math.min(lastOutTime, adjustedBEnd);
                 const overlap = Math.max(0, endOverlap - startOverlap);
                 dayHours = Math.max(0, dayHours - overlap);
+              } else if (shiftDef.breakDuration > 0) {
+                dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
               }
             }
           }

@@ -258,6 +258,62 @@ export const PayrollCalculator: React.FC = () => {
               .sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
 
             if (dayPunches.length >= 2) {
+              const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
+              let shiftDef: any = null;
+              let startTimeStr = '';
+              let endTimeStr = '';
+              if (dateSched) {
+                const shiftName = dateSched.shift.split(' (')[0];
+                shiftDef = shifts.find(s => s.name === shiftName);
+                startTimeStr = dateSched.startTime || '';
+                endTimeStr = dateSched.endTime || '';
+                if (!startTimeStr || !endTimeStr) {
+                  const timeMatch = (dateSched.shift || '').match(/\((\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\)/);
+                  if (timeMatch) {
+                    if (!startTimeStr) startTimeStr = timeMatch[1];
+                    if (!endTimeStr) endTimeStr = timeMatch[2];
+                  }
+                }
+              }
+
+              const hasFixedBreak = shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime;
+              let start1 = 0;
+              let end1 = 0;
+              let start2 = 0;
+              let end2 = 0;
+
+              if (dateSched && startTimeStr && endTimeStr) {
+                if (hasFixedBreak) {
+                  start1 = parseTime(startTimeStr);
+                  end1 = parseTime(shiftDef.breakStartTime);
+                  if (end1 < start1) end1 += 24;
+
+                  start2 = parseTime(shiftDef.breakEndTime);
+                  if (start2 < start1) start2 += 24;
+
+                  end2 = parseTime(endTimeStr);
+                  if (end2 < start2) end2 += 24;
+                } else {
+                  start1 = parseTime(startTimeStr);
+                  end1 = parseTime(endTimeStr);
+                  if (end1 < start1) end1 += 24;
+                }
+              }
+
+              // Count total punch pairs
+              let totalPairs = 0;
+              for (let k = 0; k < dayPunches.length; k++) {
+                if (dayPunches[k].type === '上班') {
+                  for (let l = k + 1; l < dayPunches.length; l++) {
+                    if (dayPunches[l].type === '下班') {
+                      totalPairs++;
+                      k = l;
+                      break;
+                    }
+                  }
+                }
+              }
+
               let hours = 0;
               let punchPairsCount = 0;
               let firstInTime = 0;
@@ -277,12 +333,42 @@ export const PayrollCalculator: React.FC = () => {
                     let outTime = parseTime(dayPunches[nextOutIndex].time);
                     if (outTime < inTime) outTime += 24;
 
-                    if (punchPairsCount === 0) {
-                      firstInTime = inTime;
-                    }
-                    lastOutTime = outTime;
+                    let effectiveIn = inTime;
+                    let effectiveOut = outTime;
 
-                    hours += (outTime - inTime);
+                    if (dateSched && startTimeStr && endTimeStr) {
+                      let expectedStart = undefined;
+                      let expectedEnd = undefined;
+
+                      if (hasFixedBreak && totalPairs >= 2) {
+                        if (punchPairsCount === 0) {
+                          expectedStart = start1;
+                          expectedEnd = end1;
+                        } else if (punchPairsCount === 1) {
+                          expectedStart = start2;
+                          expectedEnd = end2;
+                        }
+                      } else {
+                        if (punchPairsCount === 0) {
+                          expectedStart = start1;
+                          expectedEnd = hasFixedBreak ? end2 : end1;
+                        }
+                      }
+
+                      if (expectedStart !== undefined) {
+                        effectiveIn = Math.max(inTime, expectedStart);
+                      }
+                      if (expectedEnd !== undefined) {
+                        effectiveOut = Math.min(outTime, expectedEnd);
+                      }
+                    }
+
+                    if (punchPairsCount === 0) {
+                      firstInTime = effectiveIn;
+                    }
+                    lastOutTime = effectiveOut;
+
+                    hours += Math.max(0, effectiveOut - effectiveIn);
                     punchPairsCount++;
                     i = nextOutIndex;
                   }
@@ -290,40 +376,32 @@ export const PayrollCalculator: React.FC = () => {
               }
 
               if (hours > 0) {
-                const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
-                if (dateSched) {
-                  const shiftName = dateSched.shift.split(' (')[0];
-                  const shiftDef = shifts.find(s => s.name === shiftName);
-                  if (shiftDef) {
-                    // Only deduct break if the employee did not punch for the break (i.e. they only have 1 punch pair)
-                    // If they have 2 pairs, they already punched out/in for break, so hours naturally excludes the break.
-                    if (punchPairsCount === 1) {
-                      if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
-                        const bStart = parseTime(shiftDef.breakStartTime);
-                        let bEnd = parseTime(shiftDef.breakEndTime);
-                        if (bEnd < bStart) bEnd += 24;
+                if (dateSched && shiftDef) {
+                  if (punchPairsCount === 1) {
+                    if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
+                      const bStart = parseTime(shiftDef.breakStartTime);
+                      let bEnd = parseTime(shiftDef.breakEndTime);
+                      if (bEnd < bStart) bEnd += 24;
 
-                        let adjustedBStart = bStart;
-                        let adjustedBEnd = bEnd;
-                        if (adjustedBStart < firstInTime && adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
-                          adjustedBStart += 24;
-                          adjustedBEnd += 24;
-                        } else if (adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
-                          adjustedBStart += 24;
-                          adjustedBEnd += 24;
-                        } else if (adjustedBStart - 24 >= firstInTime) {
-                          adjustedBStart -= 24;
-                          adjustedBEnd -= 24;
-                        }
-
-                        const startOverlap = Math.max(firstInTime, adjustedBStart);
-                        const endOverlap = Math.min(lastOutTime, adjustedBEnd);
-                        const overlap = Math.max(0, endOverlap - startOverlap);
-                        hours = Math.max(0, hours - overlap);
-                      } else if (shiftDef.breakDuration > 0) {
-                        // Deduct duration in hours
-                        hours = Math.max(0, hours - (shiftDef.breakDuration / 60));
+                      let adjustedBStart = bStart;
+                      let adjustedBEnd = bEnd;
+                      if (adjustedBStart < firstInTime && adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
+                        adjustedBStart += 24;
+                        adjustedBEnd += 24;
+                      } else if (adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
+                        adjustedBStart += 24;
+                        adjustedBEnd += 24;
+                      } else if (adjustedBStart - 24 >= firstInTime) {
+                        adjustedBStart -= 24;
+                        adjustedBEnd -= 24;
                       }
+
+                      const startOverlap = Math.max(firstInTime, adjustedBStart);
+                      const endOverlap = Math.min(lastOutTime, adjustedBEnd);
+                      const overlap = Math.max(0, endOverlap - startOverlap);
+                      hours = Math.max(0, hours - overlap);
+                    } else if (shiftDef.breakDuration > 0) {
+                      hours = Math.max(0, hours - (shiftDef.breakDuration / 60));
                     }
                   }
                 }
