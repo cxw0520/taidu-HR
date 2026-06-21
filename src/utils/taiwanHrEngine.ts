@@ -415,3 +415,167 @@ export function evaluatePunchesStatus(
   return { isLate, isEarly };
 }
 
+export interface SpecialLeavePeriod {
+  name: string;
+  startDate: string;
+  endDate: string;
+  lookbackStart: string;
+  lookbackEnd: string;
+  entitledHours: number;
+  usedHours: number;
+  remainingHours: number;
+  isExpired: boolean;
+  isActive: boolean;
+}
+
+/**
+ * 依週年制與薪資類型（月薪/時薪工讀）動態計算特休區間額度、使用時數與到期狀態
+ */
+export function calculateSpecialLeavePeriods(
+  onboardDateStr: string,
+  currentDate: Date,
+  salaryType: 'monthly' | 'hourly',
+  getWorkedHours: (start: string, end: string) => number,
+  approvedAnnualLeaves: Array<{ startDate: string; endDate: string; hours: number }>
+): SpecialLeavePeriod[] {
+  if (!onboardDateStr) return [];
+  const onboard = new Date(onboardDateStr);
+  const periods: SpecialLeavePeriod[] = [];
+  
+  const formatDateStr = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dateVal = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dateVal}`;
+  };
+  
+  const addDays = (d: Date, days: number) => {
+    const res = new Date(d);
+    res.setDate(res.getDate() + days);
+    return res;
+  };
+
+  const halfYearStart = new Date(onboard);
+  halfYearStart.setMonth(halfYearStart.getMonth() + 6);
+  const oneYearStart = new Date(onboard);
+  oneYearStart.setFullYear(oneYearStart.getFullYear() + 1);
+  const halfYearEnd = addDays(oneYearStart, -1);
+
+  const addPeriod = (
+    name: string,
+    pStart: Date,
+    pEnd: Date,
+    lStart: Date,
+    lEnd: Date,
+    fullTimeDays: number,
+    fullTimeNormalHours: number
+  ) => {
+    // 只有當前時間大於或等於追溯起日（亦即進入該階段）時才計算，但特休在 pStart 起才可動用
+    // 若該特休期間是在當月開始產生，即使當前日期尚未到達 pStart，也進行計算以便通知與顯示
+    const isSameMonthAndYear = pStart.getFullYear() === currentDate.getFullYear() && pStart.getMonth() === currentDate.getMonth();
+    if (currentDate < pStart && !isSameMonthAndYear) return;
+
+    let entitledHours = fullTimeDays * 8;
+    if (salaryType === 'hourly') {
+      const workedHours = getWorkedHours(formatDateStr(lStart), formatDateStr(lEnd));
+      entitledHours = (workedHours / fullTimeNormalHours) * (fullTimeDays * 8);
+      entitledHours = Math.round(entitledHours * 10) / 10;
+    }
+
+    const pStartStr = formatDateStr(pStart);
+    const pEndStr = formatDateStr(pEnd);
+
+    // 計算此特休區間內已被核准使用的特休時數
+    let usedHours = 0;
+    approvedAnnualLeaves.forEach(lv => {
+      if (!lv.startDate || !lv.endDate) return;
+      const start = new Date(lv.startDate);
+      const end = new Date(lv.endDate);
+      const diffDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      const hoursPerDay = (lv.hours || 0) / diffDays;
+      for (let d = 0; d < diffDays; d++) {
+        const curr = new Date(start);
+        curr.setDate(start.getDate() + d);
+        const dayStr = formatDateStr(curr);
+        if (dayStr >= pStartStr && dayStr <= pEndStr) {
+          usedHours += hoursPerDay;
+        }
+      }
+    });
+    usedHours = Math.round(usedHours * 10) / 10;
+
+    const remainingHours = Math.max(0, entitledHours - usedHours);
+    const currentDateStr = formatDateStr(currentDate);
+    const isExpired = currentDateStr > pEndStr;
+    const isActive = currentDateStr >= pStartStr && currentDateStr <= pEndStr;
+
+    periods.push({
+      name,
+      startDate: pStartStr,
+      endDate: pEndStr,
+      lookbackStart: formatDateStr(lStart),
+      lookbackEnd: formatDateStr(lEnd),
+      entitledHours,
+      usedHours,
+      remainingHours: isExpired ? 0 : remainingHours,
+      isExpired,
+      isActive
+    });
+  };
+
+  // 1. 滿半年特休 (3天/1040小時全職基準)
+  addPeriod(
+    '滿半年',
+    halfYearStart,
+    halfYearEnd,
+    onboard,
+    halfYearStart,
+    3,
+    1040
+  );
+
+  // 2. 滿一年以上各週年額度
+  let yearsOfService = 1;
+  while (true) {
+    const pStart = new Date(onboard);
+    pStart.setFullYear(pStart.getFullYear() + yearsOfService);
+    
+    const isSameMonthAndYear = pStart.getFullYear() === currentDate.getFullYear() && pStart.getMonth() === currentDate.getMonth();
+    if (currentDate < pStart && !isSameMonthAndYear) {
+      break;
+    }
+
+    const pEndLimit = new Date(onboard);
+    pEndLimit.setFullYear(pEndLimit.getFullYear() + yearsOfService + 1);
+    const pEnd = addDays(pEndLimit, -1);
+
+    const lStart = new Date(onboard);
+    lStart.setFullYear(lStart.getFullYear() + yearsOfService - 1);
+    const lEnd = pStart;
+
+    let days = 0;
+    if (yearsOfService === 1) days = 7;
+    else if (yearsOfService === 2) days = 10;
+    else if (yearsOfService >= 3 && yearsOfService < 5) days = 14;
+    else if (yearsOfService >= 5 && yearsOfService < 10) days = 15;
+    else {
+      days = Math.min(30, 15 + (yearsOfService - 10 + 1));
+    }
+
+    addPeriod(
+      `滿${yearsOfService}年`,
+      pStart,
+      pEnd,
+      lStart,
+      lEnd,
+      days,
+      2080
+    );
+
+    yearsOfService++;
+  }
+
+  return periods;
+}
+
+

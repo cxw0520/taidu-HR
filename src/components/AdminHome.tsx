@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 
-import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods } from '../utils/taiwanHrEngine';
 
 interface AdminHomeProps {
   setActiveTab: (tab: 'attendance' | 'employees' | 'schedules' | 'payroll' | 'leaves' | 'settings') => void;
@@ -112,6 +112,160 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
     const years = today.getFullYear() - onboardYear;
     return onboardMonth === (today.getMonth() + 1) && years > 0;
   });
+
+  // 員工特休警示（當月產生、當月即將到期）
+  const specialLeaveAlerts = React.useMemo(() => {
+    const list: Array<{ empName: string; empId: string; type: 'new' | 'expiring'; message: string; date: string }> = [];
+    const todayVal = new Date();
+    const currentYear = todayVal.getFullYear();
+    const currentMonth = todayVal.getMonth();
+
+    (employees || []).forEach(emp => {
+      if (!emp.onboardDate || !emp.id) return;
+
+      // 1. 取得該員工核准的特休
+      const approvedAnnualLeaves = (leaves || [])
+        .filter(l => l.employeeId === emp.id && l.leaveType === 'annual' && l.status === 'approved')
+        .map(l => ({
+          startDate: l.startDate,
+          endDate: l.endDate,
+          hours: l.hours || 0
+        }));
+
+      // 2. 取得該員工出勤工時
+      const getWorkedHours = (startDateStr: string, endDateStr: string): number => {
+        const empAtt = (attendance || []).filter(rec => rec.employeeId === emp.id);
+        const attByDate: { [date: string]: any[] } = {};
+        empAtt.forEach((rec: any) => {
+          if (!rec.date) return;
+          if (!attByDate[rec.date]) attByDate[rec.date] = [];
+          attByDate[rec.date].push(rec);
+        });
+        const empScheds = (schedules || []).filter(s => s.employeeId === emp.id);
+
+        let totalHours = 0;
+        let curr = new Date(startDateStr);
+        const end = new Date(endDateStr);
+        while (curr <= end) {
+          const y = curr.getFullYear();
+          const m = String(curr.getMonth() + 1).padStart(2, '0');
+          const dVal = String(curr.getDate()).padStart(2, '0');
+          const dateStr = `${y}-${m}-${dVal}`;
+
+          const dayAtt = attByDate[dateStr] || [];
+          if (dayAtt.length > 0) {
+            const sorted = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+            const sched = empScheds.find(s => s.date === dateStr);
+            let shiftDef: any = null;
+            if (sched) {
+              const shiftName = (sched.shift || '').split(' (')[0];
+              shiftDef = (shifts || []).find(s => s.name === shiftName);
+            }
+
+            let dayHours = 0;
+            let punchPairsCount = 0;
+            let idx = 0;
+            while (idx < sorted.length) {
+              if (sorted[idx].type === '上班') {
+                let nextOut = null;
+                let nextOutIdx = -1;
+                for (let j = idx + 1; j < sorted.length; j++) {
+                  if (sorted[j].type === '下班') {
+                    nextOut = sorted[j];
+                    nextOutIdx = j;
+                    break;
+                  }
+                }
+                if (nextOut) {
+                  const inMins = parseTimeStrToMinutes(sorted[idx].time || '');
+                  let outMins = parseTimeStrToMinutes(nextOut.time || '');
+                  if (outMins < inMins) outMins += 24 * 60;
+                  
+                  let effectiveIn = inMins;
+                  let effectiveOut = outMins;
+                  if (sched) {
+                    const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
+                    if (timeMatch) {
+                      const expectedInMins = parseTimeStrToMinutes(timeMatch[1]);
+                      let expectedOutMins = parseTimeStrToMinutes(timeMatch[2]);
+                      if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
+
+                      effectiveIn = inMins <= expectedInMins ? expectedInMins : inMins;
+                      effectiveOut = outMins >= expectedOutMins ? expectedOutMins : outMins;
+                    }
+                  }
+
+                  dayHours += Math.max(0, (effectiveOut - effectiveIn) / 60);
+                  punchPairsCount++;
+                  idx = nextOutIdx + 1;
+                } else {
+                  idx++;
+                }
+              } else {
+                idx++;
+              }
+            }
+
+            if (dayHours > 0 && punchPairsCount === 1 && shiftDef) {
+              if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
+                const bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
+                let bEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
+                if (bEnd < bStart) bEnd += 24 * 60;
+                const overlap = Math.max(0, bEnd - bStart);
+                dayHours = Math.max(0, dayHours - (overlap / 60));
+              } else if (shiftDef.breakDuration > 0) {
+                dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
+              }
+            }
+            totalHours += dayHours;
+          }
+          curr.setDate(curr.getDate() + 1);
+        }
+        return totalHours;
+      };
+
+      // 3. 計算特休區間額度
+      const periods = calculateSpecialLeavePeriods(
+        emp.onboardDate,
+        todayVal,
+        (emp.salaryType || 'monthly') as 'monthly' | 'hourly',
+        getWorkedHours,
+        approvedAnnualLeaves
+      );
+
+      // 4. 過濾出本月之事件
+      periods.forEach(period => {
+        const start = new Date(period.startDate);
+        if (start.getFullYear() === currentYear && start.getMonth() === currentMonth) {
+          const daysNum = Math.round(period.entitledHours / 8 * 10) / 10;
+          list.push({
+            empName: emp.name || '未名員工',
+            empId: emp.id,
+            type: 'new',
+            message: `本月起產生新特休期【${period.name}】，核給額度 ${period.entitledHours} 小時 (${daysNum}天)，起訖：${period.startDate} ~ ${period.endDate}。`,
+            date: period.startDate
+          });
+        }
+
+        const end = new Date(period.endDate);
+        if (end.getFullYear() === currentYear && end.getMonth() === currentMonth) {
+          const unused = Math.round((period.entitledHours - period.usedHours) * 10) / 10;
+          if (unused > 0) {
+            const daysNum = Math.round(unused / 8 * 10) / 10;
+            list.push({
+              empName: emp.name || '未名員工',
+              empId: emp.id,
+              type: 'expiring',
+              message: `特休【${period.name}】將於本月到期 (${period.endDate})，尚有剩餘時數 ${unused} 小時 (${daysNum}天) 未使用完畢。`,
+              date: period.endDate
+            });
+          }
+        }
+      });
+    });
+
+    return list.sort((a, b) => a.date.localeCompare(b.date));
+  }, [employees, leaves, attendance, schedules, shifts]);
 
   // 5. 出勤異常彙整 (近期)
   const attendanceExceptions = React.useMemo(() => {
@@ -420,6 +574,36 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
                     </span>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          {/* 員工特休警示通知 */}
+          <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(79,70,229,0.06)', border: '1px solid rgba(79,70,229,0.15)', fontSize: '13px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: '#4f46e5', marginBottom: '6px' }}>
+              <span>🏖️</span>
+              <span>員工特休產生與過期警告通知</span>
+              {specialLeaveAlerts.length > 0 && (
+                <span style={{ marginLeft: 'auto', background: 'rgba(79,70,229,0.15)', color: '#4f46e5', borderRadius: '99px', padding: '1px 8px', fontSize: '11px' }}>
+                  {specialLeaveAlerts.length} 筆
+                </span>
+              )}
+            </div>
+            {specialLeaveAlerts.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>目前無特休異動或到期警告。</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto', marginTop: '4px' }}>
+                {specialLeaveAlerts.map((alert, i) => (
+                  <div key={i} style={{ fontSize: '12px', color: '#4b5563', display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+                    <span style={{ padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', minWidth: '58px', textAlign: 'center',
+                      backgroundColor: alert.type === 'new' ? 'rgba(16,185,129,0.12)' : 'rgba(217,119,6,0.12)',
+                      color: alert.type === 'new' ? '#059669' : '#d97706' }}>
+                      {alert.type === 'new' ? '本月新增' : '本月到期'}
+                    </span>
+                    <span style={{ color: '#4f46e5', fontWeight: '700', minWidth: '48px' }}>{alert.empName}</span>
+                    <span>{alert.message}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>

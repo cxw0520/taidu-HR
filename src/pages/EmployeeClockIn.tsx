@@ -7,7 +7,7 @@ import {
   doc, getDoc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
-import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods } from '../utils/taiwanHrEngine';
 
 const LEAVE_TYPES = [
   { value: 'sick',        label: '病假 (半薪)',  yearlyDays: 30 },
@@ -20,19 +20,7 @@ const LEAVE_TYPES = [
   { value: 'prenatal',    label: '產前假',        yearlyDays: null },
 ];
 
-/** 依年資計算勞基法特別休假天數 */
-const calcAnnualLeaveDays = (onboardDate: string): number => {
-  if (!onboardDate) return 0;
-  const months = (Date.now() - new Date(onboardDate).getTime()) / (1000 * 60 * 60 * 24 * 30.44);
-  if (months < 6)   return 0;
-  if (months < 12)  return 3;
-  const years = months / 12;
-  if (years < 2)    return 7;
-  if (years < 3)    return 10;
-  if (years < 5)    return 14;
-  if (years < 10)   return 15;
-  return Math.min(30, 15 + Math.floor(years - 10));
-};
+
 
 const EmployeeClockIn: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -76,8 +64,10 @@ const EmployeeClockIn: React.FC = () => {
   const [leaveType, setLeaveType] = useState('sick');
   const [leaveStart, setLeaveStart] = useState('');
   const [leaveEnd, setLeaveEnd] = useState('');
-  const [leavePeriod, setLeavePeriod] = useState<'full' | 'morning' | 'afternoon'>('full');
+  const [leavePeriod, setLeavePeriod] = useState<'full' | 'morning' | 'afternoon' | 'hour'>('full');
   const [leaveHours, setLeaveHours] = useState<number>(8);
+  const [annualLeaveUnit, setAnnualLeaveUnit] = useState<'day' | 'hour'>('day');
+  const [leaveDaysInput, setLeaveDaysInput] = useState<number>(1);
   const [leaveReason, setLeaveReason] = useState('');
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const [leaveMsg, setLeaveMsg] = useState({ type: '', text: '' });
@@ -88,8 +78,10 @@ const EmployeeClockIn: React.FC = () => {
   const [editLeaveType, setEditLeaveType] = useState('sick');
   const [editLeaveStart, setEditLeaveStart] = useState('');
   const [editLeaveEnd, setEditLeaveEnd] = useState('');
-  const [editLeavePeriod, setEditLeavePeriod] = useState<'full' | 'morning' | 'afternoon'>('full');
+  const [editLeavePeriod, setEditLeavePeriod] = useState<'full' | 'morning' | 'afternoon' | 'hour'>('full');
   const [editLeaveHours, setEditLeaveHours] = useState<number>(8);
+  const [editAnnualLeaveUnit, setEditAnnualLeaveUnit] = useState<'day' | 'hour'>('day');
+  const [editLeaveDaysInput, setEditLeaveDaysInput] = useState<number>(1);
   const [editLeaveReason, setEditLeaveReason] = useState('');
 
   // ── 加班表單 ──
@@ -254,6 +246,112 @@ const EmployeeClockIn: React.FC = () => {
     };
   }, [user]);
 
+  // ── 特休週年與工時計算 ──
+  const specialLeavePeriods = useMemo(() => {
+    if (!employeeProfile?.onboardDate) return [];
+
+    const attByDate: { [date: string]: any[] } = {};
+    allAttendance.forEach((rec: any) => {
+      if (!rec.date) return;
+      if (!attByDate[rec.date]) attByDate[rec.date] = [];
+      attByDate[rec.date].push(rec);
+    });
+
+    const getWorkedHours = (startDateStr: string, endDateStr: string): number => {
+      let totalHours = 0;
+      let curr = new Date(startDateStr);
+      const end = new Date(endDateStr);
+      while (curr <= end) {
+        const dateStr = curr.toLocaleDateString('sv');
+        const dayAtt = attByDate[dateStr] || [];
+        if (dayAtt.length > 0) {
+          const sorted = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+          const sched = mySchedules.find(s => s.date === dateStr);
+          let shiftDef: any = null;
+          if (sched) {
+            const shiftName = (sched.shift || '').split(' (')[0];
+            shiftDef = shiftsList.find(s => s.name === shiftName);
+          }
+
+          let dayHours = 0;
+          let punchPairsCount = 0;
+          let idx = 0;
+          while (idx < sorted.length) {
+            if (sorted[idx].type === '上班') {
+              let nextOut = null;
+              let nextOutIdx = -1;
+              for (let j = idx + 1; j < sorted.length; j++) {
+                if (sorted[j].type === '下班') {
+                  nextOut = sorted[j];
+                  nextOutIdx = j;
+                  break;
+                }
+              }
+              if (nextOut) {
+                const inMins = parseTimeStrToMinutes(sorted[idx].time || '');
+                let outMins = parseTimeStrToMinutes(nextOut.time || '');
+                if (outMins < inMins) outMins += 24 * 60;
+                
+                let effectiveIn = inMins;
+                let effectiveOut = outMins;
+                if (sched) {
+                  const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
+                  if (timeMatch) {
+                    const expectedInMins = parseTimeStrToMinutes(timeMatch[1]);
+                    let expectedOutMins = parseTimeStrToMinutes(timeMatch[2]);
+                    if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
+
+                    effectiveIn = inMins <= expectedInMins ? expectedInMins : inMins;
+                    effectiveOut = outMins >= expectedOutMins ? expectedOutMins : outMins;
+                  }
+                }
+
+                dayHours += Math.max(0, (effectiveOut - effectiveIn) / 60);
+                punchPairsCount++;
+                idx = nextOutIdx + 1;
+              } else {
+                idx++;
+              }
+            } else {
+              idx++;
+            }
+          }
+
+          if (dayHours > 0 && punchPairsCount === 1 && shiftDef) {
+            if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
+              const bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
+              let bEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
+              if (bEnd < bStart) bEnd += 24 * 60;
+              const overlap = Math.max(0, bEnd - bStart);
+              dayHours = Math.max(0, dayHours - (overlap / 60));
+            } else if (shiftDef.breakDuration > 0) {
+              dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
+            }
+          }
+          totalHours += dayHours;
+        }
+        curr.setDate(curr.getDate() + 1);
+      }
+      return totalHours;
+    };
+
+    const approvedAnnualLeaves = myLeaves
+      .filter(l => l.leaveType === 'annual' && l.status === 'approved')
+      .map(l => ({
+        startDate: l.startDate,
+        endDate: l.endDate,
+        hours: l.hours || 0
+      }));
+
+    return calculateSpecialLeavePeriods(
+      employeeProfile.onboardDate,
+      new Date(),
+      employeeProfile.salaryType || 'monthly',
+      getWorkedHours,
+      approvedAnnualLeaves
+    );
+  }, [allAttendance, mySchedules, shiftsList, myLeaves, employeeProfile]);
+
   // ── 假別剩餘天數計算 ──
   const leaveBalance = useMemo(() => {
     const approvedLeaves = myLeaves.filter(l => l.status === 'approved');
@@ -262,14 +360,87 @@ const EmployeeClockIn: React.FC = () => {
         .filter(l => l.leaveType === type)
         .reduce((sum, l) => sum + (l.hours || 0) / 8, 0);
 
-    const annualTotal = calcAnnualLeaveDays(employeeProfile?.onboardDate || '');
+    const activePeriods = specialLeavePeriods.filter(p => p.isActive);
+    const annualTotalHours = activePeriods.reduce((sum, p) => sum + p.entitledHours, 0);
+    const annualRemainingHours = activePeriods.reduce((sum, p) => sum + p.remainingHours, 0);
+
     return {
-      annual:      { total: annualTotal, used: usedDays('annual'),      remaining: Math.max(0, annualTotal - usedDays('annual')) },
+      annual:      { 
+        total: annualTotalHours / 8, 
+        used: (annualTotalHours - annualRemainingHours) / 8, 
+        remaining: annualRemainingHours / 8,
+        totalHours: annualTotalHours,
+        remainingHours: annualRemainingHours
+      },
       sick:        { total: 30,          used: usedDays('sick'),         remaining: Math.max(0, 30 - usedDays('sick')) },
       personal:    { total: 14,          used: usedDays('personal'),     remaining: Math.max(0, 14 - usedDays('personal')) },
       menstrual:   { total: 3,           used: usedDays('menstrual'),    remaining: Math.max(0, 3 - usedDays('menstrual')) },
     };
-  }, [myLeaves, employeeProfile]);
+  }, [myLeaves, specialLeavePeriods]);
+
+  // ── 特休文字格式化 ──
+  const formatAnnualText = (hours: number) => {
+    const d = Math.floor(hours / 8);
+    const h = Math.round((hours % 8) * 10) / 10;
+    if (d > 0 && h > 0) return `${d}天${h}h`;
+    if (d > 0) return `${d}天`;
+    return `${h}小時`;
+  };
+
+  // ── 特休通知彙整 ──
+  const specialLeaveNotifications = useMemo(() => {
+    const list: Array<{ id: string; type: 'new' | 'expiring' | 'expired'; message: string; color: string; bg: string; border: string }> = [];
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+
+    specialLeavePeriods.forEach(period => {
+      // 1. 本月產生特休
+      const start = new Date(period.startDate);
+      if (start.getFullYear() === currentYear && start.getMonth() === currentMonth) {
+        list.push({
+          id: `new-${period.name}-${period.startDate}`,
+          type: 'new',
+          message: `🎉 您本月起產生新特休【${period.name}】，額度為 ${formatAnnualText(period.entitledHours)}，使用期限至 ${period.endDate}。`,
+          color: '#10b981',
+          bg: 'rgba(16,185,129,0.08)',
+          border: '1px solid rgba(16,185,129,0.2)'
+        });
+      }
+
+      // 2. 本月即將到期 / 本月已到期特休 (且有剩餘)
+      const end = new Date(period.endDate);
+      if (end.getFullYear() === currentYear && end.getMonth() === currentMonth) {
+        const unused = Math.round((period.entitledHours - period.usedHours) * 10) / 10;
+        if (unused > 0) {
+          const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+          const isExpiredNow = todayStr > period.endDate;
+          
+          if (isExpiredNow) {
+            list.push({
+              id: `expired-${period.name}-${period.endDate}`,
+              type: 'expired',
+              message: `⏳ 您的特休【${period.name}】已於本月 (${period.endDate}) 到期，剩餘 ${formatAnnualText(unused)} 未使用完畢已到期失效。`,
+              color: '#6b7280',
+              bg: 'rgba(107,114,128,0.08)',
+              border: '1px solid rgba(107,114,128,0.2)'
+            });
+          } else {
+            list.push({
+              id: `expiring-${period.name}-${period.endDate}`,
+              type: 'expiring',
+              message: `⏰ 您的特休【${period.name}】將於本月 (${period.endDate}) 到期，剩餘 ${formatAnnualText(unused)} 尚未動用，逾期將失效，請儘速排休！`,
+              color: '#d97706',
+              bg: 'rgba(217,119,6,0.08)',
+              border: '1px solid rgba(217,119,6,0.2)'
+            });
+          }
+        }
+      }
+    });
+
+    return list;
+  }, [specialLeavePeriods]);
 
   // ── 出勤異常（供申訴用）──
   const employeeExceptions = useMemo(() => {
@@ -466,8 +637,27 @@ const EmployeeClockIn: React.FC = () => {
     e.preventDefault();
     if (!user) return;
     if (!leaveStart || !leaveEnd) { setLeaveMsg({ type: 'error', text: '請填寫請假起迄日期' }); return; }
-    const periodLabel = leavePeriod === 'morning' ? '上午' : leavePeriod === 'afternoon' ? '下午' : '全天';
-    const computedHours = leavePeriod === 'full' ? leaveHours : 4;
+    if (leaveEnd < leaveStart) { setLeaveMsg({ type: 'error', text: '結束日期不能小於開始日期' }); return; }
+
+    let periodLabel = leavePeriod === 'morning' ? '上午' : leavePeriod === 'afternoon' ? '下午' : '全天';
+    let computedHours = leavePeriod === 'full' ? leaveHours : 4;
+
+    if (leaveType === 'annual') {
+      if (annualLeaveUnit === 'day') {
+        const diffDays = Math.round((new Date(leaveEnd).getTime() - new Date(leaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        computedHours = diffDays * 8;
+        periodLabel = '按天';
+      } else {
+        computedHours = leaveHours;
+        periodLabel = '按小時';
+      }
+    }
+
+    if (computedHours <= 0) {
+      setLeaveMsg({ type: 'error', text: '請輸入大於 0 的請假時間' });
+      return;
+    }
+
     setLeaveSubmitting(true);
     setLeaveMsg({ type: '', text: '' });
     try {
@@ -477,7 +667,7 @@ const EmployeeClockIn: React.FC = () => {
         leaveType,
         startDate: leaveStart,
         endDate: leaveEnd,
-        period: leavePeriod,
+        leavePeriod: leaveType === 'annual' ? (annualLeaveUnit === 'day' ? 'full' : 'hour') : leavePeriod,
         periodLabel,
         hours: computedHours,
         reason: leaveReason,
@@ -486,6 +676,7 @@ const EmployeeClockIn: React.FC = () => {
       });
       setLeaveMsg({ type: 'success', text: '請假申請已送出，等待主管審核' });
       setLeaveStart(''); setLeaveEnd(''); setLeaveReason(''); setLeaveHours(8); setLeavePeriod('full');
+      setLeaveDaysInput(1);
     } catch (err: any) {
       setLeaveMsg({ type: 'error', text: err.message || '送出失敗，請稍後再試' });
     } finally { setLeaveSubmitting(false); }
@@ -501,19 +692,52 @@ const EmployeeClockIn: React.FC = () => {
     setEditLeavePeriod(lv.leavePeriod || 'full');
     setEditLeaveHours(Number(lv.hours) || 8);
     setEditLeaveReason(lv.reason || '');
+
+    const isAnnual = lv.leaveType === 'annual';
+    if (isAnnual) {
+      const unit = (lv.periodLabel === '按小時' || lv.leavePeriod === 'hour' || (Number(lv.hours) % 8 !== 0)) ? 'hour' : 'day';
+      setEditAnnualLeaveUnit(unit);
+      if (unit === 'day') {
+        setEditLeaveDaysInput(Math.round(Number(lv.hours) / 8));
+      }
+    }
     setShowEditLeaveModal(true);
   };
 
   const handleUpdateLeave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (editLeaveEnd < editLeaveStart) {
+      alert('結束日期不能小於開始日期');
+      return;
+    }
     try {
-      const finalHours = editLeavePeriod === 'full' ? Number(editLeaveHours) : 4;
-      const periodLbl = editLeavePeriod === 'full' ? '全天' : editLeavePeriod === 'morning' ? '上半天' : '下半天';
+      let finalHours = editLeavePeriod === 'full' ? Number(editLeaveHours) : 4;
+      let periodLbl = editLeavePeriod === 'full' ? '全天' : editLeavePeriod === 'morning' ? '上半天' : '下半天';
+      let finalPeriod = editLeavePeriod;
+
+      if (editLeaveType === 'annual') {
+        if (editAnnualLeaveUnit === 'day') {
+          const diffDays = Math.round((new Date(editLeaveEnd).getTime() - new Date(editLeaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          finalHours = diffDays * 8;
+          periodLbl = '按天';
+          finalPeriod = 'full';
+        } else {
+          finalHours = Number(editLeaveHours);
+          periodLbl = '按小時';
+          finalPeriod = 'hour';
+        }
+      }
+
+      if (finalHours <= 0) {
+        alert('請輸入大於 0 的請假時間');
+        return;
+      }
+
       await updateDoc(doc(db, 'leaves', editLeaveId), {
         leaveType: editLeaveType,
         startDate: editLeaveStart,
         endDate: editLeaveEnd,
-        leavePeriod: editLeavePeriod,
+        leavePeriod: finalPeriod,
         periodLabel: periodLbl,
         hours: finalHours,
         reason: editLeaveReason
@@ -707,6 +931,23 @@ const EmployeeClockIn: React.FC = () => {
         {/* ── 打卡 Tab ── */}
         {activeSubTab === 'clock' && (
           <div className="tab-panel">
+            {/* 特休產生與過期通知 */}
+            {specialLeaveNotifications.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                {specialLeaveNotifications.map((notif) => (
+                  <div key={notif.id} style={{ background: notif.bg, border: notif.border, borderRadius: '12px', padding: '12px 16px', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px', color: notif.color, fontSize: '13px', fontWeight: '500' }}>
+                    <div style={{ flex: 1, lineHeight: '1.4' }}>{notif.message}</div>
+                    {(notif.type === 'new' || notif.type === 'expiring') && (
+                      <button onClick={() => { setActiveSubTab('apply'); setApplySubTab('leave'); }}
+                        style={{ fontSize: '11px', color: '#fff', backgroundColor: 'var(--primary)', border: 'none', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontWeight: '700', whiteSpace: 'nowrap' }}>
+                        立即請假
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* 出勤異常通知 */}
             {employeeExceptions.length > 0 && (
               <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '12px', padding: '12px 16px', marginBottom: '16px', textAlign: 'left' }}>
@@ -953,17 +1194,90 @@ const EmployeeClockIn: React.FC = () => {
                 { key: 'personal',  label: '事假',     icon: '👤', color: '#d97706' },
                 { key: 'menstrual', label: '生理假',   icon: '💊', color: '#db2777' },
               ].map(item => {
-                const bal = leaveBalance[item.key as keyof typeof leaveBalance];
+                const bal = leaveBalance[item.key as keyof typeof leaveBalance] as any;
+                const isAnnual = item.key === 'annual';
+                const remainingText = isAnnual ? formatAnnualText(bal.remainingHours) : `${bal.remaining}天`;
+                const totalText = isAnnual ? formatAnnualText(bal.totalHours) : `${bal.total}天`;
+
                 return (
-                  <div key={item.key} style={{ background: `rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '219,39,119'},0.06)`, border: `1px solid rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '219,39,119'},0.15)`, borderRadius: '10px', padding: '10px', textAlign: 'center' }}>
+                  <div key={item.key} style={{ background: `rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '219,39,119'},0.06)`, border: `1px solid rgba(${item.color === '#4f46e5' ? '79,70,229' : item.color === '#059669' ? '5,150,105' : item.color === '#d97706' ? '217,119,6' : '219,39,119'},0.15)`, borderRadius: '10px', padding: '10px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '82px' }}>
                     <div style={{ fontSize: '16px', marginBottom: '2px' }}>{item.icon}</div>
                     <div style={{ fontSize: '10px', color: '#6b7280', marginBottom: '2px' }}>{item.label}</div>
-                    <div style={{ fontSize: '18px', fontWeight: '800', color: item.color }}>{bal.remaining}</div>
-                    <div style={{ fontSize: '10px', color: '#9ca3af' }}>/ {bal.total} 天</div>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: item.color, whiteSpace: 'nowrap' }}>{remainingText}</div>
+                    <div style={{ fontSize: '9px', color: '#9ca3af', whiteSpace: 'nowrap' }}>/ {totalText}</div>
                   </div>
                 );
               })}
             </div>
+
+            {/* 特休年度明細 */}
+            {specialLeavePeriods.length > 0 && (
+              <div style={{ background: '#f9fafb', borderRadius: '10px', padding: '12px', border: '1px solid #e5e7eb', marginBottom: '16px', fontSize: '11px', textAlign: 'left' }}>
+                <div style={{ fontWeight: '700', color: 'var(--text-main)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>📅</span> 特休效期與額度明細（到職日：{employeeProfile?.onboardDate || '未設定'}，{employeeProfile?.salaryType === 'hourly' ? '時薪工讀' : '月薪制'}）
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #e5e7eb', color: '#6b7280' }}>
+                        <th style={{ padding: '6px 4px' }}>項目</th>
+                        <th style={{ padding: '6px 4px' }}>起訖期間</th>
+                        <th style={{ padding: '6px 4px' }}>額度</th>
+                        <th style={{ padding: '6px 4px' }}>已用</th>
+                        <th style={{ padding: '6px 4px' }}>剩餘</th>
+                        <th style={{ padding: '6px 4px' }}>狀態</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {specialLeavePeriods.map((period, idx) => {
+                        const isExpiringThisMonth = (() => {
+                          if (!period.endDate) return false;
+                          const today = new Date();
+                          const todayYm = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+                          return period.endDate.startsWith(todayYm);
+                        })();
+
+                        const isNewThisMonth = (() => {
+                          if (!period.startDate) return false;
+                          const today = new Date();
+                          const todayYm = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+                          return period.startDate.startsWith(todayYm);
+                        })();
+
+                        let statusBadge = null;
+                        if (period.isExpired) {
+                          statusBadge = <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '9px', backgroundColor: '#f3f4f6', color: '#9ca3af' }}>已失效</span>;
+                        } else if (!period.isActive) {
+                          statusBadge = <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '9px', backgroundColor: '#e0e7ff', color: '#4f46e5' }}>未開始</span>;
+                        } else {
+                          statusBadge = <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '9px', backgroundColor: '#d1fae5', color: '#065f46', fontWeight: 'bold' }}>使用中</span>;
+                        }
+
+                        return (
+                          <tr key={idx} style={{ borderBottom: idx === specialLeavePeriods.length - 1 ? 'none' : '1px solid #f3f4f6' }}>
+                            <td style={{ padding: '6px 4px', fontWeight: '600' }}>{period.name}</td>
+                            <td style={{ padding: '6px 4px', color: '#4b5563' }}>
+                              {period.startDate} ～ {period.endDate}
+                              {isExpiringThisMonth && <span style={{ color: '#ef4444', fontSize: '9px', marginLeft: '4px', fontWeight: 'bold' }}>(本月到期)</span>}
+                              {isNewThisMonth && <span style={{ color: '#10b981', fontSize: '9px', marginLeft: '4px', fontWeight: 'bold' }}>(本月新增)</span>}
+                            </td>
+                            <td style={{ padding: '6px 4px' }}>{formatAnnualText(period.entitledHours)}</td>
+                            <td style={{ padding: '6px 4px', color: '#9ca3af' }}>{period.usedHours > 0 ? `${period.usedHours}h` : '0'}</td>
+                            <td style={{ padding: '6px 4px', fontWeight: '700', color: period.remainingHours > 0 && !period.isExpired ? 'var(--primary)' : '#9ca3af' }}>
+                              {period.isExpired ? '0' : formatAnnualText(period.remainingHours)}
+                            </td>
+                            <td style={{ padding: '6px 4px' }}>{statusBadge}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop: '8px', fontSize: '10px', color: '#6b7280', lineHeight: '1.4' }}>
+                  ※ 特休無法跨期累計，到期未使用完畢自動失效。工讀特休依勞基法規定比例折算核給。
+                </div>
+              </div>
+            )}
 
             {/* 四個子分頁按鈕 */}
             <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
@@ -995,19 +1309,44 @@ const EmployeeClockIn: React.FC = () => {
                           {LEAVE_TYPES.map(lt => <option key={lt.value} value={lt.value}>{lt.label}</option>)}
                         </select>
                       </div>
-                      <div>
-                        <label style={labelStyle}>請假時段</label>
-                        <select value={leavePeriod} onChange={e => setLeavePeriod(e.target.value as any)} style={inputStyle}>
-                          <option value="full">全天（8 小時）</option>
-                          <option value="morning">上半天（4 小時）</option>
-                          <option value="afternoon">下半天（4 小時）</option>
-                        </select>
-                      </div>
-                      {leavePeriod === 'full' && (
-                        <div>
-                          <label style={labelStyle}>請假時數（全天請假時填寫）</label>
-                          <input type="number" min={1} max={240} value={leaveHours} onChange={e => setLeaveHours(Number(e.target.value))} style={inputStyle} />
-                        </div>
+                      {leaveType === 'annual' ? (
+                        <>
+                          <div>
+                            <label style={labelStyle}>請假單位</label>
+                            <select value={annualLeaveUnit} onChange={e => setAnnualLeaveUnit(e.target.value as 'day' | 'hour')} style={inputStyle}>
+                              <option value="day">按天 (8 小時/天)</option>
+                              <option value="hour">按小時</option>
+                            </select>
+                          </div>
+                          {annualLeaveUnit === 'day' ? (
+                            <div>
+                              <label style={labelStyle}>請假天數</label>
+                              <input type="number" min={1} max={30} value={leaveDaysInput} onChange={e => setLeaveDaysInput(Number(e.target.value))} style={inputStyle} />
+                            </div>
+                          ) : (
+                            <div>
+                              <label style={labelStyle}>請假時數 (小時)</label>
+                              <input type="number" min={0.5} step={0.5} max={240} value={leaveHours} onChange={e => setLeaveHours(Number(e.target.value))} style={inputStyle} />
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <label style={labelStyle}>請假時段</label>
+                            <select value={leavePeriod} onChange={e => setLeavePeriod(e.target.value as any)} style={inputStyle}>
+                              <option value="full">全天（8 小時）</option>
+                              <option value="morning">上半天（4 小時）</option>
+                              <option value="afternoon">下半天（4 小時）</option>
+                            </select>
+                          </div>
+                          {leavePeriod === 'full' && (
+                            <div>
+                              <label style={labelStyle}>請假時數（全天請假時填寫）</label>
+                              <input type="number" min={1} max={240} value={leaveHours} onChange={e => setLeaveHours(Number(e.target.value))} style={inputStyle} />
+                            </div>
+                          )}
+                        </>
                       )}
                       <div>
                         <label style={labelStyle}>開始日期</label>
@@ -1609,31 +1948,75 @@ const EmployeeClockIn: React.FC = () => {
                 </select>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時段</label>
-                <select 
-                  value={editLeavePeriod} 
-                  onChange={(e) => setEditLeavePeriod(e.target.value as any)}
-                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
-                >
-                  <option value="full">全天（8 小時）</option>
-                  <option value="morning">上半天（4 小時）</option>
-                  <option value="afternoon">下半天（4 小時）</option>
-                </select>
-              </div>
+              {editLeaveType === 'annual' ? (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假單位</label>
+                    <select 
+                      value={editAnnualLeaveUnit} 
+                      onChange={(e) => setEditAnnualLeaveUnit(e.target.value as 'day' | 'hour')}
+                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                    >
+                      <option value="day">按天 (8 小時/天)</option>
+                      <option value="hour">按小時</option>
+                    </select>
+                  </div>
+                  {editAnnualLeaveUnit === 'day' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>請假天數</label>
+                      <input 
+                        type="number" 
+                        min={1} 
+                        max={30} 
+                        value={editLeaveDaysInput} 
+                        onChange={(e) => setEditLeaveDaysInput(Number(e.target.value))} 
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時數 (小時)</label>
+                      <input 
+                        type="number" 
+                        min={0.5} 
+                        step={0.5}
+                        max={240} 
+                        value={editLeaveHours} 
+                        onChange={(e) => setEditLeaveHours(Number(e.target.value))} 
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時段</label>
+                    <select 
+                      value={editLeavePeriod} 
+                      onChange={(e) => setEditLeavePeriod(e.target.value as any)}
+                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
+                    >
+                      <option value="full">全天（8 小時）</option>
+                      <option value="morning">上半天（4 小時）</option>
+                      <option value="afternoon">下半天（4 小時）</option>
+                    </select>
+                  </div>
 
-              {editLeavePeriod === 'full' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時數（全天請假時填寫）</label>
-                  <input 
-                    type="number" 
-                    min={1} 
-                    max={240} 
-                    value={editLeaveHours} 
-                    onChange={(e) => setEditLeaveHours(Number(e.target.value))} 
-                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                  />
-                </div>
+                  {editLeavePeriod === 'full' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時數（全天請假時填寫）</label>
+                      <input 
+                        type="number" 
+                        min={1} 
+                        max={240} 
+                        value={editLeaveHours} 
+                        onChange={(e) => setEditLeaveHours(Number(e.target.value))} 
+                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                      />
+                    </div>
+                  )}
+                </>
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
