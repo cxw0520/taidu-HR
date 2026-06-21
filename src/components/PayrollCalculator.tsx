@@ -33,7 +33,19 @@ export const PayrollCalculator: React.FC = () => {
   const [addPayRoleAllowance, setAddPayRoleAllowance] = useState<number>(0);
   const [addPayEvaluationAllowance, setAddPayEvaluationAllowance] = useState<number>(0);
   const [addPayOvertime, setAddPayOvertime] = useState<number>(0);
-  const [addPayDeductions, setAddPayDeductions] = useState<number>(1200);
+
+  // New manual payroll expansion states
+  const [addPayAdminBonus, setAddPayAdminBonus] = useState<number>(0);
+  const [addPayAnnualLeavePayoff, setAddPayAnnualLeavePayoff] = useState<number>(0);
+  const [addPayRetroactivePay, setAddPayRetroactivePay] = useState<number>(0);
+  const [addPayLateDeduction, setAddPayLateDeduction] = useState<number>(0);
+  const [addPayWithholdingTax, setAddPayWithholdingTax] = useState<number>(0);
+  const [addPayInsuranceAdjustment, setAddPayInsuranceAdjustment] = useState<number>(0);
+  const [addPayOtherDeductions, setAddPayOtherDeductions] = useState<number>(0);
+  const [addPayPensionVoluntary, setAddPayPensionVoluntary] = useState<number>(0);
+  const [addPayEmployeeLabor, setAddPayEmployeeLabor] = useState<number>(800);
+  const [addPayEmployeeNhi, setAddPayEmployeeNhi] = useState<number>(400);
+  const [addPayLeaveDeduction, setAddPayLeaveDeduction] = useState<number>(0);
 
   // Manual payroll creation states for attendance
   const [addPayLateMinutes, setAddPayLateMinutes] = useState<number>(0);
@@ -54,7 +66,19 @@ export const PayrollCalculator: React.FC = () => {
   const [editPayRoleAllowance, setEditPayRoleAllowance] = useState<number>(0);
   const [editPayEvaluationAllowance, setEditPayEvaluationAllowance] = useState<number>(0);
   const [editPayOvertime, setEditPayOvertime] = useState<number>(0);
-  const [editPayDeductions, setEditPayDeductions] = useState<number>(0);
+
+  // New edit payroll expansion states
+  const [editPayAdminBonus, setEditPayAdminBonus] = useState<number>(0);
+  const [editPayAnnualLeavePayoff, setEditPayAnnualLeavePayoff] = useState<number>(0);
+  const [editPayRetroactivePay, setEditPayRetroactivePay] = useState<number>(0);
+  const [editPayLateDeduction, setEditPayLateDeduction] = useState<number>(0);
+  const [editPayWithholdingTax, setEditPayWithholdingTax] = useState<number>(0);
+  const [editPayInsuranceAdjustment, setEditPayInsuranceAdjustment] = useState<number>(0);
+  const [editPayOtherDeductions, setEditPayOtherDeductions] = useState<number>(0);
+  const [editPayPensionVoluntary, setEditPayPensionVoluntary] = useState<number>(0);
+  const [editPayEmployeeLabor, setEditPayEmployeeLabor] = useState<number>(0);
+  const [editPayEmployeeNhi, setEditPayEmployeeNhi] = useState<number>(0);
+  const [editPayLeaveDeduction, setEditPayLeaveDeduction] = useState<number>(0);
 
   // Edit payroll states for attendance
   const [editPayLateMinutes, setEditPayLateMinutes] = useState<number>(0);
@@ -612,7 +636,15 @@ export const PayrollCalculator: React.FC = () => {
           laborSub,
           nhiSub,
           pensionSub,
-          nhiDependents
+          nhiDependents,
+          adminBonus: 0,
+          annualLeavePayoff: 0,
+          retroactivePay: 0,
+          lateDeduction: 0,
+          withholdingTax: 0,
+          insuranceAdjustment: 0,
+          otherDeductions: 0,
+          pensionVoluntary: 0
         });
       }
 
@@ -729,7 +761,6 @@ export const PayrollCalculator: React.FC = () => {
     setEditPayRoleAllowance(record.roleAllowance || 0);
     setEditPayEvaluationAllowance(record.evaluationAllowance || 0);
     setEditPayOvertime(record.overtime || 0);
-    setEditPayDeductions(record.deductions || 0);
     setEditPayLateMinutes(record.lateMinutes || 0);
     setEditPayWeekdayOvertime(record.weekdayOvertime || 0);
     setEditPayRestDayOvertime(record.restDayOvertime || 0);
@@ -737,19 +768,45 @@ export const PayrollCalculator: React.FC = () => {
     setEditPayLeaveHours(record.leaveHours || 0);
     setEditPayMissedPunches(record.missedPunches || 0);
     setEditPayStatus(record.status);
+    
+    // Populate new edit states
+    setEditPayAdminBonus(record.adminBonus || 0);
+    setEditPayAnnualLeavePayoff(record.annualLeavePayoff || 0);
+    setEditPayRetroactivePay(record.retroactivePay || 0);
+    setEditPayLateDeduction(record.lateDeduction || 0);
+    setEditPayWithholdingTax(record.withholdingTax || 0);
+    setEditPayInsuranceAdjustment(record.insuranceAdjustment || 0);
+    setEditPayOtherDeductions(record.otherDeductions || 0);
+    setEditPayPensionVoluntary(record.pensionVoluntary || 0);
+    setEditPayEmployeeLabor(record.employeeLabor || 0);
+    setEditPayEmployeeNhi(record.employeeNhi || 0);
+    setEditPayLeaveDeduction(record.leaveDeduction || 0);
+
     setShowEditPayrollModal(true);
   };
 
   const handleUpdatePayroll = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const net = Number(editPayBaseSalary) +
-                  Number(editPayAttendanceBonus) +
-                  Number(editPayOtherAllowance) +
-                  Number(editPayRoleAllowance) +
-                  Number(editPayEvaluationAllowance) +
-                  Number(editPayOvertime) -
-                  Number(editPayDeductions);
+      const gross = Number(editPayBaseSalary) +
+                    Number(editPayRoleAllowance) +
+                    Number(editPayEvaluationAllowance) +
+                    Number(editPayAttendanceBonus) +
+                    Number(editPayOtherAllowance) +
+                    Number(editPayOvertime) +
+                    Number(editPayAdminBonus) +
+                    Number(editPayAnnualLeavePayoff) +
+                    Number(editPayRetroactivePay);
+      const totalDeds = Number(editPayEmployeeLabor) +
+                        Number(editPayEmployeeNhi) +
+                        Number(editPayLeaveDeduction) +
+                        Number(editPayLateDeduction) +
+                        Number(editPayWithholdingTax) +
+                        Number(editPayInsuranceAdjustment) +
+                        Number(editPayOtherDeductions) +
+                        Number(editPayPensionVoluntary);
+      const net = gross - totalDeds;
+
       await updateDoc(doc(db, 'payroll', editPayrollId), {
         baseSalary: Number(editPayBaseSalary),
         attendanceBonus: Number(editPayAttendanceBonus),
@@ -757,7 +814,7 @@ export const PayrollCalculator: React.FC = () => {
         roleAllowance: Number(editPayRoleAllowance),
         evaluationAllowance: Number(editPayEvaluationAllowance),
         overtime: Number(editPayOvertime),
-        deductions: Number(editPayDeductions),
+        deductions: totalDeds,
         netSalary: net,
         status: editPayStatus,
         lateMinutes: Number(editPayLateMinutes),
@@ -765,7 +822,18 @@ export const PayrollCalculator: React.FC = () => {
         restDayOvertime: Number(editPayRestDayOvertime),
         holidayOvertime: Number(editPayHolidayOvertime),
         leaveHours: Number(editPayLeaveHours),
-        missedPunches: Number(editPayMissedPunches)
+        missedPunches: Number(editPayMissedPunches),
+        adminBonus: Number(editPayAdminBonus),
+        annualLeavePayoff: Number(editPayAnnualLeavePayoff),
+        retroactivePay: Number(editPayRetroactivePay),
+        lateDeduction: Number(editPayLateDeduction),
+        withholdingTax: Number(editPayWithholdingTax),
+        insuranceAdjustment: Number(editPayInsuranceAdjustment),
+        otherDeductions: Number(editPayOtherDeductions),
+        pensionVoluntary: Number(editPayPensionVoluntary),
+        employeeLabor: Number(editPayEmployeeLabor),
+        employeeNhi: Number(editPayEmployeeNhi),
+        leaveDeduction: Number(editPayLeaveDeduction)
       });
       setShowEditPayrollModal(false);
     } catch (err) {
@@ -784,13 +852,24 @@ export const PayrollCalculator: React.FC = () => {
       const emp = employees.find(e => e.id === addPayEmployeeId);
       const empName = emp ? emp.name : '未知員工';
       const monthStr = addPayMonth || new Date().toISOString().substring(0, 7);
-      const net = Number(addPayBaseSalary) +
-                  Number(addPayAttendanceBonus) +
-                  Number(addPayOtherAllowance) +
-                  Number(addPayRoleAllowance) +
-                  Number(addPayEvaluationAllowance) +
-                  Number(addPayOvertime) -
-                  Number(addPayDeductions);
+      const gross = Number(addPayBaseSalary) +
+                    Number(addPayRoleAllowance) +
+                    Number(addPayEvaluationAllowance) +
+                    Number(addPayAttendanceBonus) +
+                    Number(addPayOtherAllowance) +
+                    Number(addPayOvertime) +
+                    Number(addPayAdminBonus) +
+                    Number(addPayAnnualLeavePayoff) +
+                    Number(addPayRetroactivePay);
+      const totalDeds = Number(addPayEmployeeLabor) +
+                        Number(addPayEmployeeNhi) +
+                        Number(addPayLeaveDeduction) +
+                        Number(addPayLateDeduction) +
+                        Number(addPayWithholdingTax) +
+                        Number(addPayInsuranceAdjustment) +
+                        Number(addPayOtherDeductions) +
+                        Number(addPayPensionVoluntary);
+      const net = gross - totalDeds;
       const payrollId = `${addPayEmployeeId}-${monthStr}`;
 
       await setDoc(doc(db, 'payroll', payrollId), {
@@ -803,7 +882,7 @@ export const PayrollCalculator: React.FC = () => {
         roleAllowance: Number(addPayRoleAllowance),
         evaluationAllowance: Number(addPayEvaluationAllowance),
         overtime: Number(addPayOvertime),
-        deductions: Number(addPayDeductions),
+        deductions: totalDeds,
         netSalary: net,
         empRole: emp?.role || '',
         onboardDate: emp?.onboardDate || '',
@@ -815,7 +894,18 @@ export const PayrollCalculator: React.FC = () => {
         restDayOvertime: Number(addPayRestDayOvertime),
         holidayOvertime: Number(addPayHolidayOvertime),
         leaveHours: Number(addPayLeaveHours),
-        missedPunches: Number(addPayMissedPunches)
+        missedPunches: Number(addPayMissedPunches),
+        adminBonus: Number(addPayAdminBonus),
+        annualLeavePayoff: Number(addPayAnnualLeavePayoff),
+        retroactivePay: Number(addPayRetroactivePay),
+        lateDeduction: Number(addPayLateDeduction),
+        withholdingTax: Number(addPayWithholdingTax),
+        insuranceAdjustment: Number(addPayInsuranceAdjustment),
+        otherDeductions: Number(addPayOtherDeductions),
+        pensionVoluntary: Number(addPayPensionVoluntary),
+        employeeLabor: Number(addPayEmployeeLabor),
+        employeeNhi: Number(addPayEmployeeNhi),
+        leaveDeduction: Number(addPayLeaveDeduction)
       });
 
       setShowAddPayrollModal(false);
@@ -832,7 +922,17 @@ export const PayrollCalculator: React.FC = () => {
       setAddPayLeaveHours(0);
       setAddPayMissedPunches(0);
       setAddPayOvertime(0);
-      setAddPayDeductions(1200);
+      setAddPayAdminBonus(0);
+      setAddPayAnnualLeavePayoff(0);
+      setAddPayRetroactivePay(0);
+      setAddPayLateDeduction(0);
+      setAddPayWithholdingTax(0);
+      setAddPayInsuranceAdjustment(0);
+      setAddPayOtherDeductions(0);
+      setAddPayPensionVoluntary(0);
+      setAddPayEmployeeLabor(800);
+      setAddPayEmployeeNhi(400);
+      setAddPayLeaveDeduction(0);
     } catch (err) {
       console.error("Failed to create payroll manually:", err);
       alert('建立失敗，此月份薪資單可能已存在，或無寫入權限');
@@ -1217,15 +1317,64 @@ export const PayrollCalculator: React.FC = () => {
                 />
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>行政獎金 (NT$)</label>
+                  <input type="number" required value={addPayAdminBonus} onChange={(e) => setAddPayAdminBonus(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>特休結算 (NT$)</label>
+                  <input type="number" required value={addPayAnnualLeavePayoff} onChange={(e) => setAddPayAnnualLeavePayoff(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>上月補發 (NT$)</label>
+                  <input type="number" required value={addPayRetroactivePay} onChange={(e) => setAddPayRetroactivePay(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>遲到扣款 (NT$)</label>
+                  <input type="number" required value={addPayLateDeduction} onChange={(e) => setAddPayLateDeduction(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保自付額 (NT$)</label>
+                  <input type="number" required value={addPayEmployeeLabor} onChange={(e) => setAddPayEmployeeLabor(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>健保自付額 (NT$)</label>
+                  <input type="number" required value={addPayEmployeeNhi} onChange={(e) => setAddPayEmployeeNhi(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>請假/曠職扣款 (NT$)</label>
+                  <input type="number" required value={addPayLeaveDeduction} onChange={(e) => setAddPayLeaveDeduction(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>代扣所得稅 (NT$)</label>
+                  <input type="number" required value={addPayWithholdingTax} onChange={(e) => setAddPayWithholdingTax(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>保費調整 (NT$)</label>
+                  <input type="number" required value={addPayInsuranceAdjustment} onChange={(e) => setAddPayInsuranceAdjustment(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>其他扣款 (NT$)</label>
+                  <input type="number" required value={addPayOtherDeductions} onChange={(e) => setAddPayOtherDeductions(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>扣款 - 勞健保等 (NT$)</label>
-                <input 
-                  type="number" 
-                  required 
-                  value={addPayDeductions} 
-                  onChange={(e) => setAddPayDeductions(Number(e.target.value))} 
-                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                />
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>勞退自提 (NT$)</label>
+                <input type="number" required value={addPayPensionVoluntary} onChange={(e) => setAddPayPensionVoluntary(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
               </div>
 
               <div style={{ fontSize: '13px', fontWeight: '700', borderBottom: '1px solid #e5e7eb', paddingBottom: '4px', marginTop: '10px', color: 'var(--primary)' }}>
@@ -1376,15 +1525,64 @@ export const PayrollCalculator: React.FC = () => {
                 />
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>行政獎金 (NT$)</label>
+                  <input type="number" required value={editPayAdminBonus} onChange={(e) => setEditPayAdminBonus(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>特休結算 (NT$)</label>
+                  <input type="number" required value={editPayAnnualLeavePayoff} onChange={(e) => setEditPayAnnualLeavePayoff(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>上月補發 (NT$)</label>
+                  <input type="number" required value={editPayRetroactivePay} onChange={(e) => setEditPayRetroactivePay(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>遲到扣款 (NT$)</label>
+                  <input type="number" required value={editPayLateDeduction} onChange={(e) => setEditPayLateDeduction(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保自付額 (NT$)</label>
+                  <input type="number" required value={editPayEmployeeLabor} onChange={(e) => setEditPayEmployeeLabor(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>健保自付額 (NT$)</label>
+                  <input type="number" required value={editPayEmployeeNhi} onChange={(e) => setEditPayEmployeeNhi(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>請假/曠職扣款 (NT$)</label>
+                  <input type="number" required value={editPayLeaveDeduction} onChange={(e) => setEditPayLeaveDeduction(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>代扣所得稅 (NT$)</label>
+                  <input type="number" required value={editPayWithholdingTax} onChange={(e) => setEditPayWithholdingTax(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>保費調整 (NT$)</label>
+                  <input type="number" required value={editPayInsuranceAdjustment} onChange={(e) => setEditPayInsuranceAdjustment(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>其他扣款 (NT$)</label>
+                  <input type="number" required value={editPayOtherDeductions} onChange={(e) => setEditPayOtherDeductions(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>扣款 - 勞健保等 (NT$)</label>
-                <input 
-                  type="number" 
-                  required 
-                  value={editPayDeductions} 
-                  onChange={(e) => setEditPayDeductions(Number(e.target.value))} 
-                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                />
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>勞退自提 (NT$)</label>
+                <input type="number" required value={editPayPensionVoluntary} onChange={(e) => setEditPayPensionVoluntary(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
               </div>
 
               <div style={{ fontSize: '13px', fontWeight: '700', borderBottom: '1px solid #e5e7eb', paddingBottom: '4px', marginTop: '10px', color: 'var(--primary)' }}>

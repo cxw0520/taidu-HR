@@ -703,7 +703,7 @@ const AttendanceManager: React.FC = () => {
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'var(--text-main)' }}>⏱️ {selectedDetailEmployee.name} - 個人工時明細 ({viewYear}年{viewMonth}月)</h3>
               <button onClick={() => { setShowWorkHoursDetailModal(false); setSelectedDetailEmployee(null); }} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
             </div>
-            <div className="table-responsive">
+            <div style={{ width: '100%', overflowX: 'auto' }}>
               <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f9fafb' }}>

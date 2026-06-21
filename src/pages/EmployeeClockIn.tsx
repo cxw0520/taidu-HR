@@ -1319,159 +1319,250 @@ const EmployeeClockIn: React.FC = () => {
       </div>
 
       {/* ─── 電子薪資單 Modal ─── */}
-      {selectedSlip && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
-          onClick={() => setSelectedSlip(null)}>
-          <div style={{
-            backgroundColor: '#fff',
-            borderRadius: '12px',
-            border: '2px solid #000',
-            padding: '28px',
-            maxWidth: '600px',
-            width: '100%',
-            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)',
-            color: '#000',
-            position: 'relative',
-            maxHeight: '90vh',
-            overflowY: 'auto'
-          }} onClick={e => e.stopPropagation()}>
-            {/* Close Button */}
-            <button onClick={() => setSelectedSlip(null)} style={{ position: 'absolute', right: '16px', top: '16px', background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#000', fontWeight: 'bold' }}>×</button>
+      {selectedSlip && (() => {
+        const baseSalary = selectedSlip.baseSalary || 0;
+        const roleAllowance = selectedSlip.roleAllowance || 0;
+        const evaluationAllowance = selectedSlip.evaluationAllowance || 0;
+        const baseSalaryTotal = baseSalary + roleAllowance + evaluationAllowance;
 
-            {/* Header */}
-            <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid #000', paddingBottom: '12px' }}>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', letterSpacing: '2px', marginBottom: '4px' }}>態度甜點企業社</div>
-              <div style={{ fontSize: '16px', fontWeight: '600', color: '#333' }}>{selectedSlip.month ? `${selectedSlip.month.split('-')[0]} 年 ${selectedSlip.month.split('-')[1]} 月` : ''} 薪資單</div>
-            </div>
+        const attendanceBonus = selectedSlip.attendanceBonus || 0;
+        const overtime = selectedSlip.overtime || 0;
+        const adminBonus = selectedSlip.adminBonus || 0;
+        const otherAllowance = selectedSlip.otherAllowance || 0;
+        const annualLeavePayoff = selectedSlip.annualLeavePayoff || 0;
+        const retroactivePay = selectedSlip.retroactivePay || 0;
+        const otherAdditionsTotal = attendanceBonus + overtime + adminBonus + otherAllowance + annualLeavePayoff + retroactivePay;
 
-            {/* Employee Information */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginBottom: '20px', fontSize: '13px', border: '1px solid #000', padding: '12px', borderRadius: '4px', backgroundColor: '#f9fafb' }}>
-              <div><strong>員工姓名：</strong>{selectedSlip.empName || employeeProfile?.name}</div>
-              <div><strong>職位職稱：</strong>{selectedSlip.empRole || employeeProfile?.role || '正職員工'}</div>
-              <div><strong>到職日期：</strong>{selectedSlip.onboardDate || employeeProfile?.onboardDate || 'N/A'}</div>
-              <div><strong>發放狀態：</strong><span style={{ fontWeight: 'bold', color: selectedSlip.status === '已發放' ? '#10b981' : '#f59e0b' }}>{selectedSlip.status}</span></div>
-            </div>
+        const lateMinutes = selectedSlip.lateMinutes || 0;
+        const lateDeduction = selectedSlip.lateDeduction || 0;
+        const weekdayOvertime = selectedSlip.weekdayOvertime || 0;
+        const restDayOvertime = selectedSlip.restDayOvertime || 0;
+        const holidayOvertime = selectedSlip.holidayOvertime || 0;
+        const leaveHours = selectedSlip.leaveHours || 0;
+        const leaveDeduction = selectedSlip.leaveDeduction || 0;
+        const missedPunches = selectedSlip.missedPunches || 0;
 
-            {/* Tables Container */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-              {/* Earnings Table */}
-              <div>
-                <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '8px', borderBottom: '1.5px solid #000', paddingBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>應發項目 (Earnings)</span>
-                  <span>金額</span>
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <tbody>
-                    {[
-                      { name: '基本底薪', value: selectedSlip.baseSalary || 0 },
-                      { name: '職務加給', value: selectedSlip.roleAllowance || 0 },
-                      { name: '考核加給', value: selectedSlip.evaluationAllowance || 0 },
-                      { name: '全勤獎金', value: selectedSlip.attendanceBonus || 0, note: selectedSlip.attendanceBonusNote },
-                      { name: '加班費', value: selectedSlip.overtime || 0 },
-                      { name: '其他津貼', value: selectedSlip.otherAllowance || 0 }
-                    ].map((item, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                        <td style={{ padding: '6px 0', color: '#333' }}>
-                          {item.name}
-                          {item.note && <div style={{ fontSize: '10px', color: '#ef4444', fontWeight: 'bold' }}>({item.note})</div>}
-                        </td>
-                        <td style={{ textAlign: 'right', padding: '6px 0', fontWeight: '600' }}>
-                          NT$ {item.value.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr style={{ fontWeight: 'bold', borderTop: '1px solid #000' }}>
-                      <td style={{ padding: '8px 0' }}>應發小計</td>
-                      <td style={{ textAlign: 'right', padding: '8px 0' }}>
-                        NT$ {((selectedSlip.baseSalary || 0) +
-                              (selectedSlip.roleAllowance || 0) +
-                              (selectedSlip.evaluationAllowance || 0) +
-                              (selectedSlip.attendanceBonus || 0) +
-                              (selectedSlip.overtime || 0) +
-                              (selectedSlip.otherAllowance || 0)).toLocaleString()}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+        const withholdingTax = selectedSlip.withholdingTax || 0;
+        const employeeLabor = selectedSlip.employeeLabor || 0;
+        const employeeNhi = selectedSlip.employeeNhi || 0;
+        const insuranceAdjustment = selectedSlip.insuranceAdjustment || 0;
+        const otherDeductions = selectedSlip.otherDeductions || 0;
+        const pensionVoluntary = selectedSlip.pensionVoluntary || 0;
+        const withholdingsTotal = withholdingTax + employeeLabor + employeeNhi + insuranceAdjustment + otherDeductions + pensionVoluntary;
 
-              {/* Deductions Table */}
-              <div>
-                <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '8px', borderBottom: '1.5px solid #000', paddingBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>應扣項目 (Deductions)</span>
-                  <span>金額</span>
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <tbody>
-                    {[
-                      { name: '勞保自付額', value: selectedSlip.employeeLabor || 0 },
-                      { name: '健保自付額', value: selectedSlip.employeeNhi || 0 },
-                      { name: '請假扣薪', value: selectedSlip.leaveDeduction || 0 }
-                    ].map((item, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
-                        <td style={{ padding: '6px 0', color: '#333' }}>{item.name}</td>
-                        <td style={{ textAlign: 'right', padding: '6px 0', color: '#dc2626', fontWeight: '600' }}>
-                          -NT$ {item.value.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr style={{ fontWeight: 'bold', borderTop: '1px solid #000' }}>
-                      <td style={{ padding: '8px 0' }}>應扣小計</td>
-                      <td style={{ textAlign: 'right', padding: '8px 0', color: '#dc2626' }}>
-                        -NT$ {((selectedSlip.employeeLabor || 0) +
-                              (selectedSlip.employeeNhi || 0) +
-                              (selectedSlip.leaveDeduction || 0)).toLocaleString()}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+        const grossPay = baseSalaryTotal + otherAdditionsTotal;
+        const totalDeductions = withholdingsTotal + lateDeduction + leaveDeduction;
+        const netPay = grossPay - totalDeductions;
 
-                {/* Insurance info */}
-                <div style={{ marginTop: '20px', padding: '10px', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '4px', fontSize: '11px', color: '#4b5563', lineHeight: '1.5' }}>
-                  <div><strong>勞保投保薪資：</strong>NT$ {(selectedSlip.laborSub || 0).toLocaleString()}</div>
-                  <div><strong>健保投保薪資：</strong>NT$ {(selectedSlip.nhiSub || 0).toLocaleString()}</div>
-                </div>
-              </div>
-            </div>
+        const monthParts = (selectedSlip.month || '').split('-');
+        const yearStr = monthParts[0] || '';
+        const monthStr = monthParts[1] || '';
 
-            {/* 考勤相關資訊 */}
-            <div style={{ marginBottom: '20px', border: '1px solid #000', borderRadius: '4px', padding: '14px', backgroundColor: '#f9fafb' }}>
-              <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '8px', borderBottom: '1.5px solid #000', paddingBottom: '4px' }}>
-                考勤統計 (Attendance Summary)
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px 16px', fontSize: '12px', color: '#333' }}>
-                <div><strong>遲到時數（分鐘）：</strong>{selectedSlip.lateMinutes || 0} 分鐘</div>
-                <div><strong>平日加班時數：</strong>{selectedSlip.weekdayOvertime || 0} 小時</div>
-                <div><strong>休息日加班時數：</strong>{selectedSlip.restDayOvertime || 0} 小時</div>
-                <div><strong>節日加班時數：</strong>{selectedSlip.holidayOvertime || 0} 小時</div>
-                <div><strong>請假時數：</strong>{selectedSlip.leaveHours || 0} 小時</div>
-                <div><strong>未打卡次數：</strong>{selectedSlip.missedPunches || 0} 次</div>
-              </div>
-            </div>
-
-            {/* Net Salary Summary */}
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
+            onClick={() => setSelectedSlip(null)}>
             <div style={{
-              borderTop: '2.5px double #000',
-              paddingTop: '16px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontWeight: 'bold',
-              fontSize: '16px',
-              backgroundColor: '#fffbeb',
-              padding: '12px 16px',
-              borderRadius: '4px',
-              border: '1px solid #fef3c7',
-              marginTop: '10px'
-            }}>
-              <span>💵 實發金額 (Net Pay)</span>
-              <span style={{ fontSize: '20px', color: '#b45309', fontWeight: '800' }}>
-                NT$ {(selectedSlip.netSalary || 0).toLocaleString()}
-              </span>
+              backgroundColor: '#fff',
+              border: '2px solid #000',
+              borderRadius: '8px',
+              padding: '32px',
+              maxWidth: '750px',
+              width: '100%',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)',
+              color: '#000',
+              position: 'relative',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              fontFamily: '"Courier New", Courier, monospace, "Noto Sans TC", sans-serif'
+            }} onClick={e => e.stopPropagation()}>
+              
+              {/* Close Button */}
+              <button onClick={() => setSelectedSlip(null)} style={{ position: 'absolute', right: '16px', top: '16px', background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#000', fontWeight: 'bold' }}>×</button>
+
+              {/* Header */}
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <div style={{ fontSize: '22px', fontWeight: 'bold', letterSpacing: '4px', marginBottom: '8px' }}>態度甜點企業社</div>
+                <div style={{ fontSize: '16px', fontWeight: '600', color: '#333' }}>{yearStr ? `${yearStr} 年 ${monthStr} 月` : ''} 薪資單</div>
+              </div>
+
+              {/* Employee info */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '20px', fontSize: '14px', padding: '0 8px' }}>
+                <div style={{ flex: '1 1 45%' }}><strong>姓名：</strong>{selectedSlip.empName || employeeProfile?.name}</div>
+                <div style={{ flex: '1 1 45%' }}><strong>到職日：</strong>{selectedSlip.onboardDate || employeeProfile?.onboardDate || 'N/A'}</div>
+                <div style={{ flex: '1 1 100%' }}><strong>職位：</strong>{selectedSlip.empRole || employeeProfile?.role || '正職員工'}</div>
+              </div>
+
+              {/* Inner Border Box */}
+              <div style={{ border: '2px solid #000', padding: '24px', display: 'flex', flexDirection: 'column' }}>
+                
+                {/* Columns layout */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', borderBottom: '2px solid #000', paddingBottom: '20px' }}>
+                  
+                  {/* Left Column: 基本薪資 & 其他加項 */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    
+                    {/* 基本薪資 */}
+                    <div>
+                      <div style={{ fontWeight: 'bold', borderBottom: '1px solid #000', paddingBottom: '4px', marginBottom: '8px', fontSize: '14px' }}>
+                        基本薪資
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>基本底薪</span>
+                          <span>NT$ {baseSalary.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>職位加給</span>
+                          <span>NT$ {roleAllowance.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>考核加給</span>
+                          <span>NT$ {evaluationAllowance.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold', borderTop: '1px dashed #ccc', paddingTop: '4px', marginTop: '2px' }}>
+                          <span>合計</span>
+                          <span>NT$ {baseSalaryTotal.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 其他加項 */}
+                    <div>
+                      <div style={{ fontWeight: 'bold', borderBottom: '1px solid #000', paddingBottom: '4px', marginBottom: '8px', fontSize: '14px' }}>
+                        其他加項
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>全勤獎金{selectedSlip.attendanceBonusNote && <span style={{ fontSize: '10px', color: '#dc2626' }}>({selectedSlip.attendanceBonusNote})</span>}</span>
+                          <span>NT$ {attendanceBonus.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>加班費</span>
+                          <span>NT$ {overtime.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>行政獎金</span>
+                          <span>NT$ {adminBonus.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>其他補貼</span>
+                          <span>NT$ {otherAllowance.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>特休結算</span>
+                          <span>NT$ {annualLeavePayoff.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>上月補發</span>
+                          <span>NT$ {retroactivePay.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold', borderTop: '1px dashed #ccc', paddingTop: '4px', marginTop: '2px' }}>
+                          <span>合計</span>
+                          <span>NT$ {otherAdditionsTotal.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Right Column: 考勤相關 & 代扣項目 */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    
+                    {/* 考勤相關 */}
+                    <div>
+                      <div style={{ fontWeight: 'bold', borderBottom: '1px solid #000', paddingBottom: '4px', marginBottom: '8px', fontSize: '14px' }}>
+                        考勤相關
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>遲到時數（分鐘）</span>
+                          <span>{lateMinutes} 分鐘</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626' }}>
+                          <span>遲到扣款</span>
+                          <span>-NT$ {lateDeduction.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>平日加班時數</span>
+                          <span>{weekdayOvertime} 小時</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>休息日加班時數</span>
+                          <span>{restDayOvertime} 小時</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>節日加班時數</span>
+                          <span>{holidayOvertime} 小時</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>請假/曠職/早退時數</span>
+                          <span>{leaveHours} 小時</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626' }}>
+                          <span>請假/曠職/早退扣款</span>
+                          <span>-NT$ {leaveDeduction.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span>未打卡次數</span>
+                          <span>{missedPunches} 次</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 代扣項目 */}
+                    <div>
+                      <div style={{ fontWeight: 'bold', borderBottom: '1px solid #000', paddingBottom: '4px', marginBottom: '8px', fontSize: '14px' }}>
+                        代扣項目
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626' }}>
+                          <span>代扣所得稅</span>
+                          <span>-NT$ {withholdingTax.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626' }}>
+                          <span>勞保自付額</span>
+                          <span>-NT$ {employeeLabor.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626' }}>
+                          <span>健保自付額</span>
+                          <span>-NT$ {employeeNhi.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626' }}>
+                          <span>保費調整</span>
+                          <span>-NT$ {insuranceAdjustment.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626' }}>
+                          <span>其他扣款</span>
+                          <span>-NT$ {otherDeductions.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626' }}>
+                          <span>勞退自提</span>
+                          <span>-NT$ {pensionVoluntary.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {/* Bottom Summaries inside the Inner Box */}
+                <div style={{ paddingTop: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold' }}>應發小記：NT$ {grossPay.toLocaleString()}</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#dc2626' }}>應扣小記：-NT$ {totalDeductions.toLocaleString()}</div>
+                  </div>
+                  <div style={{ display: 'flex', fontSize: '18px', fontWeight: '900', color: '#000' }}>
+                    <span>實發金額：NT$ {netPay.toLocaleString()}</span>
+                  </div>
+                </div>
+
+              </div>
+
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 員工編輯請假 Modal */}
       {showEditLeaveModal && (
