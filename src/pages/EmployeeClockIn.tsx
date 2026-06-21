@@ -313,7 +313,7 @@ const EmployeeClockIn: React.FC = () => {
       } else {
         let startTimeStr = '';
         let endTimeStr = '';
-        const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
+        const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
         if (timeMatch) {
           startTimeStr = timeMatch[1];
           endTimeStr = timeMatch[2];
@@ -362,7 +362,7 @@ const EmployeeClockIn: React.FC = () => {
           const matchedSched = activeSchedules.find(s => s.id === matchResult.scheduleId);
           if (matchedSched) {
             const workDate = matchedSched.date || matchedSched.workDate || '';
-            const timeMatch = (matchedSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
+            const timeMatch = (matchedSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
             if (timeMatch && workDate) {
               const [yr, mo, dy] = workDate.split('-').map(Number);
               const [sh, sm] = timeMatch[1].split(':').map(Number);
@@ -374,6 +374,7 @@ const EmployeeClockIn: React.FC = () => {
               const shiftName = (matchedSched.shift || '').split(' (')[0];
               const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
               const hasFixedBreak = matchedShiftDef && matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime;
+              const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
 
               const dateAtts = allAttendance.filter((r: any) => r.date === matchResult.workDate);
               const inCount = dateAtts.filter((r: any) => r.type === '上班').length;
@@ -399,17 +400,21 @@ const EmployeeClockIn: React.FC = () => {
               if (type === 'in') {
                 if (inCount === 0) {
                   if (now.getTime() > expectedIn.getTime() + 60000) clockStatus = '遲到';
-                } else if (inCount === 1 && hasFixedBreak && expectedBreakOut) {
-                  if (now.getTime() > expectedBreakOut.getTime() + 60000) clockStatus = '遲到';
+                } else if (inCount === 1 && expectsFour) {
+                  if (hasFixedBreak && expectedBreakOut) {
+                    if (now.getTime() > expectedBreakOut.getTime() + 60000) clockStatus = '遲到';
+                  } else {
+                    clockStatus = '正常';
+                  }
                 } else {
                   clockStatus = '正常';
                 }
               } else if (type === 'out') {
-                if (hasFixedBreak) {
-                  if (outCount === 0 && expectedBreakIn) {
+                if (expectsFour && outCount === 0) {
+                  if (hasFixedBreak && expectedBreakIn) {
                     if (now.getTime() < expectedBreakIn.getTime() - 60000) clockStatus = '早退';
                   } else {
-                    if (now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';
+                    clockStatus = '正常';
                   }
                 } else {
                   if (now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';

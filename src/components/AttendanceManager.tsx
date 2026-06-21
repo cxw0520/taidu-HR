@@ -132,7 +132,7 @@ const AttendanceManager: React.FC = () => {
           startTimeStr = dateSched.startTime || '';
           endTimeStr = dateSched.endTime || '';
           if (!startTimeStr || !endTimeStr) {
-            const timeMatch = (dateSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
+            const timeMatch = (dateSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
             if (timeMatch) {
               if (!startTimeStr) startTimeStr = timeMatch[1];
               if (!endTimeStr) endTimeStr = timeMatch[2];

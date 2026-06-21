@@ -222,6 +222,7 @@ export function assignClockToWorkDate(
   activeSchedules: Array<{ id: string; workDate?: string; date?: string; startTime?: string; endTime?: string; shift?: string }>,
   toleranceHours: number = 4
 ) {
+  void isClockIn; // Satisfy TS compiler strict check
   let matchedSchedule = null;
   let minDiff = Infinity;
   let matchedWorkDate = '';
@@ -234,7 +235,7 @@ export function assignClockToWorkDate(
     let endTime = sched.endTime || '';
 
     if (!startTime || !endTime) {
-      const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\)/);
+      const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
       if (timeMatch) {
         startTime = timeMatch[1];
         endTime = timeMatch[2];
@@ -263,18 +264,28 @@ export function assignClockToWorkDate(
       expectedOut.setDate(expectedOut.getDate() + 1); // 跨日加一天
     }
 
-    const expectedTarget = isClockIn ? expectedIn : expectedOut;
-    const diff = Math.abs(clockTime.getTime() - expectedTarget.getTime());
+    // 為了相容一天 4 次打卡（包括休息打卡），我們同時比對上班時間、下班時間以及中間的休息時間（以兩者中點估算）
+    const midpoint = (expectedIn.getTime() + expectedOut.getTime()) / 2;
+    const expectedTimes = [expectedIn.getTime(), expectedOut.getTime(), midpoint];
 
-    if (diff < minDiff) {
-      minDiff = diff;
+    let bestSchedDiff = Infinity;
+    for (const t of expectedTimes) {
+      const d = Math.abs(clockTime.getTime() - t);
+      if (d < bestSchedDiff) {
+        bestSchedDiff = d;
+      }
+    }
+
+    if (bestSchedDiff < minDiff) {
+      minDiff = bestSchedDiff;
       matchedSchedule = sched;
       matchedWorkDate = workDate;
     }
   }
 
-  // 如果最接近的預計時間在容許誤差內，則關聯至該班表
-  if (matchedSchedule && minDiff < toleranceHours * 60 * 60 * 1000) {
+  // 如果最接近的預計時間在容許誤差內，則關聯至該班表（因包含休息時間比對，容許值取 toleranceHours 與 6 小時的最大值）
+  const maxTolerance = Math.max(toleranceHours * 60 * 60 * 1000, 6 * 60 * 60 * 1000);
+  if (matchedSchedule && minDiff < maxTolerance) {
     return {
       workDate: matchedWorkDate,
       scheduleId: matchedSchedule.id
@@ -368,29 +379,36 @@ export function evaluatePunchesStatus(
   const inRecs = dayAtts.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
   const outRecs = dayAtts.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
 
-  if (inRecs.some(r => r.status === '遲到')) {
-    isLate = true;
-  } else if (inRecs.length > 0 && inRecs[0].time) {
-    const expectedInMins = parseTimeStrToMinutes(startTimeStr);
-    const actualInMins = parseTimeStrToMinutes(inRecs[0].time);
-    if (actualInMins > (expectedInMins + 1)) {
+  // 遲到判定：只以第一筆上班打卡為準
+  const firstIn = inRecs[0];
+  if (firstIn) {
+    if (firstIn.status === '遲到') {
       isLate = true;
+    } else {
+      const expectedInMins = parseTimeStrToMinutes(startTimeStr);
+      const actualInMins = parseTimeStrToMinutes(firstIn.time || '');
+      if (actualInMins > (expectedInMins + 1)) {
+        isLate = true;
+      }
     }
   }
 
-  if (outRecs.some(r => r.status === '早退')) {
-    isEarly = true;
-  } else if (outRecs.length > 0 && outRecs[outRecs.length - 1].time) {
-    const expectedInMins = parseTimeStrToMinutes(startTimeStr);
-    let expectedOutMins = parseTimeStrToMinutes(endTimeStr);
-    if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60; // 跨夜
-
-    const lastOut = outRecs[outRecs.length - 1];
-    let actualOutMins = parseTimeStrToMinutes(lastOut.time);
-    if (actualOutMins < expectedInMins) actualOutMins += 24 * 60; // 跨夜
-
-    if (actualOutMins < expectedOutMins - 1) {
+  // 早退判定：只以下班打卡的最後一筆為準（避免中間休息打卡被計入早退）
+  const lastOut = outRecs[outRecs.length - 1];
+  if (lastOut) {
+    if (lastOut.status === '早退') {
       isEarly = true;
+    } else {
+      const expectedInMins = parseTimeStrToMinutes(startTimeStr);
+      let expectedOutMins = parseTimeStrToMinutes(endTimeStr);
+      if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60; // 跨夜
+
+      let actualOutMins = parseTimeStrToMinutes(lastOut.time || '');
+      if (actualOutMins < expectedInMins) actualOutMins += 24 * 60; // 跨夜
+
+      if (actualOutMins < expectedOutMins - 1) {
+        isEarly = true;
+      }
     }
   }
 
