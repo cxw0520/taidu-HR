@@ -583,6 +583,7 @@ export const PayrollCalculator: React.FC = () => {
         }
         
         const leaveDeduction = Math.round(personalLeaveDays * dailyRate * 1.0 + sickLeaveDays * dailyRate * 0.5);
+        const lateDeduction = isHourly ? 0 : Math.round(lateMinutesTotal * (monthlySalary / 14400));
 
         const ins = calculatePayrollInsurance(
           onboardDateStr,
@@ -592,7 +593,7 @@ export const PayrollCalculator: React.FC = () => {
           insuranceRates
         );
 
-        const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction;
+        const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction + lateDeduction;
         const totalAllowance = attendanceBonus + otherAllowance + roleAllowance + evaluationAllowance;
         const netSalary = calculatedBaseSalary + totalAllowance + overtimePay - deductions;
         
@@ -640,7 +641,7 @@ export const PayrollCalculator: React.FC = () => {
           adminBonus: 0,
           annualLeavePayoff: 0,
           retroactivePay: 0,
-          lateDeduction: 0,
+          lateDeduction,
           withholdingTax: 0,
           insuranceAdjustment: 0,
           otherDeductions: 0,
