@@ -416,11 +416,23 @@ const EmployeeClockIn: React.FC = () => {
           const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
           const isExpiredNow = todayStr > period.endDate;
           
+          const isHourly = employeeProfile?.salaryType === 'hourly';
+          const monthlySalary = employeeProfile?.monthlySalary || 32000;
+          const roleAllowance = employeeProfile?.roleAllowance || 0;
+          const attendanceBonus = employeeProfile?.attendanceBonus || 0;
+          const evaluationAllowance = employeeProfile?.evaluationAllowance || 0;
+          const monthlySalaryBasis = isHourly
+            ? monthlySalary
+            : (monthlySalary + roleAllowance + attendanceBonus + evaluationAllowance);
+
+          const hourlyRate = isHourly ? monthlySalary : (monthlySalaryBasis / 240);
+          const payoffMoney = Math.round(unused * hourlyRate);
+
           if (isExpiredNow) {
             list.push({
               id: `expired-${period.name}-${period.endDate}`,
               type: 'expired',
-              message: `⏳ 您的特休【${period.name}】已於本月 (${period.endDate}) 到期，剩餘 ${formatAnnualText(unused)} 未使用完畢已到期失效。`,
+              message: `⏳ 您的特休【${period.name}】已於本月 (${period.endDate}) 到期，剩餘 ${formatAnnualText(unused)} 未使用（折合金額 NT$ ${payoffMoney.toLocaleString()}），已自動以特休結算併入當月薪資。`,
               color: '#6b7280',
               bg: 'rgba(107,114,128,0.08)',
               border: '1px solid rgba(107,114,128,0.2)'
@@ -429,7 +441,7 @@ const EmployeeClockIn: React.FC = () => {
             list.push({
               id: `expiring-${period.name}-${period.endDate}`,
               type: 'expiring',
-              message: `⏰ 您的特休【${period.name}】將於本月 (${period.endDate}) 到期，剩餘 ${formatAnnualText(unused)} 尚未動用，逾期將失效，請儘速排休！`,
+              message: `⏰ 您的特休【${period.name}】將於本月 (${period.endDate}) 到期，剩餘 ${formatAnnualText(unused)} 尚未動用（折合金額 NT$ ${payoffMoney.toLocaleString()}），到期後未使用時數將以特休結算併入當月薪資。`,
               color: '#d97706',
               bg: 'rgba(217,119,6,0.08)',
               border: '1px solid rgba(217,119,6,0.2)'

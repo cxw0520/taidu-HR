@@ -251,12 +251,23 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
         if (end.getFullYear() === currentYear && end.getMonth() === currentMonth) {
           const unused = Math.round((period.entitledHours - period.usedHours) * 10) / 10;
           if (unused > 0) {
-            const daysNum = Math.round(unused / 8 * 10) / 10;
+            const isHourly = emp.salaryType === 'hourly';
+            const monthlySalary = emp.monthlySalary || 32000;
+            const roleAllowance = emp.roleAllowance || 0;
+            const attendanceBonus = emp.attendanceBonus || 0;
+            const evaluationAllowance = emp.evaluationAllowance || 0;
+            const monthlySalaryBasis = isHourly
+              ? monthlySalary
+              : (monthlySalary + roleAllowance + attendanceBonus + evaluationAllowance);
+
+            const hourlyRate = isHourly ? monthlySalary : (monthlySalaryBasis / 240);
+            const payoffMoney = Math.round(unused * hourlyRate);
+
             list.push({
               empName: emp.name || '未名員工',
               empId: emp.id,
               type: 'expiring',
-              message: `特休【${period.name}】將於本月到期 (${period.endDate})，尚有剩餘時數 ${unused} 小時 (${daysNum}天) 未使用完畢。`,
+              message: `特休【${period.name}】將於本月到期 (${period.endDate})，剩餘 ${unused} 小時未使用，折合金額 NT$ ${payoffMoney.toLocaleString()}（將加入本月薪資特休結算）。`,
               date: period.endDate
             });
           }

@@ -168,7 +168,7 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
@@ -195,7 +195,13 @@ export const PayrollCalculator: React.FC = () => {
         }
 
         const isHourly = salaryType === 'hourly';
-        const hourlyRate = isHourly ? monthlySalary : (monthlySalary / 240);
+        
+        // 月薪基準 = 底薪 + 職務加給 + 全勤 + 考核加給 (時薪人員為時薪值)
+        const monthlySalaryBasis = isHourly
+          ? monthlySalary
+          : (monthlySalary + roleAllowance + attendanceBonus + evaluationAllowance);
+
+        const hourlyRate = isHourly ? monthlySalary : (monthlySalaryBasis / 240);
 
         const empAttendance = attendanceRecords.filter((rec: any) => 
           rec.employeeId === emp.id && 
@@ -512,7 +518,7 @@ export const PayrollCalculator: React.FC = () => {
           overtimePay = 0;
         }
 
-        const dailyRate = monthlySalary / 30;
+        const dailyRate = monthlySalaryBasis / 30;
         let personalLeaveDays = 0;
         let sickLeaveDays = 0;
         let totalLeaveHours = 0;
@@ -582,8 +588,129 @@ export const PayrollCalculator: React.FC = () => {
           }
         }
         
+        // Calculate special leave periods and see if any expire in this month
+        const getWorkedHours = (startDateStr: string, endDateStr: string): number => {
+          const empAtt = (attendanceRecords || []).filter(rec => rec.employeeId === emp.id);
+          const attByDate: { [date: string]: any[] } = {};
+          empAtt.forEach((rec: any) => {
+            if (!rec.date) return;
+            if (!attByDate[rec.date]) attByDate[rec.date] = [];
+            attByDate[rec.date].push(rec);
+          });
+          const empScheds = (schedulesList || []).filter(s => s.employeeId === emp.id);
+
+          let totalHours = 0;
+          let curr = new Date(startDateStr);
+          const end = new Date(endDateStr);
+          while (curr <= end) {
+            const y = curr.getFullYear();
+            const m = String(curr.getMonth() + 1).padStart(2, '0');
+            const dVal = String(curr.getDate()).padStart(2, '0');
+            const dateStr = `${y}-${m}-${dVal}`;
+
+            const dayAtt = attByDate[dateStr] || [];
+            if (dayAtt.length > 0) {
+              const sorted = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+              const sched = empScheds.find(s => s.date === dateStr);
+              let shiftDef: any = null;
+              if (sched) {
+                const shiftName = (sched.shift || '').split(' (')[0];
+                shiftDef = (shifts || []).find(s => s.name === shiftName);
+              }
+
+              let dayHours = 0;
+              let punchPairsCount = 0;
+              let idx = 0;
+              while (idx < sorted.length) {
+                if (sorted[idx].type === '上班') {
+                  let nextOut = null;
+                  let nextOutIdx = -1;
+                  for (let j = idx + 1; j < sorted.length; j++) {
+                    if (sorted[j].type === '下班') {
+                      nextOut = sorted[j];
+                      nextOutIdx = j;
+                      break;
+                    }
+                  }
+                  if (nextOut) {
+                    const inMins = parseTimeStrToMinutes(sorted[idx].time || '');
+                    let outMins = parseTimeStrToMinutes(nextOut.time || '');
+                    if (outMins < inMins) outMins += 24 * 60;
+                    
+                    let effectiveIn = inMins;
+                    let effectiveOut = outMins;
+                    if (sched) {
+                      const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
+                      if (timeMatch) {
+                        const expectedInMins = parseTimeStrToMinutes(timeMatch[1]);
+                        let expectedOutMins = parseTimeStrToMinutes(timeMatch[2]);
+                        if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
+
+                        effectiveIn = inMins <= expectedInMins ? expectedInMins : inMins;
+                        effectiveOut = outMins >= expectedOutMins ? expectedOutMins : outMins;
+                      }
+                    }
+
+                    dayHours += Math.max(0, (effectiveOut - effectiveIn) / 60);
+                    punchPairsCount++;
+                    idx = nextOutIdx + 1;
+                  } else {
+                    idx++;
+                  }
+                } else {
+                  idx++;
+                }
+              }
+
+              if (dayHours > 0 && punchPairsCount === 1 && shiftDef) {
+                if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
+                  const bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
+                  let bEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
+                  if (bEnd < bStart) bEnd += 24 * 60;
+                  const overlap = Math.max(0, bEnd - bStart);
+                  dayHours = Math.max(0, dayHours - (overlap / 60));
+                } else if (shiftDef.breakDuration > 0) {
+                  dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
+                }
+              }
+              totalHours += dayHours;
+            }
+            curr.setDate(curr.getDate() + 1);
+          }
+          return totalHours;
+        };
+
+        const [yrPay, moPay] = monthStr.split('-').map(Number);
+        const lastDayOfPayMonth = new Date(yrPay, moPay, 0);
+
+        const approvedAnnualLeaves = (approvedLeaves || [])
+          .filter(l => l.employeeId === emp.id && l.leaveType === 'annual')
+          .map(l => ({
+            startDate: l.startDate,
+            endDate: l.endDate,
+            hours: l.hours || 0
+          }));
+
+        const specialPeriods = calculateSpecialLeavePeriods(
+          onboardDateStr,
+          lastDayOfPayMonth,
+          (emp.salaryType || 'monthly') as 'monthly' | 'hourly',
+          getWorkedHours,
+          approvedAnnualLeaves
+        );
+
+        let annualLeavePayoff = 0;
+        specialPeriods.forEach(period => {
+          if (period.endDate && period.endDate.startsWith(monthStr)) {
+            const unused = Math.max(0, period.entitledHours - period.usedHours);
+            if (unused > 0) {
+              annualLeavePayoff += Math.round(unused * hourlyRate);
+            }
+          }
+        });
+
         const leaveDeduction = Math.round(personalLeaveDays * dailyRate * 1.0 + sickLeaveDays * dailyRate * 0.5);
-        const lateDeduction = isHourly ? 0 : Math.round(lateMinutesTotal * (monthlySalary / 14400));
+        const lateDeduction = isHourly ? 0 : Math.round(lateMinutesTotal * (monthlySalaryBasis / 14400));
 
         const ins = calculatePayrollInsurance(
           onboardDateStr,
@@ -595,7 +722,7 @@ export const PayrollCalculator: React.FC = () => {
 
         const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction + lateDeduction;
         const totalAllowance = attendanceBonus + otherAllowance + roleAllowance + evaluationAllowance;
-        const netSalary = calculatedBaseSalary + totalAllowance + overtimePay - deductions;
+        const netSalary = calculatedBaseSalary + totalAllowance + overtimePay + annualLeavePayoff - deductions;
         
         const payrollId = `${emp.id}-${monthStr}`;
         const existingRecord = payroll.find(p => p.id === payrollId);
@@ -639,7 +766,7 @@ export const PayrollCalculator: React.FC = () => {
           pensionSub,
           nhiDependents,
           adminBonus: 0,
-          annualLeavePayoff: 0,
+          annualLeavePayoff: annualLeavePayoff,
           retroactivePay: 0,
           lateDeduction,
           withholdingTax: 0,
@@ -1143,12 +1270,13 @@ export const PayrollCalculator: React.FC = () => {
                 <td data-label="結算月份">{record.month}</td>
                 <td data-label="底薪">
                   <div style={{ fontWeight: '600' }}>NT$ {record.baseSalary?.toLocaleString()}</div>
-                  {((record.roleAllowance || 0) > 0 || (record.evaluationAllowance || 0) > 0 || (record.attendanceBonus || 0) > 0 || (record.otherAllowance || 0) > 0) && (
+                  {((record.roleAllowance || 0) > 0 || (record.evaluationAllowance || 0) > 0 || (record.attendanceBonus || 0) > 0 || (record.otherAllowance || 0) > 0 || (record.annualLeavePayoff || 0) > 0) && (
                     <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', lineHeight: '1.4', backgroundColor: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       {(record.roleAllowance || 0) > 0 && <div>💼 職加: +{(record.roleAllowance || 0).toLocaleString()}</div>}
                       {(record.evaluationAllowance || 0) > 0 && <div>🏆 考加: +{(record.evaluationAllowance || 0).toLocaleString()}</div>}
                       {(record.attendanceBonus || 0) > 0 && <div>💯 全勤: +{(record.attendanceBonus || 0).toLocaleString()}</div>}
                       {(record.otherAllowance || 0) > 0 && <div>📦 其他: +{(record.otherAllowance || 0).toLocaleString()}</div>}
+                      {(record.annualLeavePayoff || 0) > 0 && <div>🏖️ 特休: +{(record.annualLeavePayoff || 0).toLocaleString()}</div>}
                     </div>
                   )}
                 </td>
