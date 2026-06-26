@@ -19,12 +19,27 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Safety timeout in case Firebase auth initialization gets completely stuck
+    const safetyTimeout = setTimeout(() => {
+      console.warn("Auth initialization timed out, using fallback status");
+      setUser(auth.currentUser);
+      setIsAdmin(auth.currentUser?.email === 'taidu.patisserie.2025@gmail.com');
+      setLoading(false);
+    }, 6000);
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      clearTimeout(safetyTimeout);
       setUser(currentUser);
       if (currentUser) {
         try {
           const docRef = doc(db, 'employees', currentUser.uid);
-          const docSnap = await getDoc(docRef);
+          
+          // Use Promise.race to set a 3-second timeout for the getDoc call to avoid hanging
+          const docSnap = (await Promise.race([
+            getDoc(docRef),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout fetching employee doc')), 3000))
+          ])) as any;
+
           if (docSnap.exists()) {
             const data = docSnap.data();
             const roleIsAdmin = data.role === 'admin' || data.isAdmin === true;
@@ -41,7 +56,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       }
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+      clearTimeout(safetyTimeout);
+      unsubscribe();
+    };
   }, []);
 
   if (loading) {
