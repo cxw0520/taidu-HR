@@ -1282,7 +1282,12 @@ export const PayrollCalculator: React.FC = () => {
                 </td>
                 <td data-label="加班費">NT$ {record.overtime?.toLocaleString()}</td>
                 <td data-label="扣款 (勞健保)">
-                  -NT$ {(((record.employeeLabor !== undefined && record.employeeNhi !== undefined) ? ((record.employeeLabor || 0) + (record.employeeNhi || 0)) : ((record.deductions || 0) - (record.leaveDeduction || 0)))).toLocaleString()}
+                  <div style={{ fontWeight: '500' }}>
+                    -NT$ {(((record.employeeLabor !== undefined && record.employeeNhi !== undefined) ? ((record.employeeLabor || 0) + (record.employeeNhi || 0)) : ((record.deductions || 0) - (record.leaveDeduction || 0)))).toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                    (勞保自付: {record.employeeLabor !== undefined ? (record.employeeLabor || 0).toLocaleString() : '--'} / 健保自付: {record.employeeNhi !== undefined ? (record.employeeNhi || 0).toLocaleString() : '--'})
+                  </div>
                 </td>
                 <td data-label="扣款 (差勤)">
                   -NT$ {(record.leaveDeduction || 0).toLocaleString()}
@@ -1290,7 +1295,7 @@ export const PayrollCalculator: React.FC = () => {
                 <td data-label="雇主負擔勞健保">
                   <div>NT$ {((record.employerLabor || 0) + (record.employerNhi || 0)).toLocaleString()}</div>
                   <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                    (勞: {record.employerLabor || 0} / 健: {record.employerNhi || 0} / 退6%: {record.employerPension || 0})
+                    (勞保雇主: {(record.employerLabor || 0).toLocaleString()} / 健保雇主: {(record.employerNhi || 0).toLocaleString()} / 勞退6%: {(record.employerPension || 0).toLocaleString()})
                   </div>
                 </td>
                 <td data-label="人力成本" style={{ fontWeight: '600', color: '#1e293b' }}>
