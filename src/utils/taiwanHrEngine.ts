@@ -15,7 +15,7 @@ export interface InsuranceRates {
 
 // 台灣 2025/2026 年預設勞健退費率
 export const DEFAULT_INSURANCE_RATES: InsuranceRates = {
-  laborRate: 0.12,
+  laborRate: 0.125, // 2025/2026年最新法定費率 (普通事故 11.5% + 就業保險 1.0%)
   nhiRate: 0.0517,
   nhiAvgDependents: 0.56,
   employerLaborRatio: 0.7,
