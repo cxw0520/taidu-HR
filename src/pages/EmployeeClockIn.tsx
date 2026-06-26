@@ -269,7 +269,7 @@ const EmployeeClockIn: React.FC = () => {
           const sched = mySchedules.find(s => s.date === dateStr);
           let shiftDef: any = null;
           if (sched) {
-            const shiftName = (sched.shift || '').split(' (')[0];
+            const shiftName = (sched.shift || '').split('(')[0].trim();
             shiftDef = shiftsList.find(s => s.name === shiftName);
           }
 
@@ -473,7 +473,7 @@ const EmployeeClockIn: React.FC = () => {
       const hasLeave = myLeaves.some(l => l.startDate <= date && l.endDate >= date && l.status === 'approved');
       if (hasLeave) return;
 
-      const shiftName = (sched.shift || '').split(' (')[0];
+      const shiftName = (sched.shift || '').split('(')[0].trim();
       const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
       const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
 
@@ -554,7 +554,7 @@ const EmployeeClockIn: React.FC = () => {
               let   expectedOut = new Date(yr, mo - 1, dy, eh, em);
               if (expectedOut < expectedIn) expectedOut.setDate(expectedOut.getDate() + 1);
 
-              const shiftName = (matchedSched.shift || '').split(' (')[0];
+              const shiftName = (matchedSched.shift || '').split('(')[0].trim();
               const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
               const hasFixedBreak = matchedShiftDef && matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime;
               const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
@@ -1070,7 +1070,7 @@ const EmployeeClockIn: React.FC = () => {
                   const dow = new Date(dateStr).getDay();
                   const hasLeave  = myLeaves.some(l => l.startDate <= dateStr && l.endDate >= dateStr && l.status === 'approved');
                   
-                  const shiftName = sched ? (sched.shift || '').split(' (')[0] : '';
+                  const shiftName = sched ? (sched.shift || '').split('(')[0].trim() : '';
                   const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
                   const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
                   const hasApprovedOvertime = myOvertimes.some(ot => ot.date === dateStr && ot.status === 'approved');

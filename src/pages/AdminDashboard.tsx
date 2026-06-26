@@ -61,7 +61,7 @@ const AdminDashboard: React.FC = () => {
       if (hasLeave) return;
       
       const dayAtt = (attMap[empId] && attMap[empId][date]) || [];
-      const shiftName = (sched.shift || '').split(' (')[0];
+      const shiftName = (sched.shift || '').split('(')[0].trim();
       const matchedShiftDef = (shifts || []).find(s => s.name === shiftName);
       const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
 

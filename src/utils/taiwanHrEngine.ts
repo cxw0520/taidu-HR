@@ -340,7 +340,7 @@ export function calculateOvertimePay(hourlyRate: number, hours: number, dayType:
 export function isOffShift(shiftName: string): boolean {
   if (!shiftName) return false;
   // Clean name by removing any time ranges or extra spaces
-  const cleanName = shiftName.split(' (')[0].trim();
+  const cleanName = shiftName.split('(')[0].trim();
   return cleanName === '例假' || cleanName === '休假' || cleanName === '國定假日' || cleanName === '排休' || cleanName === '公休';
 }
 

@@ -127,7 +127,7 @@ const AttendanceManager: React.FC = () => {
         let startTimeStr = '';
         let endTimeStr = '';
         if (dateSched) {
-          const shiftName = dateSched.shift.split(' (')[0];
+          const shiftName = dateSched.shift.split('(')[0].trim();
           shiftDef = shifts.find(s => s.name === shiftName);
           startTimeStr = dateSched.startTime || '';
           endTimeStr = dateSched.endTime || '';

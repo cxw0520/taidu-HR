@@ -238,7 +238,7 @@ export const PayrollCalculator: React.FC = () => {
               const expectedInMins = parseTimeStrToMinutes(startTimeStr);
               
               // Get shift break info if any
-              const shiftName = dateSched.shift.split(' (')[0];
+              const shiftName = dateSched.shift.split('(')[0].trim();
               const shiftDef = shifts.find(s => s.name === shiftName);
               const hasFixedBreak = shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime;
               
@@ -307,7 +307,7 @@ export const PayrollCalculator: React.FC = () => {
               let startTimeStr = '';
               let endTimeStr = '';
               if (dateSched) {
-                const shiftName = dateSched.shift.split(' (')[0];
+                const shiftName = dateSched.shift.split('(')[0].trim();
                 shiftDef = shifts.find(s => s.name === shiftName);
                 startTimeStr = dateSched.startTime || '';
                 endTimeStr = dateSched.endTime || '';
@@ -575,7 +575,7 @@ export const PayrollCalculator: React.FC = () => {
             );
             if (!hasLeave) {
               const dayAtt = empAttendance.filter((rec: any) => rec.date === dateStr);
-              const shiftName = (daySched.shift || '').split(' (')[0];
+              const shiftName = (daySched.shift || '').split('(')[0].trim();
               const shiftDef = shifts.find(s => s.name === shiftName);
               const expectsFour = shiftDef ? ((shiftDef.breakStartTime && shiftDef.breakEndTime) || (shiftDef.breakDuration > 0)) : false;
               const hasApprovedOvertime = empOvertimeReqs.some((ot: any) => ot.date === dateStr);
@@ -614,7 +614,7 @@ export const PayrollCalculator: React.FC = () => {
               const sched = empScheds.find(s => s.date === dateStr);
               let shiftDef: any = null;
               if (sched) {
-                const shiftName = (sched.shift || '').split(' (')[0];
+                const shiftName = (sched.shift || '').split('(')[0].trim();
                 shiftDef = (shifts || []).find(s => s.name === shiftName);
               }
 

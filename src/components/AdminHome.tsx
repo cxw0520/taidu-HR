@@ -158,7 +158,7 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
             const sched = empScheds.find(s => s.date === dateStr);
             let shiftDef: any = null;
             if (sched) {
-              const shiftName = (sched.shift || '').split(' (')[0];
+              const shiftName = (sched.shift || '').split('(')[0].trim();
               shiftDef = (shifts || []).find(s => s.name === shiftName);
             }
 
@@ -307,7 +307,7 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
       if (hasLeave) return;
       
       const dayAtt = (attMap[empId] && attMap[empId][date]) || [];
-      const shiftName = (sched.shift || '').split(' (')[0];
+      const shiftName = (sched.shift || '').split('(')[0].trim();
       const matchedShiftDef = (shifts || []).find(s => s.name === shiftName);
       const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
 
