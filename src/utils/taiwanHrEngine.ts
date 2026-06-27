@@ -367,7 +367,9 @@ export function parseTimeStrToMinutes(timeStr: string): number {
 export function evaluatePunchesStatus(
   dayAtts: any[],
   startTimeStr: string,
-  endTimeStr: string
+  endTimeStr: string,
+  expectsFour?: boolean,
+  breakDuration?: number
 ) {
   let isLate = false;
   let isEarly = false;
@@ -393,10 +395,29 @@ export function evaluatePunchesStatus(
     }
   }
 
+  // 彈性休息時間遲到判定：若為預期四次打卡的班別，且有設定休息時間長度 (預設為 30 分鐘)
+  if (expectsFour && inRecs.length >= 2 && outRecs.length >= 1) {
+    const firstOut = outRecs[0];
+    const secondIn = inRecs[1];
+    if (firstOut && secondIn && firstOut.time && secondIn.time) {
+      const startMin = parseTimeStrToMinutes(firstOut.time);
+      const endMin = parseTimeStrToMinutes(secondIn.time);
+      let diff = endMin - startMin;
+      if (diff < 0) diff += 24 * 60; // 跨夜
+      const maxBreakMin = breakDuration ? breakDuration : 30;
+      if (diff > maxBreakMin) {
+        isLate = true;
+      }
+    }
+  }
+
   // 早退判定：只以下班打卡的最後一筆為準（避免中間休息打卡被計入早退）
   const lastOut = outRecs[outRecs.length - 1];
   if (lastOut) {
-    if (lastOut.status === '早退') {
+    if (expectsFour && outRecs.length < 2) {
+      // 若為預期四次打卡的班別（如兩段班/含休息時間），且當前僅有一筆下班打卡，代表此為休息開始，不進行早退判定
+      isEarly = false;
+    } else if (lastOut.status === '早退') {
       isEarly = true;
     } else {
       const expectedInMins = parseTimeStrToMinutes(startTimeStr);
@@ -411,6 +432,12 @@ export function evaluatePunchesStatus(
       }
     }
   }
+
+  // 安全備用：若有任何打卡本身被存為「遲到」或「早退」，則將整天狀態標記
+  dayAtts.forEach(p => {
+    if (p.status === '遲到') isLate = true;
+    if (p.status === '早退') isEarly = true;
+  });
 
   return { isLate, isEarly };
 }

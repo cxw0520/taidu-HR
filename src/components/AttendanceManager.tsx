@@ -423,7 +423,7 @@ const AttendanceManager: React.FC = () => {
           startTimeStr = timeMatch[1];
           endTimeStr = timeMatch[2];
         }
-        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr);
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr, expectsFour, shiftDef?.breakDuration);
 
         if (isLate) types.push('遲到');
         if (isEarly) types.push('早退');

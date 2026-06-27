@@ -501,7 +501,7 @@ const EmployeeClockIn: React.FC = () => {
           startTimeStr = timeMatch[1];
           endTimeStr = timeMatch[2];
         }
-        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr);
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr, expectsFour, matchedShiftDef?.breakDuration);
         const dayStatuses = [];
         if (isLate) dayStatuses.push('遲到');
         if (isEarly) dayStatuses.push('早退');
@@ -563,20 +563,14 @@ const EmployeeClockIn: React.FC = () => {
               const inCount = dateAtts.filter((r: any) => r.type === '上班').length;
               const outCount = dateAtts.filter((r: any) => r.type === '下班').length;
 
-              let expectedBreakIn: Date | null = null;
               let expectedBreakOut: Date | null = null;
 
               if (hasFixedBreak) {
-                const [bsh, bsm] = matchedShiftDef.breakStartTime.split(':').map(Number);
                 const [beh, bem] = matchedShiftDef.breakEndTime.split(':').map(Number);
-                
-                let bStart = new Date(yr, mo - 1, dy, bsh, bsm);
-                if (bStart < expectedIn) bStart.setDate(bStart.getDate() + 1);
                 
                 let bEnd = new Date(yr, mo - 1, dy, beh, bem);
                 if (bEnd < expectedIn) bEnd.setDate(bEnd.getDate() + 1);
                 
-                expectedBreakIn = bStart;
                 expectedBreakOut = bEnd;
               }
 
@@ -587,18 +581,28 @@ const EmployeeClockIn: React.FC = () => {
                   if (hasFixedBreak && expectedBreakOut) {
                     if (now.getTime() > expectedBreakOut.getTime() + 60000) clockStatus = '遲到';
                   } else {
-                    clockStatus = '正常';
+                    const maxBreakMin = (matchedShiftDef && matchedShiftDef.breakDuration) ? matchedShiftDef.breakDuration : 30;
+                    const firstOut = dateAtts.find((r: any) => r.type === '下班');
+                    if (firstOut && firstOut.time) {
+                      const breakStartMin = parseTimeStrToMinutes(firstOut.time);
+                      const currentMin = now.getHours() * 60 + now.getMinutes();
+                      let diff = currentMin - breakStartMin;
+                      if (diff < 0) diff += 24 * 60; // cross-midnight
+                      if (diff > maxBreakMin) {
+                        clockStatus = '遲到';
+                      } else {
+                        clockStatus = '正常';
+                      }
+                    } else {
+                      clockStatus = '正常';
+                    }
                   }
                 } else {
                   clockStatus = '正常';
                 }
               } else if (type === 'out') {
                 if (expectsFour && outCount === 0) {
-                  if (hasFixedBreak && expectedBreakIn) {
-                    if (now.getTime() < expectedBreakIn.getTime() - 60000) clockStatus = '早退';
-                  } else {
-                    clockStatus = '正常';
-                  }
+                  clockStatus = '正常';
                 } else {
                   if (now.getTime() < expectedOut.getTime() - 60000) clockStatus = '早退';
                 }

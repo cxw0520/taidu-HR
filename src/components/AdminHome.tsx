@@ -345,7 +345,7 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
           startTimeStr = timeMatch[1];
           endTimeStr = timeMatch[2];
         }
-        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr);
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr, expectsFour, matchedShiftDef?.breakDuration);
         const dayStatuses = [];
         if (isLate) dayStatuses.push('遲到');
         if (isEarly) dayStatuses.push('早退');
