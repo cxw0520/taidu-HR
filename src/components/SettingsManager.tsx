@@ -5,6 +5,7 @@ export const SettingsManager: React.FC = () => {
   const {
     roles,
     shifts,
+    schedules,
     insuranceRates,
     toleranceMinutes,
     holidays,
@@ -12,7 +13,8 @@ export const SettingsManager: React.FC = () => {
     saveShifts,
     saveInsuranceRates,
     saveRules,
-    saveHolidays
+    saveHolidays,
+    updateSchedule
   } = useAdminData();
 
   // Local settings save message state
@@ -29,6 +31,16 @@ export const SettingsManager: React.FC = () => {
   const [newShiftBreakEnd, setNewShiftBreakEnd] = useState('');
   const [breakType, setBreakType] = useState<'time' | 'duration'>('time');
   const [newShiftBreakDuration, setNewShiftBreakDuration] = useState<number>(0);
+
+  // Shift Edit States
+  const [editingShiftIndex, setEditingShiftIndex] = useState<number | null>(null);
+  const [editShiftName, setEditShiftName] = useState('');
+  const [editShiftStart, setEditShiftStart] = useState('09:00');
+  const [editShiftEnd, setEditShiftEnd] = useState('18:00');
+  const [editShiftBreakStart, setEditShiftBreakStart] = useState('');
+  const [editShiftBreakEnd, setEditShiftBreakEnd] = useState('');
+  const [editBreakType, setEditBreakType] = useState<'time' | 'duration'>('time');
+  const [editShiftBreakDuration, setEditShiftBreakDuration] = useState<number>(0);
 
   // 3. Insurance & Rules Form States
   const [cfgLaborRate, setCfgLaborRate] = useState(0.12);
@@ -149,6 +161,81 @@ export const SettingsManager: React.FC = () => {
     } catch (err) {
       console.error("Failed to delete shift:", err);
       alert('刪除班別失敗');
+    }
+  };
+
+  const handleOpenEditShift = (index: number) => {
+    const s = shifts[index];
+    setEditingShiftIndex(index);
+    setEditShiftName(s.name);
+    setEditShiftStart(s.startTime);
+    setEditShiftEnd(s.endTime);
+    setEditShiftBreakStart(s.breakStartTime || '');
+    setEditShiftBreakEnd(s.breakEndTime || '');
+    setEditBreakType(s.breakDuration ? 'duration' : 'time');
+    setEditShiftBreakDuration(s.breakDuration || 0);
+  };
+
+  const handleEditShiftSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingShiftIndex === null) return;
+    
+    const oldShift = shifts[editingShiftIndex];
+    const name = editShiftName.trim();
+    if (!name) return;
+    const start = editShiftStart.trim();
+    const end = editShiftEnd.trim();
+    
+    // Check duplicate name (excluding itself)
+    if (shifts.some((s, idx) => s.name === name && idx !== editingShiftIndex)) {
+      alert('該班別名稱已經存在');
+      return;
+    }
+    
+    const newShift = {
+      name,
+      startTime: start,
+      endTime: end,
+      breakStartTime: editBreakType === 'time' ? editShiftBreakStart.trim() : '',
+      breakEndTime: editBreakType === 'time' ? editShiftBreakEnd.trim() : '',
+      breakDuration: editBreakType === 'duration' ? Number(editShiftBreakDuration) : 0
+    };
+    
+    const updatedShifts = [...shifts];
+    updatedShifts[editingShiftIndex] = newShift;
+
+    try {
+      // 1. Save shifts settings
+      await saveShifts(updatedShifts);
+      
+      // 2. Automatically update all schedules referencing this shift
+      const oldShiftLabel = `${oldShift.name} (${oldShift.startTime} - ${oldShift.endTime})`;
+      const newShiftLabel = `${newShift.name} (${newShift.startTime} - ${newShift.endTime})`;
+      
+      // Filter schedules that match either the full old label or the same shift name prefix
+      const targetSchedules = schedules.filter((s: any) => {
+        const schedShiftName = (s.shift || '').split('(')[0].trim();
+        return s.shift === oldShiftLabel || schedShiftName === oldShift.name;
+      });
+      
+      if (targetSchedules.length > 0) {
+        let updatedCount = 0;
+        for (const sched of targetSchedules) {
+          try {
+            await updateSchedule(sched.id, { shift: newShiftLabel });
+            updatedCount++;
+          } catch (err) {
+            console.error(`Failed to update schedule ${sched.id}:`, err);
+          }
+        }
+        console.log(`Updated ${updatedCount} schedules to match edited shift settings.`);
+      }
+      
+      setEditingShiftIndex(null);
+      alert(`✅ 班別「${name}」已成功更新，且已自動將 ${targetSchedules.length} 筆現有排班更新為新的時間規格！`);
+    } catch (err) {
+      console.error("Failed to edit shift:", err);
+      alert('編輯班別失敗');
     }
   };
 
@@ -400,21 +487,38 @@ export const SettingsManager: React.FC = () => {
                     {s.breakStartTime && s.breakEndTime ? ` (休息：${s.breakStartTime} - ${s.breakEndTime})` : s.breakDuration ? ` (休息時間：${s.breakDuration} 分鐘)` : ''}
                   </span>
                 </div>
-                <button 
-                  onClick={() => handleDeleteShift(s.name)}
-                  style={{
-                    color: '#ef4444',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    border: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  刪除
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button 
+                    onClick={() => handleOpenEditShift(index)}
+                    style={{
+                      color: 'var(--primary)',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    編輯
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteShift(s.name)}
+                    style={{
+                      color: '#ef4444',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    刪除
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -856,6 +960,106 @@ export const SettingsManager: React.FC = () => {
           </form>
         </div>
       </div>
+
+      {/* 編輯班別彈窗 */}
+      {editingShiftIndex !== null && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div className="glass-card" style={{ width: '90%', maxWidth: '450px', padding: '32px', borderRadius: '16px', backgroundColor: '#ffffff', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>編輯班別時間</h3>
+            <form onSubmit={handleEditShiftSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>班別名稱</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="名稱 (如: 假日班)"
+                  value={editShiftName}
+                  onChange={(e) => setEditShiftName(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>上班時間</label>
+                  <input 
+                    type="time" 
+                    required
+                    value={editShiftStart}
+                    onChange={(e) => setEditShiftStart(e.target.value)}
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                  />
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>下班時間</label>
+                  <input 
+                    type="time" 
+                    required
+                    value={editShiftEnd}
+                    onChange={(e) => setEditShiftEnd(e.target.value)}
+                    style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600' }}>休息類型：</span>
+                  <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                    <input type="radio" name="editBreakType" checked={editBreakType === 'time'} onChange={() => setEditBreakType('time')} />
+                    固定時間
+                  </label>
+                  <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                    <input type="radio" name="editBreakType" checked={editBreakType === 'duration'} onChange={() => setEditBreakType('duration')} />
+                    固定時長
+                  </label>
+                </div>
+
+                {editBreakType === 'time' ? (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>時間區間：</span>
+                    <input 
+                      type="time" 
+                      value={editShiftBreakStart}
+                      onChange={(e) => setEditShiftBreakStart(e.target.value)}
+                      style={{ flex: 1, padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
+                    />
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>至</span>
+                    <input 
+                      type="time" 
+                      value={editShiftBreakEnd}
+                      onChange={(e) => setEditShiftBreakEnd(e.target.value)}
+                      style={{ flex: 1, padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>休息時長：</span>
+                    <select
+                      value={editShiftBreakDuration}
+                      onChange={(e) => setEditShiftBreakDuration(Number(e.target.value))}
+                      style={{ flex: 1, padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
+                    >
+                      <option value={0}>不休息 (0 分鐘)</option>
+                      {Array.from({ length: 12 }).map((_, i) => {
+                        const minutes = (i + 1) * 5;
+                        return (
+                          <option key={minutes} value={minutes}>{minutes} 分鐘</option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                <button type="button" onClick={() => setEditingShiftIndex(null)} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}>取消</button>
+                <button type="submit" style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}>更新班別</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
