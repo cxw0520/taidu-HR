@@ -352,8 +352,9 @@ const AttendanceManager: React.FC = () => {
 
     const monthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
 
-    // Find all past schedules in the month
-    const monthSchedules = schedules.filter(s => s.date && s.date.startsWith(monthStr));
+    const todayStr = new Date().toLocaleDateString('sv');
+    // Find all past schedules in the month (up to today)
+    const monthSchedules = schedules.filter(s => s.date && s.date.startsWith(monthStr) && s.date <= todayStr);
 
     // Build attendance map by employee and date
     const attMap: { [empId: string]: { [date: string]: any[] } } = {};
