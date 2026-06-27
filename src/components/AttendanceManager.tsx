@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
-import { parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
+import { parseTimeStrToMinutes, isOffShift, evaluatePunchesStatus } from '../utils/taiwanHrEngine';
 
 const AttendanceManager: React.FC = () => {
   const {
@@ -8,10 +8,15 @@ const AttendanceManager: React.FC = () => {
     attendance,
     schedules,
     shifts,
+    leaves,
+    overtimeReqs,
     addAttendanceRecord,
     updateAttendanceRecord,
     deleteAttendanceRecord
   } = useAdminData();
+
+  // Sub Tab selection
+  const [subTab, setSubTab] = useState<'summary' | 'exceptions' | 'records'>('summary');
 
   // Search & Filters for Attendance List
   const [searchTerm, setSearchTerm] = useState('');
@@ -334,6 +339,139 @@ const AttendanceManager: React.FC = () => {
     return list;
   }, [attendance, searchTerm, filterDate]);
 
+  // Grouped exceptions for exception report
+  const groupedExceptions = useMemo(() => {
+    const list: Array<{
+      employeeId: string;
+      empName: string;
+      date: string;
+      type: string;
+      message: string;
+      punchesStr: string;
+    }> = [];
+
+    const monthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
+
+    // Find all past schedules in the month
+    const monthSchedules = schedules.filter(s => s.date && s.date.startsWith(monthStr));
+
+    // Build attendance map by employee and date
+    const attMap: { [empId: string]: { [date: string]: any[] } } = {};
+    attendance.forEach(rec => {
+      if (!rec.employeeId || !rec.date || !rec.date.startsWith(monthStr)) return;
+      if (!attMap[rec.employeeId]) attMap[rec.employeeId] = {};
+      if (!attMap[rec.employeeId][rec.date]) attMap[rec.employeeId][rec.date] = [];
+      attMap[rec.employeeId][rec.date].push(rec);
+    });
+
+    // Build leaves map
+    const leavesMap: { [empId: string]: any[] } = {};
+    (leaves || []).forEach(l => {
+      if (!l.employeeId) return;
+      if (!leavesMap[l.employeeId]) leavesMap[l.employeeId] = [];
+      leavesMap[l.employeeId].push(l);
+    });
+
+    // Build overtime map
+    const otMap: { [empId: string]: any[] } = {};
+    (overtimeReqs || []).forEach(o => {
+      if (!o.employeeId) return;
+      if (!otMap[o.employeeId]) otMap[o.employeeId] = [];
+      otMap[o.employeeId].push(o);
+    });
+
+    monthSchedules.forEach((sched: any) => {
+      const empId = sched.employeeId;
+      const date = sched.date;
+      const empName = sched.empName || employees.find(e => e.id === empId)?.name || empId;
+
+      // Skip off shift
+      if (isOffShift(sched.shift)) return;
+
+      // Skip approved leave
+      const empLeaves = leavesMap[empId] || [];
+      const hasLeave = empLeaves.some(l => l.startDate <= date && l.endDate >= date && l.status === 'approved');
+      if (hasLeave) return;
+
+      const dayAtt = (attMap[empId] && attMap[empId][date]) || [];
+      const shiftName = (sched.shift || '').split('(')[0].trim();
+      const shiftDef = (shifts || []).find(s => s.name === shiftName);
+      const expectsFour = shiftDef ? ((shiftDef.breakStartTime && shiftDef.breakEndTime) || (shiftDef.breakDuration > 0)) : false;
+      const empOvertimes = otMap[empId] || [];
+      const hasApprovedOvertime = empOvertimes.some(ot => ot.date === date && ot.status === 'approved');
+      const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
+
+      const actualPunches = dayAtt.length;
+
+      let types: string[] = [];
+      let msg = '';
+      
+      const sortedPunches = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+      const punchesStr = sortedPunches.map(p => `${p.type} ${p.time}${p.status && p.status !== '正常' ? `(${p.status})` : ''}`).join(', ') || '無打卡紀錄';
+
+      if (actualPunches === 0) {
+        types.push('未打卡');
+        msg = `當天有排班 (${sched.shift})，但無任何打卡紀錄`;
+      } else if (actualPunches < expectedPunches) {
+        types.push('未打卡');
+        msg = `打卡次數不完整：應打卡 ${expectedPunches} 次，實際僅打卡 ${actualPunches} 次 (${sched.shift})`;
+      } else {
+        let startTimeStr = '';
+        let endTimeStr = '';
+        const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
+        if (timeMatch) {
+          startTimeStr = timeMatch[1];
+          endTimeStr = timeMatch[2];
+        }
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr);
+
+        if (isLate) types.push('遲到');
+        if (isEarly) types.push('早退');
+
+        // Check if any individual punch has abnormal status
+        dayAtt.forEach(p => {
+          if (p.status === '異常' && !types.includes('異常')) types.push('異常');
+          if (p.status === '遲到' && !types.includes('遲到')) types.push('遲到');
+          if (p.status === '早退' && !types.includes('早退')) types.push('早退');
+        });
+
+        if (types.length > 0) {
+          msg = `班表: ${sched.shift}`;
+        }
+      }
+
+      if (types.length > 0) {
+        list.push({
+          employeeId: empId,
+          empName,
+          date,
+          type: types.join('、'),
+          message: msg,
+          punchesStr
+        });
+      }
+    });
+
+    const groups: { [empId: string]: { employeeId: string; empName: string; exceptions: typeof list } } = {};
+    
+    list.forEach(item => {
+      if (!groups[item.employeeId]) {
+        groups[item.employeeId] = {
+          employeeId: item.employeeId,
+          empName: item.empName,
+          exceptions: []
+        };
+      }
+      groups[item.employeeId].exceptions.push(item);
+    });
+
+    Object.values(groups).forEach(g => {
+      g.exceptions.sort((a, b) => a.date.localeCompare(b.date));
+    });
+
+    return Object.values(groups).sort((a, b) => a.empName.localeCompare(b.empName, 'zh-Hant'));
+  }, [employees, attendance, schedules, shifts, leaves, overtimeReqs, viewYear, viewMonth]);
+
   // Handlers
   const handleOpenEditAttendance = (record: any) => {
     if (record.id === '1' || record.id === '2') {
@@ -440,170 +578,356 @@ const AttendanceManager: React.FC = () => {
     exportCSV(headers, rows, `勞健保加保申報表_${new Date().toLocaleDateString('sv')}.csv`);
   };
 
+  const handleExportExceptionCSV = () => {
+    const headers = ['員工姓名', '日期', '異常類型', '打卡紀錄', '班表說明'];
+    const rows: string[][] = [];
+    groupedExceptions.forEach(group => {
+      group.exceptions.forEach(ex => {
+        rows.push([
+          `"${group.empName}"`,
+          `"${ex.date}"`,
+          `"${ex.type}"`,
+          `"${ex.punchesStr}"`,
+          `"${ex.message}"`
+        ]);
+      });
+    });
+    exportCSV(headers, rows, `出勤異常報告_${viewYear}年${viewMonth}月.csv`);
+  };
+
   return (
     <>
-      {/* 1. 個人月工時合計報表 */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '18px' }}>⏱️</span>
-            <h3 style={{ margin: 0 }}>個人月工時合計報表 ({viewYear}年{viewMonth}月)</h3>
-          </div>
-          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-            <button onClick={handlePrevMonth} className="btn-text" style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '12px' }}>◀ 上個月</button>
-            <button onClick={handleNextMonth} className="btn-text" style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '12px' }}>下個月 ▶</button>
-          </div>
-        </div>
-        
-        <div className="table-responsive">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>員工姓名</th>
-                <th>本月出勤天數</th>
-                <th>本月累計總工時 (已扣除休息時間)</th>
-                <th>備註</th>
-              </tr>
-            </thead>
-            <tbody>
-              {monthlyWorkedHoursSummary.length === 0 ? (
-                <tr>
-                  <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>本月無出勤紀錄。</td>
-                </tr>
-              ) : (
-                monthlyWorkedHoursSummary.map(row => (
-                  <tr key={row.id}>
-                    <td data-label="員工姓名" style={{ fontWeight: '600', color: 'var(--text-main)' }}>{row.name}</td>
-                    <td data-label="本月出勤天數">{row.daysCount} 天</td>
-                    <td data-label="本月累計總工時">
-                      <span 
-                        className="badge" 
-                        style={{ 
-                          backgroundColor: 'rgba(79, 70, 229, 0.1)', 
-                          color: 'var(--primary)', 
-                          fontWeight: '700', 
-                          padding: '4px 10px', 
-                          borderRadius: '6px', 
-                          fontSize: '13px',
-                          cursor: 'pointer',
-                          textDecoration: 'underline'
-                        }}
-                        title="點擊查看每日工時與打卡明細"
-                        onClick={() => {
-                          setSelectedDetailEmployee(row);
-                          setShowWorkHoursDetailModal(true);
-                        }}
-                      >
-                        {row.totalHours} 小時 🔍
-                      </span>
-                    </td>
-                    <td data-label="備註" style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-                      {row.totalHours > 160 ? '💡 已達基本工時基準' : '工時累計中'}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* 頁籤選擇 */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '8px', 
+        marginBottom: '24px', 
+        borderBottom: '1px solid var(--border)', 
+        paddingBottom: '8px',
+        flexWrap: 'wrap'
+      }}>
+        <button 
+          onClick={() => setSubTab('summary')}
+          style={{
+            fontWeight: '700',
+            fontSize: '14px',
+            color: subTab === 'summary' ? 'var(--primary)' : 'var(--text-muted)',
+            border: 'none',
+            background: 'none',
+            borderBottom: subTab === 'summary' ? '3px solid var(--primary)' : '3px solid transparent',
+            padding: '8px 16px',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            outline: 'none'
+          }}
+        >
+          ⏱️ 月工時統計
+        </button>
+        <button 
+          onClick={() => setSubTab('exceptions')}
+          style={{
+            fontWeight: '700',
+            fontSize: '14px',
+            color: subTab === 'exceptions' ? '#dc2626' : 'var(--text-muted)',
+            border: 'none',
+            background: 'none',
+            borderBottom: subTab === 'exceptions' ? '3px solid #dc2626' : '3px solid transparent',
+            padding: '8px 16px',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            outline: 'none'
+          }}
+        >
+          ⚠️ 出勤異常報告
+        </button>
+        <button 
+          onClick={() => setSubTab('records')}
+          style={{
+            fontWeight: '700',
+            fontSize: '14px',
+            color: subTab === 'records' ? 'var(--primary)' : 'var(--text-muted)',
+            border: 'none',
+            background: 'none',
+            borderBottom: subTab === 'records' ? '3px solid var(--primary)' : '3px solid transparent',
+            padding: '8px 16px',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            outline: 'none'
+          }}
+        >
+          📋 即時打卡紀錄
+        </button>
       </div>
 
-      {/* 2. 即時打卡紀錄 */}
-      <div className="card">
-        <div className="card-header">
-          <h3>即時打卡紀錄</h3>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button className="btn-primary btn-sm" onClick={() => setShowAddAttendanceModal(true)}>+ 新增打卡紀錄</button>
-            <button className="btn-primary btn-sm" onClick={handleExportAttendanceCSV}>匯出出勤表</button>
-            <button className="btn-primary btn-sm" onClick={handleExportInsuranceEnrollmentCSV}>匯出加保申報表 (CSV)</button>
+      {/* 1. 個人月工時合計報表 */}
+      {subTab === 'summary' && (
+        <div className="card" style={{ marginBottom: '24px' }}>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '18px' }}>⏱️</span>
+              <h3 style={{ margin: 0 }}>個人月工時合計報表 ({viewYear}年{viewMonth}月)</h3>
+            </div>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              <button onClick={handlePrevMonth} className="btn-text" style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '12px' }}>◀ 上個月</button>
+              <button onClick={handleNextMonth} className="btn-text" style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '12px' }}>下個月 ▶</button>
+            </div>
+          </div>
+          
+          <div className="table-responsive">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>員工姓名</th>
+                  <th>本月出勤天數</th>
+                  <th>本月累計總工時 (已扣除休息時間)</th>
+                  <th>備註</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyWorkedHoursSummary.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>本月無出勤紀錄。</td>
+                  </tr>
+                ) : (
+                  monthlyWorkedHoursSummary.map(row => (
+                    <tr key={row.id}>
+                      <td data-label="員工姓名" style={{ fontWeight: '600', color: 'var(--text-main)' }}>{row.name}</td>
+                      <td data-label="本月出勤天數">{row.daysCount} 天</td>
+                      <td data-label="本月累計總工時">
+                        <span 
+                          className="badge" 
+                          style={{ 
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)', 
+                            color: 'var(--primary)', 
+                            fontWeight: '700', 
+                            padding: '4px 10px', 
+                            borderRadius: '6px', 
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            textDecoration: 'underline'
+                          }}
+                          title="點擊查看每日工時與打卡明細"
+                          onClick={() => {
+                            setSelectedDetailEmployee(row);
+                            setShowWorkHoursDetailModal(true);
+                          }}
+                        >
+                          {row.totalHours} 小時 🔍
+                        </span>
+                      </td>
+                      <td data-label="備註" style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                        {row.totalHours > 160 ? '💡 已達基本工時基準' : '工時累計中'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
+      )}
 
-        {/* 搜尋與日期篩選器 */}
-        <div className="filters-row" style={{ display: 'flex', gap: '16px', padding: '16px 24px', backgroundColor: '#f9fafb', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-          <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: '600' }}>搜尋員工：</span>
-            <input 
-              type="text" 
-              placeholder="輸入員工姓名..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)} 
-              style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
-            />
+      {/* 2. 出勤異常報告 */}
+      {subTab === 'exceptions' && (
+        <div className="card" style={{ marginBottom: '24px' }}>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '18px' }}>⚠️</span>
+              <h3 style={{ margin: 0 }}>出勤異常報告 ({viewYear}年{viewMonth}月)</h3>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button onClick={handlePrevMonth} className="btn-text" style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '12px' }}>◀ 上個月</button>
+              <button onClick={handleNextMonth} className="btn-text" style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '12px' }}>下個月 ▶</button>
+              <button className="btn-primary btn-sm" onClick={handleExportExceptionCSV} style={{ backgroundColor: '#dc2626', borderColor: '#dc2626' }}>匯出異常報告 (CSV)</button>
+            </div>
           </div>
-          <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: '600' }}>日期篩選：</span>
-            <input 
-              type="date" 
-              value={filterDate} 
-              onChange={(e) => setFilterDate(e.target.value)} 
-              style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
-            />
-            {filterDate && (
-              <button 
-                onClick={() => setFilterDate('')} 
-                style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600', cursor: 'pointer', border: 'none', background: 'none' }}
-              >
-                清除
-              </button>
+
+          <div style={{ padding: '24px' }}>
+            {groupedExceptions.length === 0 ? (
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px 20px', fontSize: '15px' }}>
+                🎉 本月無任何出勤異常紀錄，大家出勤非常良好！
+              </div>
+            ) : (
+              groupedExceptions.map(group => (
+                <div key={group.employeeId} style={{ 
+                  marginBottom: '24px', 
+                  border: '1px solid var(--border)', 
+                  borderRadius: '12px', 
+                  overflow: 'hidden',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                }}>
+                  {/* 員工姓名 Header */}
+                  <div style={{ 
+                    backgroundColor: '#f8fafc', 
+                    padding: '14px 20px', 
+                    borderBottom: '1px solid var(--border)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span style={{ fontWeight: '700', fontSize: '15px', color: 'var(--text-main)' }}>
+                      👤 {group.empName}
+                    </span>
+                    <span className="badge" style={{ 
+                      backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                      color: '#ef4444',
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      padding: '4px 10px',
+                      borderRadius: '20px'
+                    }}>
+                      {group.exceptions.length} 筆異常
+                    </span>
+                  </div>
+                  
+                  {/* 異常表格 */}
+                  <div className="table-responsive" style={{ margin: 0, border: 'none' }}>
+                    <table className="data-table" style={{ borderCollapse: 'collapse', margin: 0, width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '120px' }}>日期</th>
+                          <th style={{ width: '150px' }}>異常類型</th>
+                          <th>打卡紀錄</th>
+                          <th>排班資訊</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.exceptions.map((ex, index) => (
+                          <tr key={index}>
+                            <td data-label="日期" style={{ fontWeight: '700', color: 'var(--text-main)' }}>{ex.date}</td>
+                            <td data-label="異常類型">
+                              {ex.type.split('、').map((t, idx) => (
+                                <span key={idx} style={{
+                                  display: 'inline-block',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: '700',
+                                  backgroundColor: t === '未打卡' ? '#fee2e2' : t === '異常' ? '#ffedd5' : '#fef9c3',
+                                  color: t === '未打卡' ? '#ef4444' : t === '異常' ? '#f97316' : '#ca8a04',
+                                  marginRight: '4px',
+                                  marginBottom: '2px'
+                                }}>
+                                  {t}
+                                </span>
+                              ))}
+                            </td>
+                            <td data-label="打卡紀錄" style={{ fontSize: '13px', color: '#334155' }}>
+                              {ex.punchesStr}
+                            </td>
+                            <td data-label="排班資訊" style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+                              {ex.message}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </div>
+      )}
 
-        <div className="table-responsive">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>員工姓名</th>
-                <th>日期</th>
-                <th>時間</th>
-                <th>類型</th>
-                <th>狀態</th>
-                <th>打卡定位</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAttendance.map(record => (
-                <tr key={record.id}>
-                  <td data-label="員工姓名" style={{ fontWeight: '600' }}>{record.empName}</td>
-                  <td data-label="日期">{record.date}</td>
-                  <td data-label="時間">{record.time}</td>
-                  <td data-label="類型">
-                    <span className={`badge badge-${record.type === '上班' ? 'primary' : 'neutral'}`}>
-                      {record.type}
-                    </span>
-                  </td>
-                  <td data-label="狀態">
-                    <span className={`badge badge-${record.status === '正常' ? 'success' : 'warning'}`}>
-                      {record.status}
-                    </span>
-                  </td>
-                  <td data-label="打卡定位">
-                    {record.coords ? (
-                      <a 
-                        href={`https://www.google.com/maps?q=${record.coords.lat},${record.coords.lng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-text"
-                        style={{ fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'underline' }}
-                      >
-                        📍 查看位置
-                      </a>
-                    ) : (
-                      <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>無定位資料</span>
-                    )}
-                  </td>
-                  <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button className="btn-text" style={{ color: 'var(--primary)', fontWeight: '600' }} onClick={() => handleOpenEditAttendance(record)}>編輯</button>
-                    <button className="btn-text" style={{ color: '#ef4444', fontWeight: '600' }} onClick={() => handleDeleteAttendanceClick(record.id)}>刪除</button>
-                  </td>
+      {/* 3. 即時打卡紀錄 */}
+      {subTab === 'records' && (
+        <div className="card">
+          <div className="card-header">
+            <h3>即時打卡紀錄</h3>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button className="btn-primary btn-sm" onClick={() => setShowAddAttendanceModal(true)}>+ 新增打卡紀錄</button>
+              <button className="btn-primary btn-sm" onClick={handleExportAttendanceCSV}>匯出出勤表</button>
+              <button className="btn-primary btn-sm" onClick={handleExportInsuranceEnrollmentCSV}>匯出加保申報表 (CSV)</button>
+            </div>
+          </div>
+
+          {/* 搜尋與日期篩選器 */}
+          <div className="filters-row" style={{ display: 'flex', gap: '16px', padding: '16px 24px', backgroundColor: '#f9fafb', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+            <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: '600' }}>搜尋員工：</span>
+              <input 
+                type="text" 
+                placeholder="輸入員工姓名..." 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
+              />
+            </div>
+            <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: '600' }}>日期篩選：</span>
+              <input 
+                type="date" 
+                value={filterDate} 
+                onChange={(e) => setFilterDate(e.target.value)} 
+                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', backgroundColor: '#fff' }}
+              />
+              {filterDate && (
+                <button 
+                  onClick={() => setFilterDate('')} 
+                  style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600', cursor: 'pointer', border: 'none', background: 'none' }}
+                >
+                  清除
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="table-responsive">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>員工姓名</th>
+                  <th>日期</th>
+                  <th>時間</th>
+                  <th>類型</th>
+                  <th>狀態</th>
+                  <th>打卡定位</th>
+                  <th>操作</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredAttendance.map(record => (
+                  <tr key={record.id}>
+                    <td data-label="員工姓名" style={{ fontWeight: '600' }}>{record.empName}</td>
+                    <td data-label="日期">{record.date}</td>
+                    <td data-label="時間">{record.time}</td>
+                    <td data-label="類型">
+                      <span className={`badge badge-${record.type === '上班' ? 'primary' : 'neutral'}`}>
+                        {record.type}
+                      </span>
+                    </td>
+                    <td data-label="狀態">
+                      <span className={`badge badge-${record.status === '正常' ? 'success' : 'warning'}`}>
+                        {record.status}
+                      </span>
+                    </td>
+                    <td data-label="打卡定位">
+                      {record.coords ? (
+                        <a 
+                          href={`https://www.google.com/maps?q=${record.coords.lat},${record.coords.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-text"
+                          style={{ fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'underline' }}
+                        >
+                          📍 查看位置
+                        </a>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>無定位資料</span>
+                      )}
+                    </td>
+                    <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button className="btn-text" style={{ color: 'var(--primary)', fontWeight: '600' }} onClick={() => handleOpenEditAttendance(record)}>編輯</button>
+                      <button className="btn-text" style={{ color: '#ef4444', fontWeight: '600' }} onClick={() => handleDeleteAttendanceClick(record.id)}>刪除</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 手動新增打卡紀錄彈窗 */}
       {showAddAttendanceModal && (
