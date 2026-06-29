@@ -268,6 +268,8 @@ const AttendanceManager: React.FC = () => {
                 } else {
                   if (punchPairsCount === 0) {
                     expectedStart = start1;
+                  }
+                  if (punchPairsCount === totalPairs - 1) {
                     expectedEnd = hasFixedBreak ? end2 : end1;
                   }
                 }
