@@ -35,6 +35,10 @@ const EmployeeClockIn: React.FC = () => {
   const [employeeProfile, setEmployeeProfile] = useState<any>(null);
   const [toleranceMinutes, setToleranceMinutes] = useState<number>(240);
 
+  // ── 班表更新通知 ──
+  const [scheduleNotice, setScheduleNotice] = useState<{ message: string; updatedAt: number } | null>(null);
+  const [lastNoticeSeen, setLastNoticeSeen] = useState<number>(0);
+
   // 主 Tab
   const [activeSubTab, setActiveSubTab] = useState<'clock' | 'schedule' | 'payroll' | 'apply'>('clock');
 
@@ -145,6 +149,20 @@ const EmployeeClockIn: React.FC = () => {
     return () => { clearInterval(timer); unsubscribe(); };
   }, []);
 
+  // ── 載入上次看過的班表通知時間 ──
+  useEffect(() => {
+    if (user) {
+      const seen = localStorage.getItem(`lastScheduleNoticeSeen_${user.uid}`);
+      if (seen) {
+        setLastNoticeSeen(Number(seen));
+      } else {
+        setLastNoticeSeen(0);
+      }
+    } else {
+      setLastNoticeSeen(0);
+    }
+  }, [user]);
+
   // ── 系統設定監聽 ──
   useEffect(() => {
     const unsubRules = onSnapshot(doc(db, 'settings', 'rules'), (docSnap) => {
@@ -167,7 +185,18 @@ const EmployeeClockIn: React.FC = () => {
         }
       }
     });
-    return () => { unsubRules(); unsubShifts(); };
+    const unsubNotice = onSnapshot(doc(db, 'settings', 'scheduleNotice'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && typeof data.updatedAt === 'number') {
+          setScheduleNotice({
+            message: data.message || '班表已更新',
+            updatedAt: data.updatedAt
+          });
+        }
+      }
+    });
+    return () => { unsubRules(); unsubShifts(); unsubNotice(); };
   }, []);
 
   // ── 員工資料監聽 ──
@@ -947,6 +976,46 @@ const EmployeeClockIn: React.FC = () => {
         {/* ── 打卡 Tab ── */}
         {activeSubTab === 'clock' && (
           <div className="tab-panel">
+            {/* 班表更新通知 */}
+            {user && scheduleNotice && scheduleNotice.updatedAt > lastNoticeSeen && (
+              <div style={{
+                background: 'rgba(217,119,6,0.1)',
+                border: '1px solid rgba(217,119,6,0.3)',
+                borderRadius: '12px',
+                padding: '12px 16px',
+                marginBottom: '16px',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                color: '#b45309',
+                fontSize: '13px',
+                fontWeight: '600'
+              }}>
+                <span style={{ fontSize: '16px' }}>📅</span>
+                <div style={{ flex: 1, lineHeight: '1.4' }}>{scheduleNotice.message}</div>
+                <button
+                  onClick={() => {
+                    localStorage.setItem(`lastScheduleNoticeSeen_${user.uid}`, String(scheduleNotice.updatedAt));
+                    setLastNoticeSeen(scheduleNotice.updatedAt);
+                  }}
+                  style={{
+                    fontSize: '11px',
+                    color: '#fff',
+                    backgroundColor: '#d97706',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '5px 10px',
+                    cursor: 'pointer',
+                    fontWeight: '700',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  已確認
+                </button>
+              </div>
+            )}
+
             {/* 特休產生與過期通知 */}
             {specialLeaveNotifications.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>

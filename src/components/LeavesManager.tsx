@@ -353,7 +353,7 @@ export const LeavesManager: React.FC = () => {
           {allHistory.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)', fontSize: '13px' }}>尚無已審核紀錄</div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+            <div className="table-scroll-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -419,7 +419,7 @@ export const LeavesManager: React.FC = () => {
       {leavesSubTab === 'balance' && (
         <div className="card" style={{ padding: '24px' }}>
           <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: '700' }}>全員假別剩餘天數</h3>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-scroll-wrap">
             <table className="data-table">
               <thead>
                 <tr>

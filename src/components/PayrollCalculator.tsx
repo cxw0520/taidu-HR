@@ -450,11 +450,21 @@ export const PayrollCalculator: React.FC = () => {
                   }
                 }
 
-                const isOriginalHoliday = holidays.some(h => h.date === date);
+                // 修正：使用 movedDate 判斷實際放假日（節日移轉後以新日期為準）
+                const isActualHolidayDate = holidays.some(h =>
+                  h.movedDate ? h.movedDate === date : h.date === date
+                );
+                const isCompensatoryWorkdayDate = holidays.some(h => h.workdayDate === date);
                 const regHours = Math.min(hours, 8);
-                calculatedBaseSalary += regHours * hourlyRate;
-                if (isOriginalHoliday) {
-                  overtimePay += regHours * hourlyRate;
+                // 補班日視同平日，不給節日雙薪；正常放假日才給
+                if (!isCompensatoryWorkdayDate) {
+                  calculatedBaseSalary += regHours * hourlyRate;
+                  if (isActualHolidayDate) {
+                    overtimePay += regHours * hourlyRate; // 國定假日工作 → 額外再給一倍
+                  }
+                } else {
+                  // 補班日：視同平日計薪
+                  calculatedBaseSalary += regHours * hourlyRate;
                 }
               }
             }
@@ -1245,7 +1255,7 @@ export const PayrollCalculator: React.FC = () => {
         </div>
       )}
 
-      <div className="table-responsive">
+      <div className="payroll-table-wrap">
         <table className="data-table">
           <thead>
             <tr>

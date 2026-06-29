@@ -343,7 +343,7 @@ const EmployeeManager: React.FC = () => {
         <button className="btn-primary btn-sm" onClick={() => setShowAddModal(true)}>+ 新增員工帳號</button>
       </div>
       
-      <div className="table-responsive">
+      <div className="table-scroll-wrap">
         <table className="data-table">
           <thead>
             <tr>

@@ -468,6 +468,112 @@
   }
 }
 
+/* ── 水平捲動表格容器（適合複雜多欄表格）── */
+.table-scroll-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-md);
+}
+
+/* 在水平捲動容器內，table 保持原本橫排格式（不轉為卡片） */
+.table-scroll-wrap .data-table,
+.table-scroll-wrap .data-table thead,
+.table-scroll-wrap .data-table tbody,
+.table-scroll-wrap .data-table tr,
+.table-scroll-wrap .data-table th,
+.table-scroll-wrap .data-table td {
+  display: revert;
+  width: auto;
+}
+
+.table-scroll-wrap .data-table {
+  min-width: 600px;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table-scroll-wrap .data-table th,
+.table-scroll-wrap .data-table td {
+  white-space: nowrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.table-scroll-wrap .data-table th {
+  background-color: #F9FAFB;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.table-scroll-wrap .data-table td {
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  /* ── 後台手機版追加優化 ── */
+
+  /* 讓 alerts-approvals-panel 在手機上改為單欄 */
+  .alerts-approvals-panel {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 防止固定寬度 Modal 在手機上超出螢幕 */
+  .glass-card[style*="maxWidth"] {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    padding: 20px !important;
+  }
+
+  /* 趨勢圖容器在手機上確保不溢出 */
+  .trend-chart-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* tab bar 在手機上允許橫向捲動 */
+  .tab-bar-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding-bottom: 4px;
+  }
+
+  /* 薪資結算表格複雜多欄：讓它橫向捲動 */
+  .payroll-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .payroll-table-wrap .data-table,
+  .payroll-table-wrap .data-table thead,
+  .payroll-table-wrap .data-table tbody,
+  .payroll-table-wrap .data-table tr,
+  .payroll-table-wrap .data-table th,
+  .payroll-table-wrap .data-table td {
+    display: revert;
+    width: auto;
+  }
+
+  .payroll-table-wrap .data-table {
+    min-width: 900px;
+    width: max-content;
+  }
+
+  .payroll-table-wrap .data-table th,
+  .payroll-table-wrap .data-table td {
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+}
+
+
 /* Custom scrollbar for calendar cell schedules */
 .day-schedules-list::-webkit-scrollbar {
   width: 4px;

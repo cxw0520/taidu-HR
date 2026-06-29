@@ -56,6 +56,7 @@ export const SettingsManager: React.FC = () => {
   const [newHolidayName, setNewHolidayName] = useState('');
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayMovedDate, setNewHolidayMovedDate] = useState('');
+  const [newHolidayWorkdayDate, setNewHolidayWorkdayDate] = useState(''); // 補班日（若有）
   const [syncingHolidays, setSyncingHolidays] = useState(false);
 
   // Sync form states from context changes
@@ -276,12 +277,14 @@ export const SettingsManager: React.FC = () => {
     const name = newHolidayName.trim();
     const date = newHolidayDate.trim();
     const movedDate = newHolidayMovedDate.trim() || date;
+    const workdayDate = newHolidayWorkdayDate.trim() || null;
     if (!name || !date) return;
 
     let updatedList;
     const existingIndex = holidays.findIndex(h => h.name.toLowerCase() === name.toLowerCase());
     
-    const newItem = { name, date, movedDate };
+    const newItem: any = { name, date, movedDate };
+    if (workdayDate) newItem.workdayDate = workdayDate;
     
     if (existingIndex >= 0) {
       updatedList = [...holidays];
@@ -297,7 +300,11 @@ export const SettingsManager: React.FC = () => {
       setNewHolidayName('');
       setNewHolidayDate('');
       setNewHolidayMovedDate('');
-      alert(`國定假日「${name}」已成功設定為：原始 ${date}，月薪挪移至 ${movedDate}！`);
+      setNewHolidayWorkdayDate('');
+      const alertMsg = workdayDate
+        ? `國定假日「${name}」已設定：原始 ${date}，放假日挪移至 ${movedDate}，補班日 ${workdayDate}！`
+        : `國定假日「${name}」已成功設定為：原始 ${date}，月薪挪移至 ${movedDate}！`;
+      alert(alertMsg);
     } catch (err) {
       console.error("Failed to save holiday:", err);
       alert('儲存假日失敗');
@@ -854,7 +861,7 @@ export const SettingsManager: React.FC = () => {
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontWeight: '600' }}>{h.name}</span>
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {h.movedDate && h.movedDate !== h.date ? `原 ${h.date} ➔ 移 ${h.movedDate}` : `${h.date}`}
+                        {h.movedDate && h.movedDate !== h.date ? `原 ${h.date} ➔ 放 ${h.movedDate}` : `${h.date}`}{h.workdayDate ? ` ｜補班 ${h.workdayDate}` : ''}
                       </span>
                     </div>
                     <button 
@@ -924,7 +931,7 @@ export const SettingsManager: React.FC = () => {
                 />
               </div>
               <div style={{ flex: 1, minWidth: '150px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '12px', fontWeight: '600' }}>月薪挪移日期 (選填)</label>
+                <label style={{ fontSize: '12px', fontWeight: '600' }}>放假挪移日期 (選填)</label>
                 <input 
                   type="date" 
                   value={newHolidayMovedDate}
@@ -936,6 +943,22 @@ export const SettingsManager: React.FC = () => {
                     fontSize: '13px',
                     backgroundColor: '#fff'
                   }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: '150px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '600' }}>補班日期 (選填)</label>
+                <input 
+                  type="date" 
+                  value={newHolidayWorkdayDate}
+                  onChange={(e) => setNewHolidayWorkdayDate(e.target.value)}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    fontSize: '13px',
+                    backgroundColor: '#fff'
+                  }}
+                  placeholder="若需要補班則填入"
                 />
               </div>
             </div>

@@ -28,6 +28,49 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
 
   const [costMonth, setCostMonth] = React.useState(currentMonthStr);
 
+  // 月成本趨勢資料（最近 6 個月）
+  const costTrend = React.useMemo(() => {
+    const result: { month: string; label: string; total: number }[] = [];
+    const today0 = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(today0.getFullYear(), today0.getMonth() - i, 1);
+      const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = `${d.getMonth() + 1}月`;
+      const monthPayroll = (payroll || []).filter(p => p.month === m);
+      let total = 0;
+      monthPayroll.forEach(p => {
+        const ins = (p.employeeLabor !== undefined && p.employeeNhi !== undefined)
+          ? ((p.employeeLabor || 0) + (p.employeeNhi || 0))
+          : Math.max(0, (p.deductions || 0) - (p.leaveDeduction || 0));
+        total += (p.netSalary || 0) + ins + (p.employerLabor || 0) + (p.employerNhi || 0) + (p.employerPension || 0);
+      });
+      result.push({ month: m, label, total });
+    }
+    return result;
+  }, [payroll]);
+
+  // 當月逐日出勤人數資料
+  const attendanceTrend = React.useMemo(() => {
+    const today0 = new Date();
+    const year = today0.getFullYear();
+    const month = today0.getMonth() + 1;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const todayDay = today0.getDate();
+    const result: { day: number; attended: number; scheduled: number }[] = [];
+
+    for (let d = 1; d <= Math.min(todayDay, daysInMonth); d++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const attEmpIds = new Set(
+        (attendance || []).filter(r => r.date === dateStr).map(r => r.employeeId)
+      );
+      const schedEmpIds = new Set(
+        (schedules || []).filter(s => s.date === dateStr && s.shift && s.shift !== '休假' && s.shift !== '例假').map(s => s.employeeId)
+      );
+      result.push({ day: d, attended: attEmpIds.size, scheduled: schedEmpIds.size });
+    }
+    return result;
+  }, [attendance, schedules]);
+
   const payrollMonths = React.useMemo(() => {
     const months = Array.from(new Set((payroll || []).map(p => p.month).filter(Boolean)));
     if (!months.includes(currentMonthStr)) {
@@ -489,6 +532,125 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
               前往差勤審核 →
             </button>
           </div>
+        </div>
+
+      </div>
+
+      {/* 趨勢圖表區 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+
+        {/* 月成本趨勢折線圖 */}
+        <div className="card" style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <span style={{ fontSize: '18px' }}>📈</span>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text-main)' }}>月人力成本趨勢（6個月）</h3>
+          </div>
+          {(() => {
+            const maxVal = Math.max(...costTrend.map(d => d.total), 1);
+            const W = 320; const H = 120; const PAD_L = 52; const PAD_B = 24; const PAD_T = 12; const PAD_R = 12;
+            const chartW = W - PAD_L - PAD_R;
+            const chartH = H - PAD_B - PAD_T;
+            const pts = costTrend.map((d, i) => ({
+              x: PAD_L + (i / (costTrend.length - 1 || 1)) * chartW,
+              y: PAD_T + chartH - (d.total / maxVal) * chartH,
+              ...d
+            }));
+            const polyline = pts.map(p => `${p.x},${p.y}`).join(' ');
+            const area = [`M${pts[0].x},${PAD_T + chartH}`, ...pts.map(p => `L${p.x},${p.y}`), `L${pts[pts.length-1].x},${PAD_T + chartH}`, 'Z'].join(' ');
+            const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => ({ v: r, y: PAD_T + chartH - r * chartH, label: r === 0 ? '0' : `${Math.round(maxVal * r / 1000)}k` }));
+            return (
+              <div className="trend-chart-wrap">
+                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', overflow: 'visible' }}>
+                  <defs>
+                    <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.18" />
+                      <stop offset="100%" stopColor="#4f46e5" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  {/* Y軸輔助線 */}
+                  {yTicks.map(t => (
+                    <g key={t.v}>
+                      <line x1={PAD_L} y1={t.y} x2={W - PAD_R} y2={t.y} stroke="#e5e7eb" strokeWidth="1" strokeDasharray={t.v === 0 ? '' : '3,3'} />
+                      <text x={PAD_L - 4} y={t.y + 4} fontSize="9" fill="#9ca3af" textAnchor="end">{t.label}</text>
+                    </g>
+                  ))}
+                  {/* 區域填色 */}
+                  <path d={area} fill="url(#costGrad)" />
+                  {/* 折線 */}
+                  <polyline points={polyline} fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  {/* 資料點 + X軸標籤 */}
+                  {pts.map((p, i) => (
+                    <g key={i}>
+                      <circle cx={p.x} cy={p.y} r="3.5" fill="#4f46e5" stroke="#fff" strokeWidth="1.5" />
+                      <text x={p.x} y={H - 6} fontSize="9" fill="#9ca3af" textAnchor="middle">{p.label}</text>
+                      {p.total > 0 && (
+                        <text x={p.x} y={p.y - 7} fontSize="8.5" fill="#4f46e5" textAnchor="middle" fontWeight="600">
+                          {Math.round(p.total / 1000)}k
+                        </text>
+                      )}
+                    </g>
+                  ))}
+                </svg>
+                {costTrend.every(d => d.total === 0) && (
+                  <div style={{ textAlign: 'center', fontSize: '12px', color: '#9ca3af', marginTop: '8px' }}>尚無薄資資料，請先完成薄資結算</div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* 當月逆日出勤人數長條圖 */}
+        <div className="card" style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <span style={{ fontSize: '18px' }}>📅</span>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text-main)' }}>當月逶日出勤人數</h3>
+          </div>
+          {attendanceTrend.length === 0 ? (
+            <div style={{ textAlign: 'center', fontSize: '12px', color: '#9ca3af', padding: '30px 0' }}>本月尚無出勤資料</div>
+          ) : (() => {
+            const maxAtt = Math.max(...attendanceTrend.map(d => Math.max(d.attended, d.scheduled)), 1);
+            const W = 320; const H = 120; const PAD_L = 24; const PAD_B = 20; const PAD_T = 12; const PAD_R = 8;
+            const chartW = W - PAD_L - PAD_R;
+            const chartH = H - PAD_B - PAD_T;
+            const barW = Math.max(4, Math.min(16, (chartW / attendanceTrend.length) - 3));
+            const gap = chartW / attendanceTrend.length;
+            return (
+              <div className="trend-chart-wrap">
+                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', overflow: 'visible' }}>
+                  {/* 基準線 */}
+                  <line x1={PAD_L} y1={PAD_T + chartH} x2={W - PAD_R} y2={PAD_T + chartH} stroke="#e5e7eb" strokeWidth="1" />
+                  {attendanceTrend.map((d, i) => {
+                    const cx = PAD_L + i * gap + gap / 2;
+                    const schedH = (d.scheduled / maxAtt) * chartH;
+                    const attH = (d.attended / maxAtt) * chartH;
+                    const showLabel = attendanceTrend.length <= 15 || i % 3 === 0;
+                    return (
+                      <g key={i}>
+                        {/* 應出勤（淺色底層） */}
+                        {d.scheduled > 0 && (
+                          <rect x={cx - barW / 2 - 1} y={PAD_T + chartH - schedH} width={barW + 2} height={schedH}
+                            fill="#e0e7ff" rx="2" />
+                        )}
+                        {/* 實際出勤（主色） */}
+                        {d.attended > 0 && (
+                          <rect x={cx - barW / 2} y={PAD_T + chartH - attH} width={barW} height={attH}
+                            fill={d.attended < d.scheduled ? '#f59e0b' : '#10b981'} rx="2" />
+                        )}
+                        {showLabel && (
+                          <text x={cx} y={H - 5} fontSize="8" fill="#9ca3af" textAnchor="middle">{d.day}</text>
+                        )}
+                      </g>
+                    );
+                  })}
+                </svg>
+                <div style={{ display: 'flex', gap: '16px', marginTop: '8px', justifyContent: 'center', fontSize: '11px', color: '#6b7280' }}>
+                  <span><span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '2px', backgroundColor: '#10b981', marginRight: '4px' }} />出勤正常</span>
+                  <span><span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '2px', backgroundColor: '#f59e0b', marginRight: '4px' }} />出勤不全</span>
+                  <span><span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '2px', backgroundColor: '#e0e7ff', marginRight: '4px' }} />應出勤</span>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
       </div>

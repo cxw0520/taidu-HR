@@ -1,7 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
+import { db } from '../firebase';
+import { doc, setDoc } from 'firebase/firestore';
 
 import { isOffShift } from '../utils/taiwanHrEngine';
+
+// 寫入班表更新通知
+ const writeScheduleNotice = async (message: string) => {
+  try {
+    await setDoc(doc(db, 'settings', 'scheduleNotice'), {
+      message,
+      updatedAt: Date.now()
+    });
+  } catch (e) {
+    console.error('無法寫入班表通知', e);
+  }
+};
 
 const Scheduler: React.FC = () => {
   const {
@@ -317,6 +331,7 @@ const Scheduler: React.FC = () => {
         shift: editSchedShift,
         status: editSchedStatus
       });
+      await writeScheduleNotice(`${empName} 的 ${editSchedDate} 班表已更新，請至「班表」頁面確認。`);
       setShowEditScheduleModal(false);
     } catch (err) {
       console.error(err);
@@ -343,6 +358,7 @@ const Scheduler: React.FC = () => {
     if (window.confirm(`確定要發佈 ${viewYear} 年 ${viewMonth} 月的全部班表嗎？`)) {
       try {
         await publishSchedules(viewYear, viewMonth);
+        await writeScheduleNotice(`${viewYear} 年 ${viewMonth} 月班表已發佈，請至「班表」頁面查看。`);
         alert('班表已成功發佈，員工現在可在前台查看！');
       } catch (err) {
         console.error(err);

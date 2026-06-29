@@ -809,7 +809,7 @@ const AttendanceManager: React.FC = () => {
             </div>
           </div>
           
-          <div className="table-responsive">
+          <div className="table-scroll-wrap">
             <table className="data-table">
               <thead>
                 <tr>
@@ -917,7 +917,7 @@ const AttendanceManager: React.FC = () => {
                   </div>
                   
                   {/* 異常表格 */}
-                  <div className="table-responsive" style={{ margin: 0, border: 'none' }}>
+                  <div className="table-scroll-wrap" style={{ margin: 0, border: 'none' }}>
                     <table className="data-table" style={{ borderCollapse: 'collapse', margin: 0, width: '100%' }}>
                       <thead>
                         <tr>
@@ -1091,7 +1091,7 @@ const AttendanceManager: React.FC = () => {
             </div>
           </div>
 
-          <div className="table-responsive">
+          <div className="table-scroll-wrap">
             <table className="data-table">
               <thead>
                 <tr>
@@ -1245,7 +1245,7 @@ const AttendanceManager: React.FC = () => {
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'var(--text-main)' }}>⏱️ {selectedDetailEmployee.name} - 個人工時明細 ({viewYear}年{viewMonth}月)</h3>
               <button onClick={() => { setShowWorkHoursDetailModal(false); setSelectedDetailEmployee(null); }} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
             </div>
-            <div style={{ width: '100%', overflowX: 'auto' }}>
+            <div className="table-scroll-wrap">
               <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f9fafb' }}>
