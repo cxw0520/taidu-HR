@@ -67,6 +67,20 @@ const AttendanceManager: React.FC = () => {
   const [editAttType, setEditAttType] = useState('上班');
   const [editAttStatus, setEditAttStatus] = useState('正常');
 
+  // 補卡 modal
+  const [showPunchCorrModal, setShowPunchCorrModal] = useState(false);
+  const [punchCorrException, setPunchCorrException] = useState<any>(null);
+  // Four time pickers: [time, enabled], null = no punch
+  const [punchCorr1, setPunchCorr1] = useState('');
+  const [punchCorr1En, setPunchCorr1En] = useState(false);
+  const [punchCorr2, setPunchCorr2] = useState('');
+  const [punchCorr2En, setPunchCorr2En] = useState(false);
+  const [punchCorr3, setPunchCorr3] = useState('');
+  const [punchCorr3En, setPunchCorr3En] = useState(false);
+  const [punchCorr4, setPunchCorr4] = useState('');
+  const [punchCorr4En, setPunchCorr4En] = useState(false);
+  const [punchCorrSubmitting, setPunchCorrSubmitting] = useState(false);
+
   // Calculated Month worked hours summary (Memoized)
   const monthlyWorkedHoursSummary = useMemo(() => {
     const monthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
@@ -348,6 +362,9 @@ const AttendanceManager: React.FC = () => {
       type: string;
       message: string;
       punchesStr: string;
+      shift: string;
+      shiftDef: any;
+      expectedPunches: number;
     }> = [];
 
     const monthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
@@ -448,7 +465,10 @@ const AttendanceManager: React.FC = () => {
           date,
           type: types.join('、'),
           message: msg,
-          punchesStr
+          punchesStr,
+          shift: sched.shift || '',
+          shiftDef: shiftDef || null,
+          expectedPunches
         });
       }
     });
@@ -501,6 +521,74 @@ const AttendanceManager: React.FC = () => {
     } catch (err) {
       console.error(err);
       alert('更新失敗');
+    }
+  };
+
+  // 補卡 handlers
+  const handleOpenPunchCorr = (ex: any) => {
+    setPunchCorrException(ex);
+    // Pre-fill times from the shift definition
+    const sd = ex.shiftDef;
+    if (sd) {
+      setPunchCorr1(sd.startTime || ''); setPunchCorr1En(true);
+      if (ex.expectedPunches === 4) {
+        setPunchCorr2(sd.breakStartTime || ''); setPunchCorr2En(false);
+        setPunchCorr3(sd.breakEndTime || ''); setPunchCorr3En(false);
+      } else {
+        setPunchCorr2(''); setPunchCorr2En(false);
+        setPunchCorr3(''); setPunchCorr3En(false);
+      }
+      setPunchCorr4(sd.endTime || ''); setPunchCorr4En(true);
+    } else {
+      // No shift def, parse from shift string
+      const m = (ex.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
+      setPunchCorr1(m ? m[1] : ''); setPunchCorr1En(true);
+      setPunchCorr2(''); setPunchCorr2En(false);
+      setPunchCorr3(''); setPunchCorr3En(false);
+      setPunchCorr4(m ? m[2] : ''); setPunchCorr4En(true);
+    }
+    setShowPunchCorrModal(true);
+  };
+
+  const handlePunchCorrSubmit = async () => {
+    if (!punchCorrException) return;
+    const { employeeId, empName, date } = punchCorrException;
+    const punches = [
+      { enabled: punchCorr1En, time: punchCorr1, type: '上班' },
+      { enabled: punchCorr2En, time: punchCorr2, type: '下班' },
+      { enabled: punchCorr3En, time: punchCorr3, type: '上班' },
+      { enabled: punchCorr4En, time: punchCorr4, type: '下班' },
+    ].filter(p => p.enabled && p.time);
+
+    if (punches.length === 0) {
+      alert('請至少勾選一筆補卡時間');
+      return;
+    }
+
+    setPunchCorrSubmitting(true);
+    try {
+      for (const p of punches) {
+        await addAttendanceRecord({
+          employeeId,
+          empName,
+          date,
+          time: p.time,
+          type: p.type,
+          status: '正常',
+          photo: '',
+          location: '後台補卡（異常補登）',
+          timestamp: Date.now(),
+          source: 'admin_correction'
+        });
+      }
+      setShowPunchCorrModal(false);
+      setPunchCorrException(null);
+      alert(`✅ 已成功為 ${empName} 在 ${date} 補登 ${punches.length} 筆打卡紀錄！`);
+    } catch (err) {
+      console.error(err);
+      alert('補卡失敗，請重試');
+    } finally {
+      setPunchCorrSubmitting(false);
     }
   };
 
@@ -790,6 +878,7 @@ const AttendanceManager: React.FC = () => {
                           <th style={{ width: '150px' }}>異常類型</th>
                           <th>打卡紀錄</th>
                           <th>排班資訊</th>
+                          <th style={{ width: '80px', textAlign: 'center' }}>操作</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -819,6 +908,24 @@ const AttendanceManager: React.FC = () => {
                             <td data-label="排班資訊" style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
                               {ex.message}
                             </td>
+                            <td data-label="操作" style={{ textAlign: 'center' }}>
+                              <button
+                                onClick={() => handleOpenPunchCorr(ex)}
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '6px',
+                                  border: 'none',
+                                  backgroundColor: 'rgba(79, 70, 229, 0.12)',
+                                  color: 'var(--primary)',
+                                  fontSize: '12px',
+                                  fontWeight: '700',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                ✏️ 補卡
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -827,6 +934,69 @@ const AttendanceManager: React.FC = () => {
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 補卡 Modal */}
+      {showPunchCorrModal && punchCorrException && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', width: '90%', maxWidth: '480px', boxShadow: '0 20px 40px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ marginBottom: '6px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>✏️ 補卡登記</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '20px' }}>
+              員工：<strong>{punchCorrException.empName}</strong> ／ 日期：<strong>{punchCorrException.date}</strong><br/>
+              班別：{punchCorrException.shift || '不明'}
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Punch 1: 上班 */}
+              {[{ label: '① 上班卡', type: '上班', en: punchCorr1En, setEn: setPunchCorr1En, val: punchCorr1, setVal: setPunchCorr1 },
+                { label: '② 休息開始（下班卡）', type: '下班', en: punchCorr2En, setEn: setPunchCorr2En, val: punchCorr2, setVal: setPunchCorr2 },
+                { label: '③ 休息結束（上班卡）', type: '上班', en: punchCorr3En, setEn: setPunchCorr3En, val: punchCorr3, setVal: setPunchCorr3 },
+                { label: '④ 下班卡', type: '下班', en: punchCorr4En, setEn: setPunchCorr4En, val: punchCorr4, setVal: setPunchCorr4 },
+              ].map((p, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '10px', backgroundColor: p.en ? 'rgba(79,70,229,0.06)' : '#f9fafb', border: `1px solid ${p.en ? 'rgba(79,70,229,0.25)' : 'var(--border)'}`, transition: 'all 0.2s' }}>
+                  <input
+                    type="checkbox"
+                    checked={p.en}
+                    onChange={e => p.setEn(e.target.checked)}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--primary)', flexShrink: 0 }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: p.en ? 'var(--primary)' : 'var(--text-muted)', marginBottom: '4px' }}>
+                      {p.label}
+                      <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: '500', padding: '1px 6px', borderRadius: '4px', backgroundColor: p.type === '上班' ? '#dcfce7' : '#fce7f3', color: p.type === '上班' ? '#16a34a' : '#db2777' }}>{p.type}</span>
+                    </div>
+                    <input
+                      type="time"
+                      value={p.val}
+                      onChange={e => p.setVal(e.target.value)}
+                      disabled={!p.en}
+                      style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: p.en ? '#fff' : '#f3f4f6', color: p.en ? '#1e293b' : '#94a3b8', width: '130px', cursor: p.en ? 'text' : 'not-allowed' }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '14px' }}>✅ 勾選的項目才會補登打卡紀錄，未勾選的不會建立。</p>
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+              <button
+                onClick={() => { setShowPunchCorrModal(false); setPunchCorrException(null); }}
+                disabled={punchCorrSubmitting}
+                style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handlePunchCorrSubmit}
+                disabled={punchCorrSubmitting}
+                style={{ flex: 2, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: punchCorrSubmitting ? '#a5b4fc' : 'var(--primary)', color: '#fff', cursor: punchCorrSubmitting ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '14px' }}
+              >
+                {punchCorrSubmitting ? '補登中...' : '✅ 確認補卡'}
+              </button>
+            </div>
           </div>
         </div>
       )}
