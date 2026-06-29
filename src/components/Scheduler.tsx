@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 
 import { isOffShift } from '../utils/taiwanHrEngine';
+import WeeklyStationBoard from './WeeklyStationBoard';
 
 const Scheduler: React.FC = () => {
   const {
@@ -49,6 +50,16 @@ const Scheduler: React.FC = () => {
   const [editSchedDate, setEditSchedDate] = useState<string>('');
   const [editSchedShift, setEditSchedShift] = useState<string>('');
   const [editSchedStatus, setEditSchedStatus] = useState<string>('已確認');
+
+  // Weekly Station Board Modal
+  const [showWeeklyBoardModal, setShowWeeklyBoardModal] = useState<boolean>(false);
+  const [weeklyBoardStartDate] = useState<string>(() => {
+    const today = new Date();
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(today.setDate(diff));
+    return monday.toLocaleDateString('sv');
+  });
 
   // Initialize Default Shifts in Dropdown
   useEffect(() => {
@@ -391,6 +402,9 @@ const Scheduler: React.FC = () => {
               setSchedDate(`${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`);
               setShowScheduleModal(true);
             }}>+ 新增排班</button>
+            <button className="btn-primary btn-sm" onClick={() => setShowWeeklyBoardModal(true)} style={{ backgroundColor: '#8b5cf6' }}>
+              📋 每週崗位配置
+            </button>
             <button className="btn-primary btn-sm" onClick={handlePublishClick} style={{ backgroundColor: '#10b981' }}>
               📢 發佈本月班表
             </button>
@@ -1003,6 +1017,14 @@ const Scheduler: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* 每週崗位快速配置 Modal */}
+      {showWeeklyBoardModal && (
+        <WeeklyStationBoard 
+          onClose={() => setShowWeeklyBoardModal(false)} 
+          initialStartDate={weeklyBoardStartDate} 
+        />
       )}
     </div>
   );

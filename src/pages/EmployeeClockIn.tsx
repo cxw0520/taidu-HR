@@ -60,6 +60,9 @@ const EmployeeClockIn: React.FC = () => {
   const [myAppeals, setMyAppeals] = useState<any[]>([]);
   const [shiftsList, setShiftsList] = useState<any[]>([]);
 
+  // 任務指示 Modal
+  const [viewingInstruction, setViewingInstruction] = useState<{ date: string; station: string; text: string } | null>(null);
+
   // ── 請假表單 ──
   const [leaveType, setLeaveType] = useState('sick');
   const [leaveStart, setLeaveStart] = useState('');
@@ -945,8 +948,35 @@ const EmployeeClockIn: React.FC = () => {
         )}
 
         {/* ── 打卡 Tab ── */}
-        {activeSubTab === 'clock' && (
+        {activeSubTab === 'clock' && (() => {
+          const todayStrLocal = new Date().toLocaleDateString('sv');
+          const todaySched = mySchedules.find(s => s.date === todayStrLocal && !isOffShift(s.shift));
+          const hasStationOrInstruction = todaySched && (todaySched.station || todaySched.stationInstruction);
+
+          return (
           <div className="tab-panel">
+            {/* 今日任務卡片 */}
+            {hasStationOrInstruction && (
+              <div style={{ background: 'linear-gradient(135deg, #f5f3ff 0%, #e0e7ff 100%)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary)', fontWeight: '800', fontSize: '15px', marginBottom: '8px' }}>
+                  <span>📋 今日崗位任務</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {todaySched.station && (
+                    <div style={{ fontSize: '14px', color: '#374151', fontWeight: '700' }}>
+                      📍 負責崗位：<span style={{ color: '#4f46e5', backgroundColor: '#e0e7ff', padding: '2px 8px', borderRadius: '6px' }}>{todaySched.station}</span>
+                    </div>
+                  )}
+                  {todaySched.stationInstruction && (
+                    <div style={{ fontSize: '13px', color: '#4b5563', backgroundColor: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', marginTop: '4px', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
+                      <div style={{ fontWeight: '700', marginBottom: '4px', color: '#6b7280', fontSize: '12px' }}>📝 主管指示：</div>
+                      {todaySched.stationInstruction}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* 特休產生與過期通知 */}
             {specialLeaveNotifications.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
@@ -1015,7 +1045,8 @@ const EmployeeClockIn: React.FC = () => {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* ── 班表 Tab（日曆型）── */}
         {activeSubTab === 'schedule' && (() => {
@@ -1119,8 +1150,22 @@ const EmployeeClockIn: React.FC = () => {
                             <div style={{ fontSize: '10px', fontWeight: '700', color: '#fff', backgroundColor: '#10b981',
                               borderRadius: '4px', padding: '1px 5px', whiteSpace: 'nowrap',
                               maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{shiftShort}</div>
-                            {shiftTime && (
-                              <div style={{ fontSize: '8px', color: '#6b7280', lineHeight: 1.3, textAlign: 'center', wordBreak: 'break-all' }}>{shiftTime}</div>
+                            {sched.station && (
+                              <div style={{ fontSize: '9px', fontWeight: '800', color: '#4f46e5', backgroundColor: '#e0e7ff', borderRadius: '4px', padding: '1px 4px', whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>
+                                {sched.station}
+                              </div>
+                            )}
+                            {sched.stationInstruction && (
+                              <div 
+                                onClick={(e) => { e.stopPropagation(); setViewingInstruction({ date: dateStr, station: sched.station || '未指定崗位', text: sched.stationInstruction }); }} 
+                                style={{ fontSize: '12px', cursor: 'pointer', marginTop: '1px' }} 
+                                title="點擊查看工作指示"
+                              >
+                                📝
+                              </div>
+                            )}
+                            {shiftTime && !sched.stationInstruction && (
+                              <div style={{ fontSize: '8px', color: '#6b7280', lineHeight: 1.3, textAlign: 'center', wordBreak: 'break-all', marginTop: '1px' }}>{shiftTime}</div>
                             )}
                           </>
                         )
@@ -2084,6 +2129,30 @@ const EmployeeClockIn: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 工作指示 Modal */}
+      {viewingInstruction && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1001, padding: '20px' }}>
+          <div className="glass-card fade-in" style={{ width: '100%', maxWidth: '400px', padding: '24px', borderRadius: '16px', backgroundColor: '#ffffff', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h4 style={{ margin: 0, color: 'var(--primary)', fontSize: '18px', fontWeight: '800' }}>📋 任務指示</h4>
+              <button onClick={() => setViewingInstruction(null)} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: '#9ca3af' }}>×</button>
+            </div>
+            <div style={{ marginBottom: '12px', fontSize: '14px', color: '#4b5563', fontWeight: '600' }}>
+              日期：{viewingInstruction.date}
+            </div>
+            <div style={{ marginBottom: '16px', fontSize: '14px', color: '#4b5563', fontWeight: '600' }}>
+              崗位：<span style={{ color: '#4f46e5', backgroundColor: '#e0e7ff', padding: '2px 8px', borderRadius: '6px' }}>{viewingInstruction.station}</span>
+            </div>
+            <div style={{ fontSize: '14px', color: '#374151', backgroundColor: '#f9fafb', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
+              {viewingInstruction.text}
+            </div>
+            <button onClick={() => setViewingInstruction(null)} style={{ width: '100%', marginTop: '20px', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', fontWeight: '700', fontSize: '15px', cursor: 'pointer' }}>
+              我知道了
+            </button>
           </div>
         </div>
       )}
