@@ -92,9 +92,13 @@ const AttendanceManager: React.FC = () => {
         dailyDetails?: Array<{
           date: string;
           punch1: string;
+          punch1Eff?: string;
           punch2: string;
+          punch2Eff?: string;
           punch3: string;
+          punch3Eff?: string;
           punch4: string;
+          punch4Eff?: string;
           hours: number;
         }>;
       } 
@@ -125,9 +129,13 @@ const AttendanceManager: React.FC = () => {
       const dailyDetails: Array<{
         date: string;
         punch1: string;
+        punch1Eff?: string;
         punch2: string;
+        punch2Eff?: string;
         punch3: string;
+        punch3Eff?: string;
         punch4: string;
+        punch4Eff?: string;
         hours: number;
       }> = [];
 
@@ -202,6 +210,29 @@ const AttendanceManager: React.FC = () => {
         let firstInTime = 0;
         let lastOutTime = 0;
 
+        // Initialize punches fallbacks
+        let punch1 = '—';
+        let punch2 = '—';
+        let punch3 = '—';
+        let punch4 = '—';
+
+        const ins = sortedRecs.filter(r => r.type === '上班');
+        const outs = sortedRecs.filter(r => r.type === '下班');
+        if (sortedRecs.length <= 2) {
+          punch1 = ins[0]?.time || '—';
+          punch4 = outs[0]?.time || '—';
+        } else {
+          punch1 = ins[0]?.time || '—';
+          punch2 = outs[0]?.time || '—';
+          punch3 = ins[1]?.time || '—';
+          punch4 = outs[1]?.time || '—';
+        }
+
+        let punch1Eff = punch1;
+        let punch2Eff = punch2;
+        let punch3Eff = punch3;
+        let punch4Eff = punch4;
+
         let idx = 0;
         while (idx < sortedRecs.length) {
           if (sortedRecs[idx].type === '上班') {
@@ -255,6 +286,36 @@ const AttendanceManager: React.FC = () => {
               lastOutTime = effectiveOut;
 
               dayHours += Math.max(0, effectiveOut - effectiveIn);
+
+              const formatDecimalToTimeStr = (tDec: number) => {
+                const totalMins = Math.round(tDec * 60);
+                const hrs = Math.floor(totalMins / 60) % 24;
+                const mins = totalMins % 60;
+                return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+              };
+
+              const actInStr = sortedRecs[idx].time || '—';
+              const actOutStr = nextOut.time || '—';
+              const effInStr = formatDecimalToTimeStr(effectiveIn);
+              const effOutStr = formatDecimalToTimeStr(effectiveOut);
+
+              if (punchPairsCount === 0) {
+                punch1 = actInStr;
+                punch1Eff = effInStr;
+                if (totalPairs <= 1) {
+                  punch4 = actOutStr;
+                  punch4Eff = effOutStr;
+                } else {
+                  punch2 = actOutStr;
+                  punch2Eff = effOutStr;
+                }
+              } else if (punchPairsCount === 1) {
+                punch3 = actInStr;
+                punch3Eff = effInStr;
+                punch4 = actOutStr;
+                punch4Eff = effOutStr;
+              }
+
               punchPairsCount++;
               idx = nextOutIndex + 1;
             } else {
@@ -300,30 +361,16 @@ const AttendanceManager: React.FC = () => {
         dayHours = Math.round(dayHours * 100) / 100;
         totalHours += dayHours;
 
-        const ins = sortedRecs.filter(r => r.type === '上班');
-        const outs = sortedRecs.filter(r => r.type === '下班');
-        
-        let punch1 = '—';
-        let punch2 = '—';
-        let punch3 = '—';
-        let punch4 = '—';
-
-        if (sortedRecs.length <= 2) {
-          punch1 = ins[0]?.time || '—';
-          punch4 = outs[0]?.time || '—';
-        } else {
-          punch1 = ins[0]?.time || '—';
-          punch2 = outs[0]?.time || '—';
-          punch3 = ins[1]?.time || '—';
-          punch4 = outs[1]?.time || '—';
-        }
-
         dailyDetails.push({
           date,
           punch1,
+          punch1Eff,
           punch2,
+          punch2Eff,
           punch3,
+          punch3Eff,
           punch4,
+          punch4Eff,
           hours: dayHours
         });
       });
@@ -1216,16 +1263,29 @@ const AttendanceManager: React.FC = () => {
                       <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>此月份無出勤明細紀錄。</td>
                     </tr>
                   ) : (
-                    selectedDetailEmployee.dailyDetails.map((detail: any, idx: number) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                        <td style={{ padding: '12px', fontWeight: '600', color: 'var(--text-main)' }}>{detail.date}</td>
-                        <td style={{ padding: '12px', color: detail.punch1 === '—' ? '#9ca3af' : 'inherit' }}>{detail.punch1}</td>
-                        <td style={{ padding: '12px', color: detail.punch2 === '—' ? '#9ca3af' : 'inherit' }}>{detail.punch2}</td>
-                        <td style={{ padding: '12px', color: detail.punch3 === '—' ? '#9ca3af' : 'inherit' }}>{detail.punch3}</td>
-                        <td style={{ padding: '12px', color: detail.punch4 === '—' ? '#9ca3af' : 'inherit' }}>{detail.punch4}</td>
-                        <td style={{ padding: '12px', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{detail.hours.toFixed(1)} 小時</td>
-                      </tr>
-                    ))
+                    selectedDetailEmployee.dailyDetails.map((detail: any, idx: number) => {
+                      const renderPunchCell = (act: string, eff: string) => {
+                        if (!act || act === '—') return <span style={{ color: '#9ca3af' }}>—</span>;
+                        if (!eff || eff === '—' || act === eff) return <span>{act}</span>;
+                        return (
+                          <span>
+                            <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>{act}</span>
+                            <span style={{ color: '#4f46e5', fontWeight: '700' }}>➔ {eff}</span>
+                          </span>
+                        );
+                      };
+
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: '12px', fontWeight: '600', color: 'var(--text-main)' }}>{detail.date}</td>
+                          <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch1, detail.punch1Eff)}</td>
+                          <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch2, detail.punch2Eff)}</td>
+                          <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch3, detail.punch3Eff)}</td>
+                          <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch4, detail.punch4Eff)}</td>
+                          <td style={{ padding: '12px', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{detail.hours.toFixed(1)} 小時</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
