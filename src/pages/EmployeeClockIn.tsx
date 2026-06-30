@@ -1198,7 +1198,6 @@ const EmployeeClockIn: React.FC = () => {
                     </div>
                   )}
                 </div>
->>>>>>> origin/weekly-shift-station-assignment
               </div>
             )}
 
