@@ -74,7 +74,7 @@ const WeeklyStationBoard: React.FC<WeeklyStationBoardProps> = ({ onClose, initia
   };
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+    <div className="weekly-board-overlay">
       <div className="glass-card" style={{ width: '95%', maxWidth: '1200px', height: '90vh', display: 'flex', flexDirection: 'column', padding: '24px', borderRadius: '16px', backgroundColor: '#ffffff', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', overflow: 'hidden' }}>
         
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -173,7 +173,7 @@ const WeeklyStationBoard: React.FC<WeeklyStationBoardProps> = ({ onClose, initia
 
       {/* Instruction Modal */}
       {editingInstructionId && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1001 }}>
+        <div className="weekly-board-submodal-overlay">
           <div className="glass-card" style={{ width: '90%', maxWidth: '400px', padding: '24px', borderRadius: '12px', backgroundColor: '#ffffff' }}>
             <h4 style={{ margin: '0 0 16px 0', color: 'var(--primary)', fontSize: '16px' }}>📝 編輯工作指示</h4>
             <textarea 

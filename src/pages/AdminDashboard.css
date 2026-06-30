@@ -592,3 +592,40 @@
 .calendar-stats-container {
   animation: fadeIn 0.3s ease-in-out;
 }
+
+/* ── 每週崗位配置彈窗遮罩 ── */
+.weekly-board-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.weekly-board-submodal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1001;
+}
+
+@media (min-width: 769px) {
+  .weekly-board-overlay {
+    left: 260px; /* 避開左側 260px 導覽列 */
+  }
+  .weekly-board-submodal-overlay {
+    left: 260px; /* 避開左側 260px 導覽列 */
+  }
+}
