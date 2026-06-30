@@ -10,6 +10,7 @@ const LEAVE_TYPES = [
   { value: 'bereavement', label: '喪假' },
   { value: 'menstrual', label: '生理假' },
   { value: 'prenatal', label: '產前假' },
+  { value: 'shift_adj', label: '班別調整' },
 ];
 
 const LEAVE_QUOTA: Record<string, number> = { sick: 30, personal: 14, menstrual: 3, marriage: 8 };
@@ -46,6 +47,23 @@ export const LeavesManager: React.FC = () => {
   const [editLeaveHours, setEditLeaveHours] = useState(8);
   const [editLeaveStatus, setEditLeaveStatus] = useState('pending');
   const [editLeaveReason, setEditLeaveReason] = useState('');
+  const [editLeaveStartTime, setEditLeaveStartTime] = useState('');
+  const [editLeaveEndTime, setEditLeaveEndTime] = useState('');
+
+  // 自動計算編輯中的時數
+  React.useEffect(() => {
+    if (editLeaveType === 'shift_adj' && editLeaveStartTime && editLeaveEndTime) {
+      const parseTimeToMins = (t: string) => {
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
+      const start = parseTimeToMins(editLeaveStartTime);
+      let end = parseTimeToMins(editLeaveEndTime);
+      if (end < start) end += 24 * 60; // 跨夜
+      const diffHrs = Math.round(((end - start) / 60) * 10) / 10;
+      setEditLeaveHours(diffHrs);
+    }
+  }, [editLeaveType, editLeaveStartTime, editLeaveEndTime]);
 
   // Annual leave calculations
   const calcAnnual = (onboardDate: string): number => {
@@ -79,20 +97,31 @@ export const LeavesManager: React.FC = () => {
     setEditLeaveHours(Number(leave.hours) || 8);
     setEditLeaveStatus(leave.status || 'pending');
     setEditLeaveReason(leave.reason || '');
+    setEditLeaveStartTime(leave.startTime || '');
+    setEditLeaveEndTime(leave.endTime || '');
     setShowEditLeaveModal(true);
   };
 
   const handleUpdateLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await updateLeave(editLeaveId, {
+      const updateData: any = {
         leaveType: editLeaveType,
         startDate: editLeaveStart,
         endDate: editLeaveEnd,
         hours: Number(editLeaveHours),
         status: editLeaveStatus,
         reason: editLeaveReason
-      });
+      };
+
+      if (editLeaveType === 'shift_adj') {
+        updateData.startTime = editLeaveStartTime;
+        updateData.endTime = editLeaveEndTime;
+        updateData.periodLabel = `調整 (${editLeaveStartTime} - ${editLeaveEndTime})`;
+        updateData.leavePeriod = 'hour';
+      }
+
+      await updateLeave(editLeaveId, updateData);
       setShowEditLeaveModal(false);
       alert('✅ 假單更新成功！');
     } catch (err) {
@@ -547,14 +576,40 @@ export const LeavesManager: React.FC = () => {
                 />
               </div>
 
+              {editLeaveType === 'shift_adj' && (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假開始時間</label>
+                    <input 
+                      type="time" 
+                      required 
+                      value={editLeaveStartTime} 
+                      onChange={(e) => setEditLeaveStartTime(e.target.value)} 
+                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假結束時間</label>
+                    <input 
+                      type="time" 
+                      required 
+                      value={editLeaveEndTime} 
+                      onChange={(e) => setEditLeaveEndTime(e.target.value)} 
+                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                    />
+                  </div>
+                </>
+              )}
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>時數 (小時)</label>
                 <input 
                   type="number" 
                   required 
+                  disabled={editLeaveType === 'shift_adj'}
                   value={editLeaveHours} 
                   onChange={(e) => setEditLeaveHours(Number(e.target.value))} 
-                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: editLeaveType === 'shift_adj' ? '#f3f4f6' : '#fff' }}
                 />
               </div>
 

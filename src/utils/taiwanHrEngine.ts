@@ -605,4 +605,59 @@ export function calculateSpecialLeavePeriods(
   return periods;
 }
 
+/**
+ * 依據核准的「班別調整（shift_adj）」假單，動態增延預期上班時間或縮減預期下班時間
+ */
+export function getAdjustedShiftTimes(
+  startTimeStr: string,
+  endTimeStr: string,
+  dayLeaves: any[]
+) {
+  let adjustedStart = startTimeStr;
+  let adjustedEnd = endTimeStr;
+
+  if (!startTimeStr || !endTimeStr) {
+    return { adjustedStart, adjustedEnd };
+  }
+
+  // 篩選當天已核准的班別調整假單
+  const shiftAdjLeaves = (dayLeaves || []).filter(
+    l => l.leaveType === 'shift_adj' && l.status === 'approved' && l.startTime && l.endTime
+  );
+
+  if (shiftAdjLeaves.length === 0) {
+    return { adjustedStart, adjustedEnd };
+  }
+
+  let startMins = parseTimeStrToMinutes(startTimeStr);
+  let endMins = parseTimeStrToMinutes(endTimeStr);
+  if (endMins < startMins) endMins += 24 * 60; // 跨夜
+
+  for (const lv of shiftAdjLeaves) {
+    let lvStartMins = parseTimeStrToMinutes(lv.startTime);
+    let lvEndMins = parseTimeStrToMinutes(lv.endTime);
+    if (lvEndMins < lvStartMins) lvEndMins += 24 * 60; // 跨夜
+
+    // 情況一：請假區間包含班表的最尾段（如原班表 12-20，請假 19-20）
+    if (lvStartMins < endMins && lvEndMins >= endMins) {
+      endMins = Math.min(endMins, lvStartMins);
+    }
+    // 情況二：請假區間包含班表的最首段（如原班表 12-20，請假 12-13）
+    if (lvStartMins <= startMins && lvEndMins > startMins) {
+      startMins = Math.max(startMins, lvEndMins);
+    }
+  }
+
+  const minsToTimeStr = (totalMins: number) => {
+    const hrs = Math.floor(totalMins / 60) % 24;
+    const mins = totalMins % 60;
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+  };
+
+  adjustedStart = minsToTimeStr(startMins);
+  adjustedEnd = minsToTimeStr(endMins);
+
+  return { adjustedStart, adjustedEnd };
+}
+
 

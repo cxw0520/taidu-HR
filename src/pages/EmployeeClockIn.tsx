@@ -7,7 +7,7 @@ import {
   doc, getDoc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
-import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes } from '../utils/taiwanHrEngine';
 
 const LEAVE_TYPES = [
   { value: 'sick',        label: '病假 (半薪)',  yearlyDays: 30 },
@@ -73,6 +73,8 @@ const EmployeeClockIn: React.FC = () => {
   const [annualLeaveUnit, setAnnualLeaveUnit] = useState<'day' | 'hour'>('day');
   const [leaveDaysInput, setLeaveDaysInput] = useState<number>(1);
   const [leaveReason, setLeaveReason] = useState('');
+  const [leaveStartTime, setLeaveStartTime] = useState('');
+  const [leaveEndTime, setLeaveEndTime] = useState('');
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const [leaveMsg, setLeaveMsg] = useState({ type: '', text: '' });
 
@@ -87,6 +89,8 @@ const EmployeeClockIn: React.FC = () => {
   const [editAnnualLeaveUnit, setEditAnnualLeaveUnit] = useState<'day' | 'hour'>('day');
   const [editLeaveDaysInput, setEditLeaveDaysInput] = useState<number>(1);
   const [editLeaveReason, setEditLeaveReason] = useState('');
+  const [editLeaveStartTime, setEditLeaveStartTime] = useState('');
+  const [editLeaveEndTime, setEditLeaveEndTime] = useState('');
 
   // ── 加班表單 ──
   const [otDate, setOtDate] = useState('');
@@ -198,6 +202,35 @@ const EmployeeClockIn: React.FC = () => {
     });
     return () => { unsubRules(); unsubShifts(); unsubNotice(); };
   }, []);
+
+  // ── 自動計算班別調整時長 ──
+  useEffect(() => {
+    if (leaveType === 'shift_adj' && leaveStartTime && leaveEndTime) {
+      const parseTimeToMins = (t: string) => {
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
+      const start = parseTimeToMins(leaveStartTime);
+      let end = parseTimeToMins(leaveEndTime);
+      if (end < start) end += 24 * 60; // 跨夜
+      const diffHrs = Math.round(((end - start) / 60) * 10) / 10;
+      setLeaveHours(diffHrs);
+    }
+  }, [leaveType, leaveStartTime, leaveEndTime]);
+
+  useEffect(() => {
+    if (editLeaveType === 'shift_adj' && editLeaveStartTime && editLeaveEndTime) {
+      const parseTimeToMins = (t: string) => {
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
+      const start = parseTimeToMins(editLeaveStartTime);
+      let end = parseTimeToMins(editLeaveEndTime);
+      if (end < start) end += 24 * 60; // 跨夜
+      const diffHrs = Math.round(((end - start) / 60) * 10) / 10;
+      setEditLeaveHours(diffHrs);
+    }
+  }, [editLeaveType, editLeaveStartTime, editLeaveEndTime]);
 
   // ── 員工資料監聽 ──
   useEffect(() => {
@@ -326,8 +359,15 @@ const EmployeeClockIn: React.FC = () => {
                 if (sched) {
                   const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
                   if (timeMatch) {
-                    const expectedInMins = parseTimeStrToMinutes(timeMatch[1]);
-                    let expectedOutMins = parseTimeStrToMinutes(timeMatch[2]);
+                    let startTimeStr = timeMatch[1];
+                    let endTimeStr = timeMatch[2];
+
+                    // 依核准的「班別調整」請假單調整班表時間
+                    const dayLeaves = myLeaves.filter(l => l.startDate <= dateStr && l.endDate >= dateStr);
+                    const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
+
+                    const expectedInMins = parseTimeStrToMinutes(adjustedStart);
+                    let expectedOutMins = parseTimeStrToMinutes(adjustedEnd);
                     if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
 
                     effectiveIn = inMins <= expectedInMins ? expectedInMins : inMins;
@@ -696,6 +736,9 @@ const EmployeeClockIn: React.FC = () => {
         computedHours = leaveHours;
         periodLabel = '按小時';
       }
+    } else if (leaveType === 'shift_adj') {
+      computedHours = leaveHours;
+      periodLabel = `調整 (${leaveStartTime} - ${leaveEndTime})`;
     }
 
     if (computedHours <= 0) {
@@ -706,22 +749,28 @@ const EmployeeClockIn: React.FC = () => {
     setLeaveSubmitting(true);
     setLeaveMsg({ type: '', text: '' });
     try {
-      await addDoc(collection(db, 'leaves'), {
+      const docData: any = {
         employeeId: user.uid,
         empName: employeeName || user.email || '未名員工',
         leaveType,
         startDate: leaveStart,
         endDate: leaveEnd,
-        leavePeriod: leaveType === 'annual' ? (annualLeaveUnit === 'day' ? 'full' : 'hour') : leavePeriod,
+        leavePeriod: leaveType === 'annual' ? (annualLeaveUnit === 'day' ? 'full' : 'hour') : (leaveType === 'shift_adj' ? 'hour' : leavePeriod),
         periodLabel,
         hours: computedHours,
         reason: leaveReason,
         status: 'pending',
         timestamp: Date.now()
-      });
+      };
+      if (leaveType === 'shift_adj') {
+        docData.startTime = leaveStartTime;
+        docData.endTime = leaveEndTime;
+      }
+      await addDoc(collection(db, 'leaves'), docData);
       setLeaveMsg({ type: 'success', text: '請假申請已送出，等待主管審核' });
       setLeaveStart(''); setLeaveEnd(''); setLeaveReason(''); setLeaveHours(8); setLeavePeriod('full');
       setLeaveDaysInput(1);
+      setLeaveStartTime(''); setLeaveEndTime('');
     } catch (err: any) {
       setLeaveMsg({ type: 'error', text: err.message || '送出失敗，請稍後再試' });
     } finally { setLeaveSubmitting(false); }
@@ -737,6 +786,8 @@ const EmployeeClockIn: React.FC = () => {
     setEditLeavePeriod(lv.leavePeriod || 'full');
     setEditLeaveHours(Number(lv.hours) || 8);
     setEditLeaveReason(lv.reason || '');
+    setEditLeaveStartTime(lv.startTime || '');
+    setEditLeaveEndTime(lv.endTime || '');
 
     const isAnnual = lv.leaveType === 'annual';
     if (isAnnual) {
@@ -771,6 +822,10 @@ const EmployeeClockIn: React.FC = () => {
           periodLbl = '按小時';
           finalPeriod = 'hour';
         }
+      } else if (editLeaveType === 'shift_adj') {
+        finalHours = Number(editLeaveHours);
+        periodLbl = `調整 (${editLeaveStartTime} - ${editLeaveEndTime})`;
+        finalPeriod = 'hour';
       }
 
       if (finalHours <= 0) {
@@ -778,7 +833,7 @@ const EmployeeClockIn: React.FC = () => {
         return;
       }
 
-      await updateDoc(doc(db, 'leaves', editLeaveId), {
+      const updateData: any = {
         leaveType: editLeaveType,
         startDate: editLeaveStart,
         endDate: editLeaveEnd,
@@ -786,7 +841,14 @@ const EmployeeClockIn: React.FC = () => {
         periodLabel: periodLbl,
         hours: finalHours,
         reason: editLeaveReason
-      });
+      };
+
+      if (editLeaveType === 'shift_adj') {
+        updateData.startTime = editLeaveStartTime;
+        updateData.endTime = editLeaveEndTime;
+      }
+
+      await updateDoc(doc(db, 'leaves', editLeaveId), updateData);
       setShowEditLeaveModal(false);
       alert('請假單修改成功！');
     } catch (err: any) {
@@ -943,7 +1005,10 @@ const EmployeeClockIn: React.FC = () => {
     if (status === 'cancelled')  return { label: '🚫 已撤銷', color: '#9ca3af', bg: 'rgba(156,163,175,0.1)' };
     return { label: '⏳ 待審核', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' };
   };
-  const leaveTypeLabel = (type: string) => LEAVE_TYPES.find(l => l.value === type)?.label || type;
+  const leaveTypeLabel = (type: string) => {
+    const allTypes = [...LEAVE_TYPES, { value: 'shift_adj', label: '班別調整' }];
+    return allTypes.find(l => l.value === type)?.label || type;
+  };
 
   const formattedTime = currentTime.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const formattedDate = currentTime.toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
@@ -1391,7 +1456,10 @@ const EmployeeClockIn: React.FC = () => {
                       <div>
                         <label style={labelStyle}>假別</label>
                         <select value={leaveType} onChange={e => setLeaveType(e.target.value)} style={inputStyle}>
-                          {LEAVE_TYPES.map(lt => <option key={lt.value} value={lt.value}>{lt.label}</option>)}
+                          {(employeeProfile?.salaryType === 'hourly'
+                            ? [...LEAVE_TYPES, { value: 'shift_adj', label: '班別調整' }]
+                            : LEAVE_TYPES
+                          ).map(lt => <option key={lt.value} value={lt.value}>{lt.label}</option>)}
                         </select>
                       </div>
                       {leaveType === 'annual' ? (
@@ -1414,6 +1482,21 @@ const EmployeeClockIn: React.FC = () => {
                               <input type="number" min={0.5} step={0.5} max={240} value={leaveHours} onChange={e => setLeaveHours(Number(e.target.value))} style={inputStyle} />
                             </div>
                           )}
+                        </>
+                      ) : leaveType === 'shift_adj' ? (
+                        <>
+                          <div>
+                            <label style={labelStyle}>請假開始時間</label>
+                            <input type="time" required value={leaveStartTime} onChange={e => setLeaveStartTime(e.target.value)} style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>請假結束時間</label>
+                            <input type="time" required value={leaveEndTime} onChange={e => setLeaveEndTime(e.target.value)} style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>請假時數 (根據時間自動計算)</label>
+                            <input type="number" disabled value={leaveHours} style={{ ...inputStyle, backgroundColor: '#f3f4f6', cursor: 'not-allowed' }} />
+                          </div>
                         </>
                       ) : (
                         <>
@@ -2027,7 +2110,10 @@ const EmployeeClockIn: React.FC = () => {
                   onChange={(e) => setEditLeaveType(e.target.value)}
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
-                  {LEAVE_TYPES.map(lt => (
+                  {(employeeProfile?.salaryType === 'hourly'
+                    ? [...LEAVE_TYPES, { value: 'shift_adj', label: '班別調整' }]
+                    : LEAVE_TYPES
+                  ).map(lt => (
                     <option key={lt.value} value={lt.value}>{lt.label}</option>
                   ))}
                 </select>
@@ -2072,6 +2158,38 @@ const EmployeeClockIn: React.FC = () => {
                       />
                     </div>
                   )}
+                </>
+              ) : editLeaveType === 'shift_adj' ? (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假開始時間</label>
+                    <input 
+                      type="time" 
+                      required 
+                      value={editLeaveStartTime} 
+                      onChange={(e) => setEditLeaveStartTime(e.target.value)} 
+                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假結束時間</label>
+                    <input 
+                      type="time" 
+                      required 
+                      value={editLeaveEndTime} 
+                      onChange={(e) => setEditLeaveEndTime(e.target.value)} 
+                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假時數 (根據時間自動計算)</label>
+                    <input 
+                      type="number" 
+                      disabled 
+                      value={editLeaveHours} 
+                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
+                    />
+                  </div>
                 </>
               ) : (
                 <>

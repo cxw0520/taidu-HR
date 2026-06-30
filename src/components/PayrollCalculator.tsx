@@ -168,7 +168,7 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
@@ -318,6 +318,11 @@ export const PayrollCalculator: React.FC = () => {
                     if (!endTimeStr) endTimeStr = timeMatch[2];
                   }
                 }
+                // 依核准的「班別調整」請假單調整預期上下班時間
+                const dayLeaves = approvedLeaves.filter(l => l.employeeId === emp.id && l.startDate <= date && l.endDate >= date);
+                const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
+                startTimeStr = adjustedStart;
+                endTimeStr = adjustedEnd;
               }
 
               const hasFixedBreak = shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime;
@@ -539,6 +544,7 @@ export const PayrollCalculator: React.FC = () => {
         
         const empLeaves = approvedLeaves.filter(l => l.employeeId === emp.id);
         for (const lv of empLeaves) {
+          if (lv.leaveType === 'shift_adj') continue;
           const lvStart = lv.startDate || '';
           const lvEnd = lv.endDate || '';
           if (!lvStart || !lvEnd) continue;
@@ -656,8 +662,15 @@ export const PayrollCalculator: React.FC = () => {
                     if (sched) {
                       const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
                       if (timeMatch) {
-                        const expectedInMins = parseTimeStrToMinutes(timeMatch[1]);
-                        let expectedOutMins = parseTimeStrToMinutes(timeMatch[2]);
+                        let startTimeStr = timeMatch[1];
+                        let endTimeStr = timeMatch[2];
+
+                        // 依核准的「班別調整」請假單調整預期上下班時間
+                        const dayLeaves = approvedLeaves.filter(l => l.employeeId === emp.id && l.startDate <= dateStr && l.endDate >= dateStr);
+                        const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
+
+                        const expectedInMins = parseTimeStrToMinutes(adjustedStart);
+                        let expectedOutMins = parseTimeStrToMinutes(adjustedEnd);
                         if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
 
                         effectiveIn = inMins <= expectedInMins ? expectedInMins : inMins;
