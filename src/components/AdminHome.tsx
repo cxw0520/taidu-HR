@@ -260,11 +260,11 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
                 dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
               }
             }
-            totalHours += dayHours;
+            totalHours += Math.round(dayHours * 10) / 10;
           }
           curr.setDate(curr.getDate() + 1);
         }
-        return totalHours;
+        return Math.round(totalHours * 10) / 10;
       };
 
       // 3. 計算特休區間額度

@@ -360,7 +360,7 @@ const AttendanceManager: React.FC = () => {
           }
         }
 
-        dayHours = Math.round(dayHours * 100) / 100;
+        dayHours = Math.round(dayHours * 10) / 10;
         totalHours += dayHours;
 
         dailyDetails.push({
@@ -377,7 +377,7 @@ const AttendanceManager: React.FC = () => {
         });
       });
 
-      summary[empId].totalHours = Math.round(totalHours * 100) / 100;
+      summary[empId].totalHours = Math.round(totalHours * 10) / 10;
       summary[empId].dailyDetails = dailyDetails;
     });
 
@@ -1284,7 +1284,7 @@ const AttendanceManager: React.FC = () => {
                           <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch2, detail.punch2Eff)}</td>
                           <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch3, detail.punch3Eff)}</td>
                           <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch4, detail.punch4Eff)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{detail.hours.toFixed(1)} 小時</td>
+                          <td style={{ padding: '12px', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{detail.hours} 小時</td>
                         </tr>
                       );
                     })

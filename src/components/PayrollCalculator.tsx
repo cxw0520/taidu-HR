@@ -452,6 +452,8 @@ export const PayrollCalculator: React.FC = () => {
                   }
                 }
 
+                hours = Math.round(hours * 10) / 10;
+
                 // 修正：使用 movedDate 判斷實際放假日（節日移轉後以新日期為準）
                 const isActualHolidayDate = holidays.some(h =>
                   h.movedDate ? h.movedDate === date : h.date === date
@@ -685,11 +687,11 @@ export const PayrollCalculator: React.FC = () => {
                   dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
                 }
               }
-              totalHours += dayHours;
+              totalHours += Math.round(dayHours * 10) / 10;
             }
             curr.setDate(curr.getDate() + 1);
           }
-          return totalHours;
+          return Math.round(totalHours * 10) / 10;
         };
 
         const [yrPay, moPay] = monthStr.split('-').map(Number);

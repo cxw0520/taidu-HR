@@ -357,11 +357,11 @@ const EmployeeClockIn: React.FC = () => {
               dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
             }
           }
-          totalHours += dayHours;
+          totalHours += Math.round(dayHours * 10) / 10;
         }
         curr.setDate(curr.getDate() + 1);
       }
-      return totalHours;
+      return Math.round(totalHours * 10) / 10;
     };
 
     const approvedAnnualLeaves = myLeaves
