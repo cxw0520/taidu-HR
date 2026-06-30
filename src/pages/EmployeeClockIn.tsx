@@ -724,6 +724,24 @@ const EmployeeClockIn: React.FC = () => {
     if (!leaveStart || !leaveEnd) { setLeaveMsg({ type: 'error', text: '請填寫請假起迄日期' }); return; }
     if (leaveEnd < leaveStart) { setLeaveMsg({ type: 'error', text: '結束日期不能小於開始日期' }); return; }
 
+    // 檢查所選請假期間內是否有排班
+    let hasAnyShift = false;
+    let checkDate = new Date(leaveStart);
+    const endLeaveDate = new Date(leaveEnd);
+    while (checkDate <= endLeaveDate) {
+      const dStr = checkDate.toLocaleDateString('sv');
+      const sched = mySchedules.find(s => s.date === dStr);
+      if (sched && !isOffShift(sched.shift)) {
+        hasAnyShift = true;
+        break;
+      }
+      checkDate.setDate(checkDate.getDate() + 1);
+    }
+    if (!hasAnyShift) {
+      setLeaveMsg({ type: 'error', text: '所選的請假期間內無任何排班，無法申請請假！' });
+      return;
+    }
+
     let periodLabel = leavePeriod === 'morning' ? '上午' : leavePeriod === 'afternoon' ? '下午' : '全天';
     let computedHours = leavePeriod === 'full' ? leaveHours : 4;
 
@@ -806,6 +824,24 @@ const EmployeeClockIn: React.FC = () => {
       alert('結束日期不能小於開始日期');
       return;
     }
+
+    // 檢查修改的請假期間內是否有排班
+    let hasAnyShift = false;
+    let checkDate = new Date(editLeaveStart);
+    const endLeaveDate = new Date(editLeaveEnd);
+    while (checkDate <= endLeaveDate) {
+      const dStr = checkDate.toLocaleDateString('sv');
+      const sched = mySchedules.find(s => s.date === dStr);
+      if (sched && !isOffShift(sched.shift)) {
+        hasAnyShift = true;
+        break;
+      }
+      checkDate.setDate(checkDate.getDate() + 1);
+    }
+    if (!hasAnyShift) {
+      alert('所選的請假期間內無任何排班，無法修改為該請假日期！');
+      return;
+    }
     try {
       let finalHours = editLeavePeriod === 'full' ? Number(editLeaveHours) : 4;
       let periodLbl = editLeavePeriod === 'full' ? '全天' : editLeavePeriod === 'morning' ? '上半天' : '下半天';
@@ -874,44 +910,98 @@ const EmployeeClockIn: React.FC = () => {
     setOtSubmitting(true);
     setOtMsg({ type: '', text: '' });
     try {
-      // 1. 取得當天打卡紀錄
-      const dayPunches = allAttendance.filter((rec: any) => rec.date === otDate);
-      if (dayPunches.length === 0) {
-        setOtMsg({ type: 'error', text: '當天無打卡紀錄，無法申請加班！' });
+      // 1. 取得當天及隔天打卡紀錄 (因可能跨夜下班)
+      const nextDayStr = (() => {
+        const d = new Date(otDate);
+        d.setDate(d.getDate() + 1);
+        return d.toLocaleDateString('sv');
+      })();
+      const relevantPunches = allAttendance.filter((rec: any) => 
+        (rec.date === otDate || rec.date === nextDayStr) && rec.time && (rec.type === '上班' || rec.type === '下班')
+      );
+
+      if (relevantPunches.length === 0) {
+        setOtMsg({ type: 'error', text: '所選期間內無任何打卡紀錄，無法申請加班！' });
         setOtSubmitting(false);
         return;
       }
 
-      // 2. 獲取打卡時間段
-      const punchTimes = dayPunches.map((rec: any) => rec.time).filter(Boolean).sort((a, b) => parseTimeStrToMinutes(a) - parseTimeStrToMinutes(b));
-      if (punchTimes.length === 0) {
-        setOtMsg({ type: 'error', text: '當天無有效打卡時間，無法申請加班！' });
+      // 2. 按時間先後排序
+      const sortedPunches = [...relevantPunches].sort((a, b) => {
+        const dtA = new Date(`${a.date}T${a.time}`).getTime();
+        const dtB = new Date(`${b.date}T${b.time}`).getTime();
+        return dtA - dtB;
+      });
+
+      // 3. 配對出所有的工作區間
+      const workIntervals: { start: Date; end: Date }[] = [];
+      let pIdx = 0;
+      while (pIdx < sortedPunches.length) {
+        if (sortedPunches[pIdx].type === '上班') {
+          let nextOut = null;
+          let nextOutIdx = -1;
+          for (let j = pIdx + 1; j < sortedPunches.length; j++) {
+            if (sortedPunches[j].type === '下班') {
+              nextOut = sortedPunches[j];
+              nextOutIdx = j;
+              break;
+            }
+          }
+          if (nextOut) {
+            const startDt = new Date(`${sortedPunches[pIdx].date}T${sortedPunches[pIdx].time}`);
+            const endDt = new Date(`${nextOut.date}T${nextOut.time}`);
+            workIntervals.push({ start: startDt, end: endDt });
+            pIdx = nextOutIdx + 1;
+          } else {
+            pIdx++;
+          }
+        } else {
+          pIdx++;
+        }
+      }
+
+      if (workIntervals.length === 0) {
+        setOtMsg({ type: 'error', text: '您在該期間沒有任何完整的「上班-下班」打卡區間，無法申請加班！' });
         setOtSubmitting(false);
         return;
       }
 
-      const minPunch = punchTimes[0];
-      const maxPunch = punchTimes[punchTimes.length - 1];
+      // 4. 建立加班起迄時間的 Date 物件
+      const otStartDt = new Date(`${otDate}T${otStartTime}`);
+      let otEndDt = new Date(`${otDate}T${otEndTime}`);
+      if (otEndDt < otStartDt) {
+        // 跨夜
+        otEndDt.setDate(otEndDt.getDate() + 1);
+      }
 
-      // 3. 判斷加班時段是否在打卡時段內
-      const [startH, startM] = otStartTime.split(':').map(Number);
-      const [endH, endM] = otEndTime.split(':').map(Number);
-      const isCrossMidnight = (endH * 60 + endM) < (startH * 60 + startM);
+      // 5. 判斷加班區間是否完全包含在某一個工作區間內
+      const isWithinClocked = workIntervals.some(interval => {
+        return interval.start <= otStartDt && interval.end >= otEndDt;
+      });
 
-      if (isCrossMidnight) {
-        // 跨夜加班至少開始時間需大於等於最早打卡時間
-        if (otStartTime < minPunch) {
-          setOtMsg({ type: 'error', text: `加班開始時間 (${otStartTime}) 必須在當天實際打卡時段 (${minPunch} ~ ${maxPunch}) 之內！` });
-          setOtSubmitting(false);
-          return;
+      if (!isWithinClocked) {
+        // 尋找當天的有效打卡區間以提供友善提示
+        const sameDayIntervals = workIntervals.filter(interval => {
+          return interval.start.toLocaleDateString('sv') === otDate;
+        });
+        
+        let errorText = '';
+        if (sameDayIntervals.length > 0) {
+          const rangeStr = sameDayIntervals.map(i => {
+            const sh = String(i.start.getHours()).padStart(2, '0');
+            const sm = String(i.start.getMinutes()).padStart(2, '0');
+            const eh = String(i.end.getHours()).padStart(2, '0');
+            const em = String(i.end.getMinutes()).padStart(2, '0');
+            const isCross = i.end.toLocaleDateString('sv') !== i.start.toLocaleDateString('sv');
+            return `${sh}:${sm} ~ ${isCross ? '隔日' : ''}${eh}:${em}`;
+          }).join('、');
+          errorText = `加班時段 (${otStartTime} ~ ${otEndTime}) 必須完全在您當天實際打卡工作時段 (${rangeStr}) 之內！`;
+        } else {
+          errorText = `當天無對應的上班與下班打卡紀錄，或者加班時段 (${otStartTime} ~ ${otEndTime}) 不在打卡工作時間內！`;
         }
-      } else {
-        // 同天加班，起迄時間必須完全在打卡區間內
-        if (otStartTime < minPunch || otEndTime > maxPunch) {
-          setOtMsg({ type: 'error', text: `加班時段 (${otStartTime} ~ ${otEndTime}) 必須在當天實際打卡時段 (${minPunch} ~ ${maxPunch}) 之內！` });
-          setOtSubmitting(false);
-          return;
-        }
+        setOtMsg({ type: 'error', text: errorText });
+        setOtSubmitting(false);
+        return;
       }
 
       // 4. 送出加班申請
