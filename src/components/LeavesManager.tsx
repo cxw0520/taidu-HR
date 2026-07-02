@@ -13,6 +13,8 @@ const LEAVE_TYPES = [
   { value: 'shift_adj', label: '班別調整' },
 ];
 
+const hoursOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const minutesOptions = ['00', '30'];
 const LEAVE_QUOTA: Record<string, number> = { sick: 30, personal: 14, menstrual: 3, marriage: 8 };
 
 export const LeavesManager: React.FC = () => {
@@ -50,9 +52,22 @@ export const LeavesManager: React.FC = () => {
   const [editLeaveStartTime, setEditLeaveStartTime] = useState('');
   const [editLeaveEndTime, setEditLeaveEndTime] = useState('');
 
+  const [editStartHour, setEditStartHour] = useState<string>('09');
+  const [editStartMin, setEditStartMin] = useState<string>('00');
+  const [editEndHour, setEditEndHour] = useState<string>('18');
+  const [editEndMin, setEditEndMin] = useState<string>('00');
+
+  React.useEffect(() => {
+    setEditLeaveStartTime(`${editStartHour}:${editStartMin}`);
+  }, [editStartHour, editStartMin]);
+
+  React.useEffect(() => {
+    setEditLeaveEndTime(`${editEndHour}:${editEndMin}`);
+  }, [editEndHour, editEndMin]);
+
   // 自動計算編輯中的時數
   React.useEffect(() => {
-    if (editLeaveType === 'shift_adj' && editLeaveStartTime && editLeaveEndTime) {
+    if (editLeaveStart && editLeaveEnd && editLeaveStartTime && editLeaveEndTime) {
       const parseTimeToMins = (t: string) => {
         const [h, m] = t.split(':').map(Number);
         return h * 60 + m;
@@ -60,10 +75,16 @@ export const LeavesManager: React.FC = () => {
       const start = parseTimeToMins(editLeaveStartTime);
       let end = parseTimeToMins(editLeaveEndTime);
       if (end < start) end += 24 * 60; // 跨夜
-      const diffHrs = Math.round(((end - start) / 60) * 10) / 10;
-      setEditLeaveHours(diffHrs);
+      
+      const dailyHours = editLeaveType === 'shift_adj'
+        ? Math.round(((end - start) / 60) * 10) / 10
+        : Math.ceil((end - start) / 60);
+
+      const diffDays = Math.round((new Date(editLeaveEnd).getTime() - new Date(editLeaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      const totalHours = dailyHours * (isNaN(diffDays) ? 1 : Math.max(1, diffDays));
+      setEditLeaveHours(totalHours);
     }
-  }, [editLeaveType, editLeaveStartTime, editLeaveEndTime]);
+  }, [editLeaveType, editLeaveStart, editLeaveEnd, editLeaveStartTime, editLeaveEndTime]);
 
   // Annual leave calculations
   const calcAnnual = (onboardDate: string): number => {
@@ -80,9 +101,11 @@ export const LeavesManager: React.FC = () => {
   };
 
   const approvedLeaves = leaves.filter(l => l.status === 'approved');
-  const usedByEmpType = (empId: string, type: string) =>
-    approvedLeaves.filter(l => l.employeeId === empId && l.leaveType === type)
-      .reduce((s, l) => s + (l.hours || 0) / 8, 0);
+  const usedByEmpType = (empId: string, type: string) => {
+    const totalHours = approvedLeaves.filter(l => l.employeeId === empId && l.leaveType === type)
+      .reduce((s, l) => s + (l.hours || 0), 0);
+    return Math.ceil(totalHours / 8);
+  };
 
   const handleOpenEditLeave = (leave: any) => {
     if (leave.id === '1' || leave.id === '2') {
@@ -97,13 +120,33 @@ export const LeavesManager: React.FC = () => {
     setEditLeaveHours(Number(leave.hours) || 8);
     setEditLeaveStatus(leave.status || 'pending');
     setEditLeaveReason(leave.reason || '');
-    setEditLeaveStartTime(leave.startTime || '');
-    setEditLeaveEndTime(leave.endTime || '');
+
+    const st = leave.startTime || '09:00';
+    const et = leave.endTime || '18:00';
+    const [sh, sm] = st.split(':');
+    const [eh, em] = et.split(':');
+    setEditStartHour(sh || '09');
+    setEditStartMin(sm || '00');
+    setEditEndHour(eh || '18');
+    setEditEndMin(em || '00');
+
+    setEditLeaveStartTime(st);
+    setEditLeaveEndTime(et);
     setShowEditLeaveModal(true);
   };
 
   const handleUpdateLeave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (editLeaveType !== 'shift_adj') {
+      if (Number(editLeaveHours) < 1) {
+        alert('請假時數最小為 1 小時');
+        return;
+      }
+      if (Number(editLeaveHours) % 1 !== 0) {
+        alert('請假時數必須為整數小時，不可有小數點');
+        return;
+      }
+    }
     try {
       const updateData: any = {
         leaveType: editLeaveType,
@@ -111,15 +154,14 @@ export const LeavesManager: React.FC = () => {
         endDate: editLeaveEnd,
         hours: Number(editLeaveHours),
         status: editLeaveStatus,
-        reason: editLeaveReason
+        reason: editLeaveReason,
+        startTime: editLeaveStartTime,
+        endTime: editLeaveEndTime,
+        leavePeriod: 'hour',
+        periodLabel: editLeaveType === 'shift_adj'
+          ? `調整 (${editLeaveStartTime} - ${editLeaveEndTime})`
+          : `時段 (${editLeaveStartTime} - ${editLeaveEndTime})`
       };
-
-      if (editLeaveType === 'shift_adj') {
-        updateData.startTime = editLeaveStartTime;
-        updateData.endTime = editLeaveEndTime;
-        updateData.periodLabel = `調整 (${editLeaveStartTime} - ${editLeaveEndTime})`;
-        updateData.leavePeriod = 'hour';
-      }
 
       await updateLeave(editLeaveId, updateData);
       setShowEditLeaveModal(false);
@@ -576,40 +618,38 @@ export const LeavesManager: React.FC = () => {
                 />
               </div>
 
-              {editLeaveType === 'shift_adj' && (
-                <>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假開始時間</label>
-                    <input 
-                      type="time" 
-                      required 
-                      value={editLeaveStartTime} 
-                      onChange={(e) => setEditLeaveStartTime(e.target.value)} 
-                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: '600' }}>請假結束時間</label>
-                    <input 
-                      type="time" 
-                      required 
-                      value={editLeaveEndTime} 
-                      onChange={(e) => setEditLeaveEndTime(e.target.value)} 
-                      style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }}
-                    />
-                  </div>
-                </>
-              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>請假開始時間</label>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <select value={editStartHour} onChange={(e) => setEditStartHour(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', flex: 1, backgroundColor: '#fff' }}>
+                    {hoursOptions.map(h => <option key={h} value={h}>{h} 點</option>)}
+                  </select>
+                  <select value={editStartMin} onChange={(e) => setEditStartMin(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', flex: 1, backgroundColor: '#fff' }}>
+                    {minutesOptions.map(m => <option key={m} value={m}>{m} 分</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>請假結束時間</label>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <select value={editEndHour} onChange={(e) => setEditEndHour(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', flex: 1, backgroundColor: '#fff' }}>
+                    {hoursOptions.map(h => <option key={h} value={h}>{h} 點</option>)}
+                  </select>
+                  <select value={editEndMin} onChange={(e) => setEditEndMin(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', flex: 1, backgroundColor: '#fff' }}>
+                    {minutesOptions.map(m => <option key={m} value={m}>{m} 分</option>)}
+                  </select>
+                </div>
+              </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>時數 (小時)</label>
                 <input 
                   type="number" 
                   required 
-                  disabled={editLeaveType === 'shift_adj'}
+                  disabled 
                   value={editLeaveHours} 
-                  onChange={(e) => setEditLeaveHours(Number(e.target.value))} 
-                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: editLeaveType === 'shift_adj' ? '#f3f4f6' : '#fff' }}
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#f3f4f6', cursor: 'not-allowed' }}
                 />
               </div>
 

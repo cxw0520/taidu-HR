@@ -538,8 +538,8 @@ export const PayrollCalculator: React.FC = () => {
         }
 
         const dailyRate = monthlySalaryBasis / 30;
-        let personalLeaveDays = 0;
-        let sickLeaveDays = 0;
+        let totalSickHours = 0;
+        let totalPersonalHours = 0;
         let totalLeaveHours = 0;
         
         const empLeaves = approvedLeaves.filter(l => l.employeeId === emp.id);
@@ -564,10 +564,12 @@ export const PayrollCalculator: React.FC = () => {
           const monthLeaveHours = (days / totalDays) * leaveHours;
           totalLeaveHours += monthLeaveHours;
 
-          const currentLeaveDays = monthLeaveHours / 8;
-          if (lv.leaveType === 'personal') personalLeaveDays += currentLeaveDays;
-          else if (lv.leaveType === 'sick') sickLeaveDays += currentLeaveDays;
+          if (lv.leaveType === 'personal') totalPersonalHours += monthLeaveHours;
+          else if (lv.leaveType === 'sick') totalSickHours += monthLeaveHours;
         }
+
+        const personalLeaveDays = Math.round((totalPersonalHours / 8) * 100) / 100;
+        const sickLeaveDays = Math.round((totalSickHours / 8) * 100) / 100;
 
         if (sickLeaveDays > 0 && attendanceBonus > 0) {
           const sickBonusDeduction = Math.min(attendanceBonus, Math.round(sickLeaveDays * ((emp.attendanceBonus || 0) / 30)));
