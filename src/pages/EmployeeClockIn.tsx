@@ -242,6 +242,17 @@ const EmployeeClockIn: React.FC = () => {
       
       const diffDays = Math.round((new Date(leaveEnd).getTime() - new Date(leaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const totalHours = dailyHours * (isNaN(diffDays) ? 1 : Math.max(1, diffDays));
+      console.log('--- LEAVE CALCULATOR LOG ---', {
+        leaveStart,
+        leaveEnd,
+        leaveStartTime,
+        leaveEndTime,
+        start,
+        end,
+        dailyHours,
+        diffDays,
+        totalHours
+      });
       setLeaveHours(totalHours);
     }
   }, [leaveType, leaveStart, leaveEnd, leaveStartTime, leaveEndTime]);
@@ -260,6 +271,17 @@ const EmployeeClockIn: React.FC = () => {
       
       const diffDays = Math.round((new Date(editLeaveEnd).getTime() - new Date(editLeaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const totalHours = dailyHours * (isNaN(diffDays) ? 1 : Math.max(1, diffDays));
+      console.log('--- EDIT LEAVE CALCULATOR LOG ---', {
+        editLeaveStart,
+        editLeaveEnd,
+        editLeaveStartTime,
+        editLeaveEndTime,
+        start,
+        end,
+        dailyHours,
+        diffDays,
+        totalHours
+      });
       setEditLeaveHours(totalHours);
     }
   }, [editLeaveType, editLeaveStart, editLeaveEnd, editLeaveStartTime, editLeaveEndTime]);
