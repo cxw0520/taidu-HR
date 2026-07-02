@@ -184,11 +184,15 @@ export const PayrollCalculator: React.FC = () => {
         // ── 檢查入職與離職月份 ──
         const onboardMonth = onboardDateStr.substring(0, 7);
         if (onboardMonth > monthStr) {
-          // 計算月份在入職月之前，代表當月尚未入職，不計算薪資 (不生成該員工的薪資單)
+          // 計算月份在入職月之前，代表當月尚未入職，刪除可能存在的舊薪資單並跳過
+          const payrollId = `${emp.id}-${monthStr}`;
+          await deleteDoc(doc(db, 'payroll', payrollId));
           continue;
         }
         if (resignDateStr && resignDateStr.substring(0, 7) < monthStr) {
-          // 計算月份在離職月之後，代表當月已離職，不計算薪資
+          // 計算月份在離職月之後，代表當月已離職，刪除可能存在的舊薪資單並跳過
+          const payrollId = `${emp.id}-${monthStr}`;
+          await deleteDoc(doc(db, 'payroll', payrollId));
           continue;
         }
 
