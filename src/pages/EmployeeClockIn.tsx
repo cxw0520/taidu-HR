@@ -238,9 +238,7 @@ const EmployeeClockIn: React.FC = () => {
       let end = parseTimeToMins(leaveEndTime);
       if (end < start) end += 24 * 60; // 跨夜
       
-      const dailyHours = leaveType === 'shift_adj'
-        ? Math.round(((end - start) / 60) * 10) / 10
-        : Math.ceil((end - start) / 60);
+      const dailyHours = Math.ceil(((end - start) / 60) * 2) / 2;
       
       const diffDays = Math.round((new Date(leaveEnd).getTime() - new Date(leaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const totalHours = dailyHours * (isNaN(diffDays) ? 1 : Math.max(1, diffDays));
@@ -258,9 +256,7 @@ const EmployeeClockIn: React.FC = () => {
       let end = parseTimeToMins(editLeaveEndTime);
       if (end < start) end += 24 * 60; // 跨夜
       
-      const dailyHours = editLeaveType === 'shift_adj'
-        ? Math.round(((end - start) / 60) * 10) / 10
-        : Math.ceil((end - start) / 60);
+      const dailyHours = Math.ceil(((end - start) / 60) * 2) / 2;
       
       const diffDays = Math.round((new Date(editLeaveEnd).getTime() - new Date(editLeaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const totalHours = dailyHours * (isNaN(diffDays) ? 1 : Math.max(1, diffDays));
@@ -792,12 +788,12 @@ const EmployeeClockIn: React.FC = () => {
       return;
     }
     if (leaveType !== 'shift_adj') {
-      if (computedHours < 1) {
-        setLeaveMsg({ type: 'error', text: '請假時數最小為 1 小時' });
+      if (computedHours < 0.5) {
+        setLeaveMsg({ type: 'error', text: '請假時數最小為 0.5 小時' });
         return;
       }
-      if (computedHours % 1 !== 0) {
-        setLeaveMsg({ type: 'error', text: '請假時數必須為整數小時，不可有小數點' });
+      if (computedHours % 0.5 !== 0) {
+        setLeaveMsg({ type: 'error', text: '請假時數必須以 0.5 小時為最小單位' });
         return;
       }
     }
@@ -888,12 +884,12 @@ const EmployeeClockIn: React.FC = () => {
         return;
       }
       if (editLeaveType !== 'shift_adj') {
-        if (finalHours < 1) {
-          alert('請假時數最小為 1 小時');
+        if (finalHours < 0.5) {
+          alert('請假時數最小為 0.5 小時');
           return;
         }
-        if (finalHours % 1 !== 0) {
-          alert('請假時數必須為整數小時，不可有小數點');
+        if (finalHours % 0.5 !== 0) {
+          alert('請假時數必須以 0.5 小時為最小單位');
           return;
         }
       }

@@ -76,9 +76,7 @@ export const LeavesManager: React.FC = () => {
       let end = parseTimeToMins(editLeaveEndTime);
       if (end < start) end += 24 * 60; // 跨夜
       
-      const dailyHours = editLeaveType === 'shift_adj'
-        ? Math.round(((end - start) / 60) * 10) / 10
-        : Math.ceil((end - start) / 60);
+      const dailyHours = Math.ceil(((end - start) / 60) * 2) / 2;
 
       const diffDays = Math.round((new Date(editLeaveEnd).getTime() - new Date(editLeaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const totalHours = dailyHours * (isNaN(diffDays) ? 1 : Math.max(1, diffDays));
@@ -138,12 +136,12 @@ export const LeavesManager: React.FC = () => {
   const handleUpdateLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editLeaveType !== 'shift_adj') {
-      if (Number(editLeaveHours) < 1) {
-        alert('請假時數最小為 1 小時');
+      if (Number(editLeaveHours) < 0.5) {
+        alert('請假時數最小為 0.5 小時');
         return;
       }
-      if (Number(editLeaveHours) % 1 !== 0) {
-        alert('請假時數必須為整數小時，不可有小數點');
+      if (Number(editLeaveHours) % 0.5 !== 0) {
+        alert('請假時數必須以 0.5 小時為最小單位');
         return;
       }
     }
