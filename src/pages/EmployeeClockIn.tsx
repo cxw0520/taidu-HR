@@ -665,7 +665,7 @@ const EmployeeClockIn: React.FC = () => {
           const { getDocs, query: fQuery, collection: fCol, where: fWhere } = await import('firebase/firestore');
           const schedSnap = await getDocs(fQuery(fCol(db, 'schedules'), fWhere('employeeId', '==', auth.currentUser?.uid || '')));
           const activeSchedules = schedSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-          const { assignClockToWorkDate } = await import('../utils/taiwanHrEngine');
+          const { assignClockToWorkDate, getAdjustedShiftTimes } = await import('../utils/taiwanHrEngine');
           const now = new Date();
           const matchResult = assignClockToWorkDate(now, type === 'in', activeSchedules, toleranceMinutes / 60);
           let clockStatus = '正常';
@@ -674,9 +674,21 @@ const EmployeeClockIn: React.FC = () => {
             const workDate = matchedSched.date || matchedSched.workDate || '';
             const timeMatch = (matchedSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
             if (timeMatch && workDate) {
+              // ── 查詢當天已核准的假單 ──
+              const leavesSnap = await getDocs(fQuery(
+                fCol(db, 'leaves'),
+                fWhere('employeeId', '==', auth.currentUser?.uid || ''),
+                fWhere('status', '==', 'approved')
+              ));
+              const dayLeaves = leavesSnap.docs
+                .map(d => d.data() as any)
+                .filter(l => l.startDate <= workDate && l.endDate >= workDate);
+
+              const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(timeMatch[1], timeMatch[2], dayLeaves);
+
               const [yr, mo, dy] = workDate.split('-').map(Number);
-              const [sh, sm] = timeMatch[1].split(':').map(Number);
-              const [eh, em] = timeMatch[2].split(':').map(Number);
+              const [sh, sm] = adjustedStart.split(':').map(Number);
+              const [eh, em] = adjustedEnd.split(':').map(Number);
               const expectedIn  = new Date(yr, mo - 1, dy, sh, sm);
               let   expectedOut = new Date(yr, mo - 1, dy, eh, em);
               if (expectedOut < expectedIn) expectedOut.setDate(expectedOut.getDate() + 1);

@@ -11,7 +11,7 @@ import { PayrollCalculator } from '../components/PayrollCalculator';
 import { LeavesManager } from '../components/LeavesManager';
 import { SettingsManager } from '../components/SettingsManager';
 import './AdminDashboard.css';
-import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, getAdjustedShiftTimes } from '../utils/taiwanHrEngine';
 
 const AdminDashboard: React.FC = () => {
   const {
@@ -99,7 +99,11 @@ const AdminDashboard: React.FC = () => {
           startTimeStr = timeMatch[1];
           endTimeStr = timeMatch[2];
         }
-        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr, expectsFour, matchedShiftDef?.breakDuration);
+        
+        const approvedDayLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
+        const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, approvedDayLeaves);
+        
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, adjustedStart, adjustedEnd, expectsFour, matchedShiftDef?.breakDuration);
         const dayStatuses = [];
         if (isLate) dayStatuses.push('遲到');
         if (isEarly) dayStatuses.push('早退');

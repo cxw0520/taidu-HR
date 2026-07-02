@@ -620,12 +620,12 @@ export function getAdjustedShiftTimes(
     return { adjustedStart, adjustedEnd };
   }
 
-  // 篩選當天已核准的班別調整假單
-  const shiftAdjLeaves = (dayLeaves || []).filter(
-    l => l.leaveType === 'shift_adj' && l.status === 'approved' && l.startTime && l.endTime
+  // 篩選當天已核准的請假單 (所有假別皆適用，只要有設定起訖時間且狀態為已核准)
+  const activeLeaves = (dayLeaves || []).filter(
+    l => l.status === 'approved' && l.startTime && l.endTime
   );
 
-  if (shiftAdjLeaves.length === 0) {
+  if (activeLeaves.length === 0) {
     return { adjustedStart, adjustedEnd };
   }
 
@@ -633,7 +633,7 @@ export function getAdjustedShiftTimes(
   let endMins = parseTimeStrToMinutes(endTimeStr);
   if (endMins < startMins) endMins += 24 * 60; // 跨夜
 
-  for (const lv of shiftAdjLeaves) {
+  for (const lv of activeLeaves) {
     let lvStartMins = parseTimeStrToMinutes(lv.startTime);
     let lvEndMins = parseTimeStrToMinutes(lv.endTime);
     if (lvEndMins < lvStartMins) lvEndMins += 24 * 60; // 跨夜

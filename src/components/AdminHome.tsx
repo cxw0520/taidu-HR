@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 
-import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes } from '../utils/taiwanHrEngine';
 
 interface AdminHomeProps {
   setActiveTab: (tab: 'attendance' | 'employees' | 'schedules' | 'payroll' | 'leaves' | 'settings') => void;
@@ -388,7 +388,11 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
           startTimeStr = timeMatch[1];
           endTimeStr = timeMatch[2];
         }
-        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr, expectsFour, matchedShiftDef?.breakDuration);
+        
+        const approvedDayLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
+        const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, approvedDayLeaves);
+        
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, adjustedStart, adjustedEnd, expectsFour, matchedShiftDef?.breakDuration);
         const dayStatuses = [];
         if (isLate) dayStatuses.push('遲到');
         if (isEarly) dayStatuses.push('早退');
