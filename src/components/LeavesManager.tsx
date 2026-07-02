@@ -80,6 +80,17 @@ export const LeavesManager: React.FC = () => {
 
       const diffDays = Math.round((new Date(editLeaveEnd).getTime() - new Date(editLeaveStart).getTime()) / (1000 * 60 * 60 * 24)) + 1;
       const totalHours = dailyHours * (isNaN(diffDays) ? 1 : Math.max(1, diffDays));
+      console.log('--- ADMIN EDIT LEAVE CALCULATOR LOG ---', {
+        editLeaveStart,
+        editLeaveEnd,
+        editLeaveStartTime,
+        editLeaveEndTime,
+        start,
+        end,
+        dailyHours,
+        diffDays,
+        totalHours
+      });
       setEditLeaveHours(totalHours);
     }
   }, [editLeaveType, editLeaveStart, editLeaveEnd, editLeaveStartTime, editLeaveEndTime]);
