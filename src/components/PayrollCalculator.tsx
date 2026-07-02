@@ -113,13 +113,17 @@ export const PayrollCalculator: React.FC = () => {
                     (p.evaluationAllowance || 0) + 
                     (p.overtime || 0);
       
+      // 差勤扣款：請假扣薪、遲到扣款、其他扣款
+      const attendanceDed = (p.leaveDeduction || 0) + (p.lateDeduction || 0) + (p.otherDeductions || 0);
+      // 應發薪資 = 薪資合計 - 差勤扣款
+      const grossAfterAttendance = gross - attendanceDed;
+
       const empDed = (p.employeeLabor || 0) + (p.employeeNhi || 0);
       const net = p.netSalary || 0;
       const compIns = (p.employerLabor || 0) + (p.employerNhi || 0) + (p.employerPension || 0);
-      const leaveDed = p.leaveDeduction || 0;
-      const laborCost = (gross - leaveDed) + compIns;
+      const laborCost = grossAfterAttendance + compIns;
 
-      totalGrossSalary += gross;
+      totalGrossSalary += grossAfterAttendance;
       totalEmployeeDeductions += empDed;
       totalNetSalary += net;
       totalEmployerInsurance += compIns;
@@ -1218,7 +1222,7 @@ export const PayrollCalculator: React.FC = () => {
             flexDirection: 'column',
             gap: '4px'
           }}>
-            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>應發薪資總和 (原本薪資)</span>
+            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>應發薪資總和 (扣差勤後)</span>
             <span style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>
               NT$ {payrollSummary.totalGrossSalary.toLocaleString()}
             </span>
