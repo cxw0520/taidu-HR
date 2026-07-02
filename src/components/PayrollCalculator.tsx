@@ -180,6 +180,18 @@ export const PayrollCalculator: React.FC = () => {
         let pensionSub = emp.pensionSub === 0 ? 0 : (emp.pensionSub || (salaryType === 'hourly' ? 11100 : 29500));
         let onboardDateStr = emp.onboardDate || '2025-01-01';
         let resignDateStr = emp.resignDate || null;
+
+        // ── 檢查入職與離職月份 ──
+        const onboardMonth = onboardDateStr.substring(0, 7);
+        if (onboardMonth > monthStr) {
+          // 計算月份在入職月之前，代表當月尚未入職，不計算薪資 (不生成該員工的薪資單)
+          continue;
+        }
+        if (resignDateStr && resignDateStr.substring(0, 7) < monthStr) {
+          // 計算月份在離職月之後，代表當月已離職，不計算薪資
+          continue;
+        }
+
         const nhiDependents = emp.nhiDependents || 0;
         let attendanceBonus = emp.attendanceBonus || 0;
         const otherAllowance = emp.otherAllowance || 0;
