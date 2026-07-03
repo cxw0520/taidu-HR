@@ -328,17 +328,6 @@ const EmployeeManager: React.FC = () => {
         fullMonthSalary: editFullMonthSalary
       });
 
-      // 若有填寫離職日，自動刪除離職日之後的班表
-      if (editResignDate) {
-        const schedsSnap = await getDocs(query(collection(db, 'schedules'), where('employeeId', '==', editEmployeeId)));
-        for (const d of schedsSnap.docs) {
-          const sDate = (d.data().date || '');
-          if (sDate > editResignDate) {
-            await deleteDoc(fsDoc(db, 'schedules', d.id));
-          }
-        }
-      }
-
       setShowEditEmployeeModal(false);
     } catch (err) {
       console.error(err);

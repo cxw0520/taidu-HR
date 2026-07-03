@@ -200,6 +200,19 @@ export const PayrollCalculator: React.FC = () => {
           continue;
         }
 
+        // 有離職日：薪資重新計算後自動刪除離職日之後的班表
+        if (resignDateStr) {
+          const schedsRef = collection(db, 'schedules');
+          const schedsQuery = query(schedsRef, where('employeeId', '==', emp.id));
+          const schedsSnap = await getDocs(schedsQuery);
+          for (const d of schedsSnap.docs) {
+            const sDate = (d.data().date || '');
+            if (sDate > resignDateStr) {
+              await deleteDoc(doc(db, 'schedules', d.id));
+            }
+          }
+        }
+
         const nhiDependents = emp.nhiDependents || 0;
         let attendanceBonus = emp.attendanceBonus || 0;
         const otherAllowance = emp.otherAllowance || 0;
@@ -295,11 +308,13 @@ export const PayrollCalculator: React.FC = () => {
         );
 
         // 判斷是否按天數比例計算底薪（fullMonthSalary 未設定或 true = 整月計算，false = 按在職天數比例）
+        // 離職月不管有沒勾選「計算整月」，一律按天數計算
         const fullMonthSalary = emp.fullMonthSalary !== false;
+        const isResignMonth = !!(resignDateStr && resignDateStr.substring(0, 7) === monthStr);
         let calculatedBaseSalary = 0;
         if (!isHourly) {
-          if (!fullMonthSalary) {
-            // 按在職天數比例計算底薪
+          if (!fullMonthSalary || isResignMonth) {
+            // 按在職天數比例計算底薪（離職月一律此邏輯）
             const [salYr, salMo] = monthStr.split('-').map(Number);
             const daysInMonth = new Date(salYr, salMo, 0).getDate();
             let startDay = 1;
@@ -308,9 +323,9 @@ export const PayrollCalculator: React.FC = () => {
               // 入職月：從入職日計算到月底
               startDay = parseInt(onboardDateStr.substring(8, 10));
             }
-            if (resignDateStr && resignDateStr.substring(0, 7) === monthStr) {
+            if (isResignMonth) {
               // 離職月：從月初計算到離職日
-              endDay = parseInt(resignDateStr.substring(8, 10));
+              endDay = parseInt(resignDateStr!.substring(8, 10));
             }
             const inServiceDays = Math.max(0, endDay - startDay + 1);
             calculatedBaseSalary = Math.round(monthlySalary * inServiceDays / daysInMonth);
