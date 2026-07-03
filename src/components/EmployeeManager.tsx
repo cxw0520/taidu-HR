@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
+import { db } from '../firebase';
+import { getDocs, query, collection, where, deleteDoc, doc as fsDoc } from 'firebase/firestore';
 import { getApps, initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 
@@ -128,6 +130,12 @@ const EmployeeManager: React.FC = () => {
   const [editFileBankbook, setEditFileBankbook] = useState<string>('');
   const [editFileContract, setEditFileContract] = useState<string>('');
 
+  // 整月/按天計薪選項
+  const [newFullMonthSalary, setNewFullMonthSalary] = useState<boolean>(true);
+  const [editFullMonthSalary, setEditFullMonthSalary] = useState<boolean>(true);
+  // 已離職員工抽屜
+  const [showResignedDrawer, setShowResignedDrawer] = useState<boolean>(false);
+
   const handleAddCustomRole = async (e: React.MouseEvent) => {
     e.preventDefault();
     const cleanRoleName = customRoleName.trim();
@@ -195,6 +203,7 @@ const EmployeeManager: React.FC = () => {
         emergencyContactRelation: newEmergencyContactRelation,
         address: newAddress,
         birthDate: newBirthDate,
+        fullMonthSalary: newFullMonthSalary,
         isAdmin: false // 預設不是 Admin，若有需要可於 Firebase 控制台設定
       });
 
@@ -226,6 +235,7 @@ const EmployeeManager: React.FC = () => {
       setNewEmergencyContactRelation('');
       setNewAddress('');
       setNewBirthDate('');
+      setNewFullMonthSalary(true);
       
       setTimeout(() => {
         setShowAddModal(false);
@@ -281,6 +291,7 @@ const EmployeeManager: React.FC = () => {
     setEditEmergencyContactRelation(emp.emergencyContactRelation || '');
     setEditAddress(emp.address || '');
     setEditBirthDate(emp.birthDate || '');
+    setEditFullMonthSalary(emp.fullMonthSalary !== false);
     setShowEditEmployeeModal(true);
   };
 
@@ -313,8 +324,21 @@ const EmployeeManager: React.FC = () => {
         emergencyContactPhone: editEmergencyContactPhone,
         emergencyContactRelation: editEmergencyContactRelation,
         address: editAddress,
-        birthDate: editBirthDate
+        birthDate: editBirthDate,
+        fullMonthSalary: editFullMonthSalary
       });
+
+      // 若有填寫離職日，自動刪除離職日之後的班表
+      if (editResignDate) {
+        const schedsSnap = await getDocs(query(collection(db, 'schedules'), where('employeeId', '==', editEmployeeId)));
+        for (const d of schedsSnap.docs) {
+          const sDate = (d.data().date || '');
+          if (sDate > editResignDate) {
+            await deleteDoc(fsDoc(db, 'schedules', d.id));
+          }
+        }
+      }
+
       setShowEditEmployeeModal(false);
     } catch (err) {
       console.error(err);
@@ -330,11 +354,20 @@ const EmployeeManager: React.FC = () => {
     if (!window.confirm('確定要刪除此員工帳號與資料嗎？此動作將只刪除 Firestore 資料，Auth 帳號需由管理員至 Firebase 控制台管理。')) return;
     try {
       await deleteEmployee(id);
+      // 刪除該員工所有班表
+      const schedsSnap = await getDocs(query(collection(db, 'schedules'), where('employeeId', '==', id)));
+      for (const d of schedsSnap.docs) {
+        await deleteDoc(fsDoc(db, 'schedules', d.id));
+      }
     } catch (err) {
       console.error(err);
       alert('刪除失敗，請檢查權限');
     }
   };
+
+  // 分離在職與已離職員工
+  const activeEmployees = employees.filter(emp => !emp.resignDate);
+  const resignedEmployees = employees.filter(emp => !!emp.resignDate);
 
   return (
     <div className="card">
@@ -357,7 +390,7 @@ const EmployeeManager: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {employees.map(emp => (
+            {activeEmployees.map(emp => (
               <tr key={emp.id}>
                 <td data-label="員工編號" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{emp.id}</td>
                 <td data-label="姓名">
@@ -389,6 +422,54 @@ const EmployeeManager: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* 已離職員工收納抽屜 */}
+      {resignedEmployees.length > 0 && (
+        <div style={{ marginTop: '20px', border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
+          <button
+            onClick={() => setShowResignedDrawer(!showResignedDrawer)}
+            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', backgroundColor: '#f9fafb', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '14px', color: '#6b7280' }}
+          >
+            <span>🗂 已離職員工（{resignedEmployees.length} 人）</span>
+            <span style={{ display: 'inline-block', transform: showResignedDrawer ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', fontSize: '16px' }}>▼</span>
+          </button>
+          {showResignedDrawer && (
+            <div className="table-scroll-wrap" style={{ borderTop: '1px solid #e5e7eb' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>姓名</th>
+                    <th>職位</th>
+                    <th>到職日</th>
+                    <th>離職日</th>
+                    <th>計薪類型</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resignedEmployees.map(emp => (
+                    <tr key={emp.id} style={{ opacity: 0.65 }}>
+                      <td data-label="姓名" style={{ fontWeight: '600', color: '#374151' }}>{emp.name}</td>
+                      <td data-label="職位">{emp.role}</td>
+                      <td data-label="到職日" style={{ fontSize: '13px', color: '#6b7280' }}>{emp.onboardDate || '-'}</td>
+                      <td data-label="離職日">
+                        <span style={{ fontSize: '13px', color: '#ef4444', fontWeight: '600' }}>{emp.resignDate}</span>
+                      </td>
+                      <td data-label="計薪類型">
+                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>{emp.salaryType === 'hourly' ? '時薪工讀' : '月薪排班'}</span>
+                      </td>
+                      <td data-label="操作" style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn-text" style={{ color: 'var(--primary)', fontWeight: '600' }} onClick={() => handleOpenEditEmployee(emp)}>編輯</button>
+                        <button className="btn-text" style={{ color: '#ef4444', fontWeight: '600' }} onClick={() => handleDeleteEmployeeClick(emp.id)}>刪除</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 新增員工彈窗 */}
       {showAddModal && (
@@ -439,6 +520,10 @@ const EmployeeManager: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>到職日期</label>
                 <input type="date" required value={newOnboardDate} onChange={(e) => setNewOnboardDate(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#374151', marginTop: '4px' }}>
+                  <input type="checkbox" checked={newFullMonthSalary} onChange={(e) => setNewFullMonthSalary(e.target.checked)} />
+                  計算整月薪資（不按在職天數比例折算）
+                </label>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行帳戶</label>
@@ -653,6 +738,10 @@ const EmployeeManager: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>到職日期</label>
                 <input type="date" required value={editOnboardDate} onChange={(e) => setEditOnboardDate(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#374151', marginTop: '4px' }}>
+                  <input type="checkbox" checked={editFullMonthSalary} onChange={(e) => setEditFullMonthSalary(e.target.checked)} />
+                  計算整月薪資（不按在職天數比例折算）
+                </label>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>離職日期 (未離職留空)</label>

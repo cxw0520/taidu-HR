@@ -294,7 +294,30 @@ export const PayrollCalculator: React.FC = () => {
           req.status === 'approved'
         );
 
-        let calculatedBaseSalary = isHourly ? 0 : monthlySalary;
+        // 判斷是否按天數比例計算底薪（fullMonthSalary 未設定或 true = 整月計算，false = 按在職天數比例）
+        const fullMonthSalary = emp.fullMonthSalary !== false;
+        let calculatedBaseSalary = 0;
+        if (!isHourly) {
+          if (!fullMonthSalary) {
+            // 按在職天數比例計算底薪
+            const [salYr, salMo] = monthStr.split('-').map(Number);
+            const daysInMonth = new Date(salYr, salMo, 0).getDate();
+            let startDay = 1;
+            let endDay = daysInMonth;
+            if (onboardMonth === monthStr) {
+              // 入職月：從入職日計算到月底
+              startDay = parseInt(onboardDateStr.substring(8, 10));
+            }
+            if (resignDateStr && resignDateStr.substring(0, 7) === monthStr) {
+              // 離職月：從月初計算到離職日
+              endDay = parseInt(resignDateStr.substring(8, 10));
+            }
+            const inServiceDays = Math.max(0, endDay - startDay + 1);
+            calculatedBaseSalary = Math.round(monthlySalary * inServiceDays / daysInMonth);
+          } else {
+            calculatedBaseSalary = monthlySalary;
+          }
+        }
         let overtimePay = 0;
         
         let weekdayOvertimeHours = 0;
