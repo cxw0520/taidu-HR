@@ -4,6 +4,7 @@ import { useAdminData } from '../context/AdminDataContext';
 const LEAVE_TYPES = [
   { value: 'sick', label: '病假 (半薪)' },
   { value: 'personal', label: '事假 (無薪)' },
+  { value: 'typhoon', label: '颱風假 (扣薪/不扣全勤)' },
   { value: 'annual', label: '特別休假' },
   { value: 'official', label: '公假' },
   { value: 'marriage', label: '婚假' },

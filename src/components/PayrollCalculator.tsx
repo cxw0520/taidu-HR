@@ -598,6 +598,7 @@ export const PayrollCalculator: React.FC = () => {
         const dailyRate = monthlySalaryBasis / 30;
         let totalSickHours = 0;
         let totalPersonalHours = 0;
+        let totalTyphoonHours = 0;
         let totalLeaveHours = 0;
         
         const empLeaves = approvedLeaves.filter(l => l.employeeId === emp.id);
@@ -624,10 +625,12 @@ export const PayrollCalculator: React.FC = () => {
 
           if (lv.leaveType === 'personal') totalPersonalHours += monthLeaveHours;
           else if (lv.leaveType === 'sick') totalSickHours += monthLeaveHours;
+          else if (lv.leaveType === 'typhoon') totalTyphoonHours += monthLeaveHours;
         }
 
         const personalLeaveDays = Math.round((totalPersonalHours / 8) * 100) / 100;
         const sickLeaveDays = Math.round((totalSickHours / 8) * 100) / 100;
+        const typhoonLeaveDays = Math.round((totalTyphoonHours / 8) * 100) / 100;
 
         if (sickLeaveDays > 0 && attendanceBonus > 0) {
           const sickBonusDeduction = Math.min(attendanceBonus, Math.round(sickLeaveDays * ((emp.attendanceBonus || 0) / 30)));
@@ -796,7 +799,11 @@ export const PayrollCalculator: React.FC = () => {
           }
         });
 
-        const leaveDeduction = Math.round(personalLeaveDays * dailyRate * 1.0 + sickLeaveDays * dailyRate * 0.5);
+        const leaveDeduction = Math.round(
+          personalLeaveDays * dailyRate * 1.0 + 
+          sickLeaveDays * dailyRate * 0.5 + 
+          typhoonLeaveDays * dailyRate * 1.0
+        );
         const lateDeduction = isHourly ? 0 : Math.round(lateMinutesTotal * (monthlySalaryBasis / 14400));
 
         const ins = calculatePayrollInsurance(
