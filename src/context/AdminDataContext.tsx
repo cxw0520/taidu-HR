@@ -81,7 +81,7 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [roles, setRoles] = useState<string[]>(['工程師', '設計師', '行銷', '專案經理', '行政總務']);
   const [shifts, setShifts] = useState<any[]>([]);
   const [insuranceRates, setInsuranceRates] = useState<any>({
-    laborRate: 0.12,
+    laborRate: 0.125,
     nhiRate: 0.0517,
     nhiAvgDependents: 0.56,
     employerLaborRatio: 0.7,

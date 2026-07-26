@@ -43,7 +43,7 @@ export const SettingsManager: React.FC = () => {
   const [editShiftBreakDuration, setEditShiftBreakDuration] = useState<number>(0);
 
   // 3. Insurance & Rules Form States
-  const [cfgLaborRate, setCfgLaborRate] = useState(0.12);
+  const [cfgLaborRate, setCfgLaborRate] = useState(0.125);
   const [cfgNhiRate, setCfgNhiRate] = useState(0.0517);
   const [cfgNhiAvgDeps, setCfgNhiAvgDeps] = useState(0.56);
   const [cfgEmpLaborRatio, setCfgEmpLaborRatio] = useState(0.2);
@@ -62,7 +62,7 @@ export const SettingsManager: React.FC = () => {
   // Sync form states from context changes
   useEffect(() => {
     if (insuranceRates) {
-      setCfgLaborRate(insuranceRates.laborRate ?? 0.12);
+      setCfgLaborRate(insuranceRates.laborRate ?? 0.125);
       setCfgNhiRate(insuranceRates.nhiRate ?? 0.0517);
       setCfgNhiAvgDeps(insuranceRates.nhiAvgDependents ?? 0.56);
       setCfgEmpLaborRatio(insuranceRates.employeeLaborRatio ?? 0.2);
@@ -697,7 +697,7 @@ export const SettingsManager: React.FC = () => {
             gap: '20px'
           }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保總費率 (目前 12% = 0.12)</label>
+              <label style={{ fontSize: '13px', fontWeight: '600' }}>勞保總費率 (目前 12.5% = 0.125)</label>
               <input 
                 type="number" 
                 step="0.0001"

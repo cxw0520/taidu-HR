@@ -92,10 +92,22 @@ export function calculatePayrollInsurance(
     }
   }
 
-  // 勞保自付與雇主負擔計算
-  const totalLaborPremium = salaryConfig.laborSub * rates.laborRate;
-  const employeeLabor = Math.round(totalLaborPremium * rates.employeeLaborRatio * (laborDays / 30));
-  const employerLabor = Math.round(totalLaborPremium * rates.employerLaborRatio * (laborDays / 30));
+  // 勞保自付與雇主負擔計算：拆分普通事故（11.5%）與就業保險（1.0%）各自計算並四捨五入後再相加
+  // 假設就業保險費率固定為 1% (0.01)，其餘為普通事故費率
+  const employInsRate = 0.01;
+  const ordinaryRate = Math.max(0, rates.laborRate - employInsRate);
+
+  // 普通事故保險費
+  const ordinaryEmp = Math.round(salaryConfig.laborSub * ordinaryRate * rates.employeeLaborRatio * (laborDays / 30));
+  const ordinaryEmpr = Math.round(salaryConfig.laborSub * ordinaryRate * rates.employerLaborRatio * (laborDays / 30));
+
+  // 就業保險費
+  const employEmp = Math.round(salaryConfig.laborSub * employInsRate * rates.employeeLaborRatio * (laborDays / 30));
+  const employEmpr = Math.round(salaryConfig.laborSub * employInsRate * rates.employerLaborRatio * (laborDays / 30));
+
+  // 合計自付與雇主負擔
+  const employeeLabor = ordinaryEmp + employEmp;
+  const employerLabor = ordinaryEmpr + employEmpr;
 
   // === 2. 全民健保計算 (採用月底在職足月計費制) ===
   let paysNhiThisMonth = false;
@@ -122,10 +134,8 @@ export function calculatePayrollInsurance(
     employerNhi = Math.round(salaryConfig.nhiSub * rates.nhiRate * rates.employerNhiRatio * (1 + rates.nhiAvgDependents));
   }
 
-  // === 3. 勞工退休金 (雇主強提 6%，按當月實際在職日曆天數折算) ===
-  const calendarDaysActive = Math.ceil(Math.abs(activeEnd.getTime() - activeStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-  const pensionRatio = Math.min(calendarDaysActive / daysInMonth, 1.0);
-  const employerPension = Math.round(salaryConfig.pensionSub * 0.06 * pensionRatio);
+  // === 3. 勞工退休金 (雇主強提 6%，依勞退條例一律以 30 天為計算基準折算破月) ===
+  const employerPension = Math.round(salaryConfig.pensionSub * 0.06 * (laborDays / 30));
 
   return {
     laborDays,
