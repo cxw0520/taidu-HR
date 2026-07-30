@@ -47,6 +47,8 @@ const EmployeeManager: React.FC = () => {
   const {
     employees,
     attendance,
+    payroll,
+    schedules,
     roles,
     addEmployee,
     updateEmployee,
@@ -54,40 +56,89 @@ const EmployeeManager: React.FC = () => {
     saveRoles
   } = useAdminData();
 
-  // 復原無 Profile 檔帳號 Modal States
+  // 復原已刪除帳號 Modal States
   const [showRestoreModal, setShowRestoreModal] = useState(false);
-  const [restoreTarget, setRestoreTarget] = useState<any>(null);
+  const [selectedRestoreUid, setSelectedRestoreUid] = useState<string>('');
+  const [restoreUid, setRestoreUid] = useState<string>('');
   const [restoreName, setRestoreName] = useState('');
   const [restoreEmail, setRestoreEmail] = useState('');
   const [restoreSalaryType, setRestoreSalaryType] = useState<'monthly' | 'hourly'>('hourly');
   const [restoreSalary, setRestoreSalary] = useState<number>(190);
   const [restoreRole, setRestoreRole] = useState<string>(roles[0] || '員工');
 
-  // 偵測「有打卡出勤紀錄，但 Firestore 人員列表中無 Profile 檔」的遺失帳號
+  // 掃描出勤、薪資單與班表紀錄，尋找「有歷史紀錄但人員列表中被刪除」的被刪除帳號
   const existingEmpIds = new Set((employees || []).map(e => e.id));
-  const orphanedMap = new Map<string, { uid: string; name: string; email?: string; lastDate: string }>();
+  const deletedAccountsMap = new Map<string, { uid: string; name: string; email?: string; source: string; lastDate?: string }>();
 
-  (attendance || []).forEach(rec => {
-    if (rec.employeeId && !existingEmpIds.has(rec.employeeId) && rec.employeeId !== 'EMP001' && rec.employeeId !== 'EMP002' && rec.employeeId !== 'EMP003') {
-      const existing = orphanedMap.get(rec.employeeId);
-      const name = rec.empName || rec.employeeName || '未命名員工';
-      const date = rec.date || '';
-      if (!existing || date > existing.lastDate) {
-        orphanedMap.set(rec.employeeId, {
-          uid: rec.employeeId,
+  // 1. 掃描出勤紀錄
+  (attendance || []).forEach(r => {
+    if (r.employeeId && !existingEmpIds.has(r.employeeId) && r.employeeId !== 'EMP001' && r.employeeId !== 'EMP002' && r.employeeId !== 'EMP003') {
+      const existing = deletedAccountsMap.get(r.employeeId);
+      const name = r.empName || r.employeeName || '舊打卡員工';
+      const date = r.date || '';
+      if (!existing || (date && date > (existing.lastDate || ''))) {
+        deletedAccountsMap.set(r.employeeId, {
+          uid: r.employeeId,
           name,
+          email: r.email || '',
+          source: '打卡出勤紀錄',
           lastDate: date
         });
       }
     }
   });
 
-  const orphanedAccounts = Array.from(orphanedMap.values());
+  // 2. 掃描薪資單紀錄
+  (payroll || []).forEach(p => {
+    if (p.employeeId && !existingEmpIds.has(p.employeeId) && p.employeeId !== 'EMP001' && p.employeeId !== 'EMP002' && p.employeeId !== 'EMP003') {
+      if (!deletedAccountsMap.has(p.employeeId)) {
+        deletedAccountsMap.set(p.employeeId, {
+          uid: p.employeeId,
+          name: p.empName || '舊薪資單員工',
+          email: p.email || '',
+          source: '歷史薪資單'
+        });
+      }
+    }
+  });
 
-  const handleOpenRestoreModal = (account: any) => {
-    setRestoreTarget(account);
-    setRestoreName(account.name || '復原員工');
-    setRestoreEmail('');
+  // 3. 掃描班表紀錄
+  (schedules || []).forEach(s => {
+    if (s.employeeId && !existingEmpIds.has(s.employeeId) && s.employeeId !== 'EMP001' && s.employeeId !== 'EMP002' && s.employeeId !== 'EMP003') {
+      if (!deletedAccountsMap.has(s.employeeId)) {
+        deletedAccountsMap.set(s.employeeId, {
+          uid: s.employeeId,
+          name: s.employeeName || s.empName || '舊班表員工',
+          email: '',
+          source: '歷史班表'
+        });
+      }
+    }
+  });
+
+  const restorableAccountsList = Array.from(deletedAccountsMap.values());
+  const orphanedAccounts = restorableAccountsList.filter(a => a.source === '打卡出勤紀錄');
+
+  // 開啟復原選單 Modal
+  const handleOpenRestoreSelectorModal = (defaultAccount?: any) => {
+    if (defaultAccount) {
+      setSelectedRestoreUid(defaultAccount.uid);
+      setRestoreUid(defaultAccount.uid);
+      setRestoreName(defaultAccount.name || '復原員工');
+      setRestoreEmail(defaultAccount.email || '');
+    } else if (restorableAccountsList.length > 0) {
+      const first = restorableAccountsList[0];
+      setSelectedRestoreUid(first.uid);
+      setRestoreUid(first.uid);
+      setRestoreName(first.name || '復原員工');
+      setRestoreEmail(first.email || '');
+    } else {
+      setSelectedRestoreUid('manual');
+      setRestoreUid('');
+      setRestoreName('');
+      setRestoreEmail('');
+    }
+
     setRestoreSalaryType('hourly');
     setRestoreSalary(190);
     setRestoreRole(roles[0] || '員工');
@@ -96,17 +147,24 @@ const EmployeeManager: React.FC = () => {
 
   const handleConfirmRestoreSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!restoreTarget) return;
+    const targetUid = restoreUid.trim();
+    if (!targetUid) {
+      alert('請選擇或輸入要復原的帳號 UID！');
+      return;
+    }
+    if (!restoreName.trim()) {
+      alert('請輸入員工姓名！');
+      return;
+    }
 
     try {
-      const uid = restoreTarget.uid;
       const isHourly = restoreSalaryType === 'hourly';
       const laborGrade = isHourly ? 11100 : 33300;
 
-      await setDoc(fsDoc(db, 'employees', uid), {
-        id: uid,
-        name: restoreName,
-        email: restoreEmail || `${restoreName}@company.com`,
+      await setDoc(fsDoc(db, 'employees', targetUid), {
+        id: targetUid,
+        name: restoreName.trim(),
+        email: restoreEmail.trim() || `${restoreName.trim()}@company.com`,
         role: restoreRole,
         status: 'active',
         onboardDate: new Date().toISOString().substring(0, 10),
@@ -118,9 +176,10 @@ const EmployeeManager: React.FC = () => {
         fullMonthSalary: true
       });
 
-      alert(`✅ 已成功復原「${restoreName}」的員工檔案！資料已拉回人員列表，且打卡紀錄與功能已自動重新關聯。`);
+      alert(`✅ 已成功將「${restoreName.trim()}」的員工檔案復原並拉回後台人員列表！`);
       setShowRestoreModal(false);
-      setRestoreTarget(null);
+      setRestoreUid('');
+      setSelectedRestoreUid('');
     } catch (err) {
       console.error(err);
       alert('復原失敗，請檢查權限');
@@ -531,9 +590,18 @@ const EmployeeManager: React.FC = () => {
 
   return (
     <div className="card">
-      <div className="card-header">
+      <div className="card-header" style={{ flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
         <h3>人員名單</h3>
-        <button className="btn-primary btn-sm" onClick={() => setShowAddModal(true)}>+ 新增員工帳號</button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button className="btn-primary btn-sm" onClick={() => setShowAddModal(true)}>+ 新增員工帳號</button>
+          <button
+            className="btn-sm"
+            style={{ backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '700', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            onClick={() => handleOpenRestoreSelectorModal()}
+          >
+            🔄 復原已刪除帳號
+          </button>
+        </div>
       </div>
       
       {/* 遺失 Profile 但仍有打卡紀錄的帳號警告與復原區 */}
@@ -558,7 +626,7 @@ const EmployeeManager: React.FC = () => {
                 <button
                   className="btn-primary btn-sm"
                   style={{ backgroundColor: '#d97706', borderColor: '#b45309', color: '#fff', fontWeight: '700', cursor: 'pointer' }}
-                  onClick={() => handleOpenRestoreModal(account)}
+                  onClick={() => handleOpenRestoreSelectorModal(account)}
                 >
                   ⚡ 拉回後台並復原檔案
                 </button>
@@ -1265,22 +1333,76 @@ const EmployeeManager: React.FC = () => {
           </div>
         </div>
       )}
-      {/* 復原無 Profile 檔帳號 Modal */}
-      {showRestoreModal && restoreTarget && (
+      {/* 復原已刪除帳號 Modal */}
+      {showRestoreModal && (
         <div className="modal-overlay" style={{ zIndex: 1100 }}>
-          <div className="modal-content" style={{ maxWidth: '500px', padding: '24px' }}>
+          <div className="modal-content" style={{ maxWidth: '520px', padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e5e7eb', paddingBottom: '12px' }}>
               <h3 style={{ margin: 0, color: '#d97706', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                ⚡ 復原員工檔案（{restoreTarget.name}）
+                🔄 復原已刪除員工帳號
               </h3>
               <button onClick={() => setShowRestoreModal(false)} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: '#9ca3af' }}>×</button>
             </div>
 
-            <div style={{ backgroundColor: '#fffbe3', border: '1px solid #fef08a', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#854d0e' }}>
-              💡 <b>自動關聯：</b> 確定復原後，系統將重新建立此員工在資料庫的 Profile 檔案，並自動與該員工的打卡歷史與登入帳號（UID: <code>{restoreTarget.uid}</code>）進行完全連線！
+            <div style={{ backgroundColor: '#fffbe3', border: '1px solid #fef08a', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#854d0e', lineHeight: '1.4' }}>
+              💡 <b>選擇與自動復原：</b> 從選單中選擇曾有歷史出勤、薪資或班表紀錄的刪除帳號，系統會自動預填資訊並重新連結其 Firebase 登入與打卡紀錄！
             </div>
 
             <form onSubmit={handleConfirmRestoreSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '700', color: '#d97706' }}>
+                  📋 選擇要復原的刪除帳號 <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <select
+                  value={selectedRestoreUid}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedRestoreUid(val);
+                    if (val === 'manual') {
+                      setRestoreUid('');
+                      setRestoreName('');
+                      setRestoreEmail('');
+                    } else {
+                      const match = restorableAccountsList.find(a => a.uid === val);
+                      if (match) {
+                        setRestoreUid(match.uid);
+                        setRestoreName(match.name || '');
+                        setRestoreEmail(match.email || '');
+                      }
+                    }
+                  }}
+                  style={{ padding: '10px 12px', borderRadius: '8px', border: '2px solid #fde047', backgroundColor: '#fff', fontWeight: '600', fontSize: '14px' }}
+                >
+                  {restorableAccountsList.length === 0 ? (
+                    <option value="manual">⚠️ 未掃描到遺失紀錄帳號 (手動輸入 UID/信箱復原)</option>
+                  ) : (
+                    <>
+                      <option value="">-- 請點擊選擇欲復原的帳號 --</option>
+                      {restorableAccountsList.map(acc => (
+                        <option key={acc.uid} value={acc.uid}>
+                          👤 {acc.name} ({acc.source} {acc.lastDate ? `| 打卡: ${acc.lastDate}` : ''})
+                        </option>
+                      ))}
+                      <option value="manual">➕ 手動輸入此員工的 Auth UID 復原</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              {selectedRestoreUid === 'manual' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>Firebase Auth UID <span style={{ color: '#ef4444' }}>*</span></label>
+                  <input
+                    type="text"
+                    value={restoreUid}
+                    onChange={(e) => setRestoreUid(e.target.value)}
+                    placeholder="例如：aB3xYz9..."
+                    required
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+              )}
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>員工姓名 <span style={{ color: '#ef4444' }}>*</span></label>
                 <input
@@ -1293,12 +1415,12 @@ const EmployeeManager: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>電子信箱 (選填/留空自動生成)</label>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>電子信箱</label>
                 <input
                   type="email"
                   value={restoreEmail}
                   onChange={(e) => setRestoreEmail(e.target.value)}
-                  placeholder="如未填寫則以姓名自動帶入"
+                  placeholder="可輸入原本的登入信箱"
                   style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
                 />
               </div>
