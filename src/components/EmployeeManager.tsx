@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 import { db } from '../firebase';
-import { getDocs, query, collection, where, deleteDoc, doc as fsDoc } from 'firebase/firestore';
+import { getDocs, query, collection, where, deleteDoc, setDoc, doc as fsDoc } from 'firebase/firestore';
 import { getApps, initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 
@@ -46,12 +46,86 @@ const getSecondaryAuth = () => {
 const EmployeeManager: React.FC = () => {
   const {
     employees,
+    attendance,
     roles,
     addEmployee,
     updateEmployee,
     deleteEmployee,
     saveRoles
   } = useAdminData();
+
+  // 復原無 Profile 檔帳號 Modal States
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<any>(null);
+  const [restoreName, setRestoreName] = useState('');
+  const [restoreEmail, setRestoreEmail] = useState('');
+  const [restoreSalaryType, setRestoreSalaryType] = useState<'monthly' | 'hourly'>('hourly');
+  const [restoreSalary, setRestoreSalary] = useState<number>(190);
+  const [restoreRole, setRestoreRole] = useState<string>(roles[0] || '員工');
+
+  // 偵測「有打卡出勤紀錄，但 Firestore 人員列表中無 Profile 檔」的遺失帳號
+  const existingEmpIds = new Set((employees || []).map(e => e.id));
+  const orphanedMap = new Map<string, { uid: string; name: string; email?: string; lastDate: string }>();
+
+  (attendance || []).forEach(rec => {
+    if (rec.employeeId && !existingEmpIds.has(rec.employeeId) && rec.employeeId !== 'EMP001' && rec.employeeId !== 'EMP002' && rec.employeeId !== 'EMP003') {
+      const existing = orphanedMap.get(rec.employeeId);
+      const name = rec.empName || rec.employeeName || '未命名員工';
+      const date = rec.date || '';
+      if (!existing || date > existing.lastDate) {
+        orphanedMap.set(rec.employeeId, {
+          uid: rec.employeeId,
+          name,
+          lastDate: date
+        });
+      }
+    }
+  });
+
+  const orphanedAccounts = Array.from(orphanedMap.values());
+
+  const handleOpenRestoreModal = (account: any) => {
+    setRestoreTarget(account);
+    setRestoreName(account.name || '復原員工');
+    setRestoreEmail('');
+    setRestoreSalaryType('hourly');
+    setRestoreSalary(190);
+    setRestoreRole(roles[0] || '員工');
+    setShowRestoreModal(true);
+  };
+
+  const handleConfirmRestoreSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!restoreTarget) return;
+
+    try {
+      const uid = restoreTarget.uid;
+      const isHourly = restoreSalaryType === 'hourly';
+      const laborGrade = isHourly ? 11100 : 33300;
+
+      await setDoc(fsDoc(db, 'employees', uid), {
+        id: uid,
+        name: restoreName,
+        email: restoreEmail || `${restoreName}@company.com`,
+        role: restoreRole,
+        status: 'active',
+        onboardDate: new Date().toISOString().substring(0, 10),
+        salaryType: restoreSalaryType,
+        monthlySalary: Number(restoreSalary),
+        laborSub: laborGrade,
+        nhiSub: 33300,
+        pensionSub: laborGrade,
+        fullMonthSalary: true
+      });
+
+      alert(`✅ 已成功復原「${restoreName}」的員工檔案！資料已拉回人員列表，且打卡紀錄與功能已自動重新關聯。`);
+      setShowRestoreModal(false);
+      setRestoreTarget(null);
+    } catch (err) {
+      console.error(err);
+      alert('復原失敗，請檢查權限');
+    }
+  };
 
   // Add Employee Form States
   const [showAddModal, setShowAddModal] = useState(false);
@@ -341,7 +415,7 @@ const EmployeeManager: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/email-already-in-use') {
-        setAddError('該電子信箱已被註冊使用');
+        setAddError('該電子信箱已被註冊使用（舊帳號仍在 Firebase Authentication 登入清單中）。請至 Firebase 控制台 Authentication 頁面刪除該舊信箱後即可重新建立。');
       } else if (err.code === 'auth/weak-password') {
         setAddError('密碼強度太弱 (至少需要 6 個字元)');
       } else {
@@ -462,6 +536,38 @@ const EmployeeManager: React.FC = () => {
         <button className="btn-primary btn-sm" onClick={() => setShowAddModal(true)}>+ 新增員工帳號</button>
       </div>
       
+      {/* 遺失 Profile 但仍有打卡紀錄的帳號警告與復原區 */}
+      {orphanedAccounts.length > 0 && (
+        <div style={{ backgroundColor: '#fffbe3', border: '1px solid #fef08a', borderRadius: '12px', padding: '16px', margin: '0 20px 20px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <h4 style={{ margin: 0, color: '#854d0e', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px' }}>
+              ⚠️ 檢測到有 {orphanedAccounts.length} 位員工帳號仍有打卡，但資料檔已被刪除！
+            </h4>
+          </div>
+          <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#713f12', lineHeight: '1.5' }}>
+            這些員工目前仍可正常使用 Firebase 帳號打卡出勤，但因 Firestore 檔案已被刪除，導致無法在後台人員列表中進行管理。點擊下方「拉回後台並復原檔案」即可一鍵修復：
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {orphanedAccounts.map(account => (
+              <div key={account.uid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #fde047', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <span style={{ fontWeight: '700', fontSize: '14px', color: '#1f2937' }}>👤 {account.name}</span>
+                  <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '10px' }}>UID: {account.uid}</span>
+                  <span style={{ fontSize: '12px', color: '#059669', marginLeft: '10px', fontWeight: '600' }}>最近打卡: {account.lastDate}</span>
+                </div>
+                <button
+                  className="btn-primary btn-sm"
+                  style={{ backgroundColor: '#d97706', borderColor: '#b45309', color: '#fff', fontWeight: '700', cursor: 'pointer' }}
+                  onClick={() => handleOpenRestoreModal(account)}
+                >
+                  ⚡ 拉回後台並復原檔案
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="table-scroll-wrap">
         <table className="data-table">
           <thead>
@@ -1153,6 +1259,94 @@ const EmployeeManager: React.FC = () => {
                 <button type="button" onClick={() => setShowTransitionModal(false)} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600' }}>取消</button>
                 <button type="submit" style={{ flex: 1, padding: '10px', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: '#fff', cursor: 'pointer', fontWeight: '700' }}>
                   ⚡ 確認調轉為正職
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* 復原無 Profile 檔帳號 Modal */}
+      {showRestoreModal && restoreTarget && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '500px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e5e7eb', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, color: '#d97706', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                ⚡ 復原員工檔案（{restoreTarget.name}）
+              </h3>
+              <button onClick={() => setShowRestoreModal(false)} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: '#9ca3af' }}>×</button>
+            </div>
+
+            <div style={{ backgroundColor: '#fffbe3', border: '1px solid #fef08a', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#854d0e' }}>
+              💡 <b>自動關聯：</b> 確定復原後，系統將重新建立此員工在資料庫的 Profile 檔案，並自動與該員工的打卡歷史與登入帳號（UID: <code>{restoreTarget.uid}</code>）進行完全連線！
+            </div>
+
+            <form onSubmit={handleConfirmRestoreSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>員工姓名 <span style={{ color: '#ef4444' }}>*</span></label>
+                <input
+                  type="text"
+                  value={restoreName}
+                  onChange={(e) => setRestoreName(e.target.value)}
+                  required
+                  style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>電子信箱 (選填/留空自動生成)</label>
+                <input
+                  type="email"
+                  value={restoreEmail}
+                  onChange={(e) => setRestoreEmail(e.target.value)}
+                  placeholder="如未填寫則以姓名自動帶入"
+                  style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>計薪型態</label>
+                  <select
+                    value={restoreSalaryType}
+                    onChange={(e) => {
+                      const val = e.target.value as 'monthly' | 'hourly';
+                      setRestoreSalaryType(val);
+                      setRestoreSalary(val === 'hourly' ? 190 : 33000);
+                    }}
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: '#fff' }}
+                  >
+                    <option value="hourly">時薪工讀</option>
+                    <option value="monthly">月薪正職</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>{restoreSalaryType === 'hourly' ? '時薪 (NT$)' : '月薪 (NT$)'}</label>
+                  <input
+                    type="number"
+                    value={restoreSalary}
+                    onChange={(e) => setRestoreSalary(Number(e.target.value))}
+                    required
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>職務類別</label>
+                <select
+                  value={restoreRole}
+                  onChange={(e) => setRestoreRole(e.target.value)}
+                  style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: '#fff' }}
+                >
+                  {roles.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                <button type="button" onClick={() => setShowRestoreModal(false)} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600' }}>取消</button>
+                <button type="submit" style={{ flex: 1, padding: '10px', borderRadius: '6px', border: 'none', backgroundColor: '#d97706', color: '#fff', cursor: 'pointer', fontWeight: '700' }}>
+                  ⚡ 確認復原並拉回後台
                 </button>
               </div>
             </form>
