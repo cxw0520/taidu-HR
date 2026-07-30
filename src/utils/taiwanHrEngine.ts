@@ -371,6 +371,51 @@ export function parseTimeStrToMinutes(timeStr: string): number {
 }
 
 /**
+ * 羅布斯（Robust）班表上下班時間與班別資訊提取器
+ */
+export function getShiftStartEndTimes(
+  dateSched: any,
+  shifts: any[]
+): {
+  startTimeStr: string;
+  endTimeStr: string;
+  shiftDef: any;
+  expectsFour: boolean;
+} {
+  if (!dateSched || !dateSched.shift) {
+    return { startTimeStr: '', endTimeStr: '', shiftDef: null, expectsFour: false };
+  }
+
+  const shiftRaw = dateSched.shift || '';
+  const shiftName = shiftRaw.split('(')[0].trim();
+  const shiftDef = (shifts || []).find((s: any) => s.name === shiftName || s.name === shiftRaw);
+
+  let startTimeStr = dateSched.startTime || '';
+  let endTimeStr = dateSched.endTime || '';
+
+  if (!startTimeStr || !endTimeStr) {
+    const timeMatch = shiftRaw.match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
+    if (timeMatch) {
+      if (!startTimeStr) startTimeStr = timeMatch[1];
+      if (!endTimeStr) endTimeStr = timeMatch[2];
+    }
+  }
+
+  if (!startTimeStr || !endTimeStr) {
+    if (shiftDef) {
+      if (!startTimeStr) startTimeStr = shiftDef.startTime || '';
+      if (!endTimeStr) endTimeStr = shiftDef.endTime || '';
+    }
+  }
+
+  const expectsFour = shiftDef
+    ? !!((shiftDef.breakStartTime && shiftDef.breakEndTime) || (shiftDef.breakDuration && shiftDef.breakDuration > 0))
+    : false;
+
+  return { startTimeStr, endTimeStr, shiftDef, expectsFour };
+}
+
+/**
  * 依據排班與當天所有打卡紀錄，動態判斷第一筆上班是否遲到，以及最後一筆下班是否早退
  */
 export function evaluatePunchesStatus(
@@ -378,7 +423,8 @@ export function evaluatePunchesStatus(
   startTimeStr: string,
   endTimeStr: string,
   expectsFour?: boolean,
-  breakDuration?: number
+  breakDuration?: number,
+  toleranceMinutes: number = 5
 ) {
   let isLate = false;
   let isEarly = false;
@@ -390,32 +436,40 @@ export function evaluatePunchesStatus(
   const inRecs = dayAtts.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
   const outRecs = dayAtts.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
 
+  const tol = typeof toleranceMinutes === 'number' ? Math.max(0, toleranceMinutes) : 5;
+
   // 遲到判定：只以第一筆上班打卡為準
   const firstIn = inRecs[0];
   if (firstIn) {
     if (firstIn.status === '遲到') {
       isLate = true;
+    } else if (firstIn.status === '正常') {
+      isLate = false;
     } else {
       const expectedInMins = parseTimeStrToMinutes(startTimeStr);
       const actualInMins = parseTimeStrToMinutes(firstIn.time || '');
-      if (actualInMins > (expectedInMins + 1)) {
+      if (actualInMins > (expectedInMins + tol)) {
         isLate = true;
       }
     }
   }
 
-  // 彈性休息時間遲到判定：若為預期四次打卡的班別，且有設定休息時間長度 (預設為 30 分鐘)
+  // 彈性休息時間遲到判定：若為預期四次打卡的班別
   if (expectsFour && inRecs.length >= 2 && outRecs.length >= 1) {
     const firstOut = outRecs[0];
     const secondIn = inRecs[1];
     if (firstOut && secondIn && firstOut.time && secondIn.time) {
-      const startMin = parseTimeStrToMinutes(firstOut.time);
-      const endMin = parseTimeStrToMinutes(secondIn.time);
-      let diff = endMin - startMin;
-      if (diff < 0) diff += 24 * 60; // 跨夜
-      const maxBreakMin = breakDuration ? breakDuration : 30;
-      if (diff > maxBreakMin) {
+      if (secondIn.status === '遲到') {
         isLate = true;
+      } else if (secondIn.status !== '正常') {
+        const startMin = parseTimeStrToMinutes(firstOut.time);
+        const endMin = parseTimeStrToMinutes(secondIn.time);
+        let diff = endMin - startMin;
+        if (diff < 0) diff += 24 * 60; // 跨夜
+        const maxBreakMin = breakDuration && breakDuration > 0 ? breakDuration : 60;
+        if (diff > maxBreakMin + tol) {
+          isLate = true;
+        }
       }
     }
   }
@@ -424,10 +478,12 @@ export function evaluatePunchesStatus(
   const lastOut = outRecs[outRecs.length - 1];
   if (lastOut) {
     if (expectsFour && outRecs.length < 2) {
-      // 若為預期四次打卡的班別（如兩段班/含休息時間），且當前僅有一筆下班打卡，代表此為休息開始，不進行早退判定
+      // 僅第一字下班，屬休息開始，不判早退
       isEarly = false;
     } else if (lastOut.status === '早退') {
       isEarly = true;
+    } else if (lastOut.status === '正常') {
+      isEarly = false;
     } else {
       const expectedInMins = parseTimeStrToMinutes(startTimeStr);
       let expectedOutMins = parseTimeStrToMinutes(endTimeStr);
@@ -441,12 +497,6 @@ export function evaluatePunchesStatus(
       }
     }
   }
-
-  // 安全備用：若有任何打卡本身被存為「遲到」或「早退」，則將整天狀態標記
-  dayAtts.forEach(p => {
-    if (p.status === '遲到') isLate = true;
-    if (p.status === '早退') isEarly = true;
-  });
 
   return { isLate, isEarly };
 }

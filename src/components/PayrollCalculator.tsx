@@ -172,7 +172,7 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig, getShiftStartEndTimes } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
@@ -266,19 +266,9 @@ export const PayrollCalculator: React.FC = () => {
           const dayRecs = allInRecordsByDate[date].sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
           const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
           if (dateSched) {
-            let startTimeStr = dateSched.startTime || '';
-            if (!startTimeStr) {
-              const timeMatch = (dateSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
-              if (timeMatch) {
-                startTimeStr = timeMatch[1];
-              }
-            }
+            const { startTimeStr, shiftDef } = getShiftStartEndTimes(dateSched, shifts);
             if (startTimeStr) {
               const expectedInMins = parseTimeStrToMinutes(startTimeStr);
-              
-              // Get shift break info if any
-              const shiftName = dateSched.shift.split('(')[0].trim();
-              const shiftDef = shifts.find(s => s.name === shiftName);
               const hasFixedBreak = shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime;
               
               dayRecs.forEach((rec, idx) => {
@@ -288,7 +278,7 @@ export const PayrollCalculator: React.FC = () => {
                 }
                 
                 const actualInMins = parseTimeStrToMinutes(rec.time);
-                const isLate = rec.status === '遲到' || (!rec.status && idx === 0 && actualInMins > expectedStart + 1) || (!rec.status && idx === 1 && hasFixedBreak && actualInMins > expectedStart + 1);
+                const isLate = rec.status === '遲到' || (!rec.status && idx === 0 && actualInMins > expectedStart + 5) || (!rec.status && idx === 1 && hasFixedBreak && actualInMins > expectedStart + 5);
                 
                 if (isLate) {
                   lateCount++;
@@ -385,21 +375,11 @@ export const PayrollCalculator: React.FC = () => {
 
             if (dayPunches.length >= 2) {
               const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
-              let shiftDef: any = null;
-              let startTimeStr = '';
-              let endTimeStr = '';
-              if (dateSched) {
-                const shiftName = dateSched.shift.split('(')[0].trim();
-                shiftDef = shifts.find(s => s.name === shiftName);
-                startTimeStr = dateSched.startTime || '';
-                endTimeStr = dateSched.endTime || '';
-                if (!startTimeStr || !endTimeStr) {
-                  const timeMatch = (dateSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
-                  if (timeMatch) {
-                    if (!startTimeStr) startTimeStr = timeMatch[1];
-                    if (!endTimeStr) endTimeStr = timeMatch[2];
-                  }
-                }
+              const { startTimeStr: rawStart, endTimeStr: rawEnd, shiftDef } = getShiftStartEndTimes(dateSched, shifts);
+              let startTimeStr = rawStart;
+              let endTimeStr = rawEnd;
+
+              if (dateSched && startTimeStr && endTimeStr) {
                 // 依核准的「班別調整」請假單調整預期上下班時間
                 const dayLeaves = approvedLeaves.filter(l => l.employeeId === emp.id && l.startDate <= date && l.endDate >= date);
                 const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);

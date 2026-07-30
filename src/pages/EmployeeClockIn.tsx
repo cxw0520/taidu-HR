@@ -7,7 +7,7 @@ import {
   doc, getDoc, updateDoc, deleteDoc
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
-import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getShiftStartEndTimes } from '../utils/taiwanHrEngine';
 
 const LEAVE_TYPES = [
   { value: 'sick',        label: '病假 (半薪)',  yearlyDays: 30 },
@@ -641,9 +641,7 @@ const EmployeeClockIn: React.FC = () => {
       const hasLeave = myLeaves.some(l => l.startDate <= date && l.endDate >= date && l.status === 'approved');
       if (hasLeave) return;
 
-      const shiftName = (sched.shift || '').split('(')[0].trim();
-      const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
-      const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+      const { startTimeStr, endTimeStr, shiftDef: matchedShiftDef, expectsFour } = getShiftStartEndTimes(sched, shiftsList);
 
       const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
       const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
@@ -652,7 +650,7 @@ const EmployeeClockIn: React.FC = () => {
       const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
 
       if (actualPunches === 0) {
-        list.push({ id: `absent-${date}`, date, type: '曠職', message: `當天有班表 (${sched.shift})，但無 any 打卡紀錄。`, recId: '' });
+        list.push({ id: `absent-${date}`, date, type: '曠職', message: `當天有班表 (${sched.shift})，但無任何打卡紀錄。`, recId: '' });
       } else if (actualPunches < expectedPunches) {
         let missingDetail = '';
         if (expectsFour) {
@@ -662,14 +660,7 @@ const EmployeeClockIn: React.FC = () => {
         }
         list.push({ id: `miss-${date}`, date, type: '缺卡', message: `打卡不完整：${missingDetail}`, recId: inRecs[0]?.id || outRecs[0]?.id || '' });
       } else {
-        let startTimeStr = '';
-        let endTimeStr = '';
-        const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
-        if (timeMatch) {
-          startTimeStr = timeMatch[1];
-          endTimeStr = timeMatch[2];
-        }
-        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr, expectsFour, matchedShiftDef?.breakDuration);
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, startTimeStr, endTimeStr, expectsFour, matchedShiftDef?.breakDuration, 5);
         const dayStatuses = [];
         if (isLate) dayStatuses.push('遲到');
         if (isEarly) dayStatuses.push('早退');

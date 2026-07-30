@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
-import { parseTimeStrToMinutes, isOffShift, evaluatePunchesStatus, getAdjustedShiftTimes } from '../utils/taiwanHrEngine';
+import { parseTimeStrToMinutes, isOffShift, evaluatePunchesStatus, getAdjustedShiftTimes, getShiftStartEndTimes } from '../utils/taiwanHrEngine';
 
 const AttendanceManager: React.FC = () => {
   const {
@@ -10,6 +10,7 @@ const AttendanceManager: React.FC = () => {
     shifts,
     leaves,
     overtimeReqs,
+    toleranceMinutes,
     addAttendanceRecord,
     updateAttendanceRecord,
     deleteAttendanceRecord
@@ -150,21 +151,11 @@ const AttendanceManager: React.FC = () => {
         };
 
         const dateSched = schedules.find((s: any) => s.employeeId === empId && s.date === date);
-        let shiftDef: any = null;
-        let startTimeStr = '';
-        let endTimeStr = '';
-        if (dateSched) {
-          const shiftName = dateSched.shift.split('(')[0].trim();
-          shiftDef = shifts.find(s => s.name === shiftName);
-          startTimeStr = dateSched.startTime || '';
-          endTimeStr = dateSched.endTime || '';
-          if (!startTimeStr || !endTimeStr) {
-            const timeMatch = (dateSched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
-            if (timeMatch) {
-              if (!startTimeStr) startTimeStr = timeMatch[1];
-              if (!endTimeStr) endTimeStr = timeMatch[2];
-            }
-          }
+        const { startTimeStr: rawStart, endTimeStr: rawEnd, shiftDef } = getShiftStartEndTimes(dateSched, shifts);
+        let startTimeStr = rawStart;
+        let endTimeStr = rawEnd;
+
+        if (dateSched && startTimeStr && endTimeStr) {
           // 依核准的「班別調整」請假單調整預期上下班時間
           const dayLeaves = (leaves || []).filter(l => l.employeeId === empId && l.startDate <= date && l.endDate >= date);
           const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
@@ -466,57 +457,20 @@ const AttendanceManager: React.FC = () => {
       if (hasLeave) return;
 
       const dayAtt = (attMap[empId] && attMap[empId][date]) || [];
-      const shiftName = (sched.shift || '').split('(')[0].trim();
-      const shiftDef = (shifts || []).find(s => s.name === shiftName);
-      const expectsFour = shiftDef ? ((shiftDef.breakStartTime && shiftDef.breakEndTime) || (shiftDef.breakDuration > 0)) : false;
+      const { startTimeStr: rawStart, endTimeStr: rawEnd, shiftDef, expectsFour } = getShiftStartEndTimes(sched, shifts);
       const empOvertimes = otMap[empId] || [];
       const hasApprovedOvertime = empOvertimes.some(ot => ot.date === date && ot.status === 'approved');
       const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
 
-      let startTimeStr = '';
-      let endTimeStr = '';
-      const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
-      if (timeMatch) {
-        startTimeStr = timeMatch[1];
-        endTimeStr = timeMatch[2];
-      }
-
       // 依核准的「班別調整」假單調整當天班表起迄時間
       const approvedShiftAdjLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
-      const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, approvedShiftAdjLeaves);
+      const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(rawStart, rawEnd, approvedShiftAdjLeaves);
 
-      // 動態判定當日各打卡狀態，防止「班別調整」被算為遲到/早退
-      const adjustedPunches = dayAtt.map(p => {
-        let status = p.status || '正常';
-        const timeMins = parseTimeStrToMinutes(p.time || '');
-        if (p.type === '上班') {
-          const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
-          if (inRecs[0] && inRecs[0].id === p.id) {
-            const expectedInMins = parseTimeStrToMinutes(adjustedStart);
-            status = timeMins > (expectedInMins + 1) ? '遲到' : '正常';
-          }
-        } else if (p.type === '下班') {
-          const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
-          if (outRecs[outRecs.length - 1] && outRecs[outRecs.length - 1].id === p.id) {
-            const expectedInMins = parseTimeStrToMinutes(adjustedStart);
-            let expectedOutMins = parseTimeStrToMinutes(adjustedEnd);
-            if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
-            
-            let actualOutMins = timeMins;
-            if (actualOutMins < expectedInMins) actualOutMins += 24 * 60;
-
-            status = actualOutMins < (expectedOutMins - 1) ? '早退' : '正常';
-          }
-        }
-        return { ...p, status };
-      });
-
-      const actualPunches = adjustedPunches.length;
-
+      const actualPunches = dayAtt.length;
       let types: string[] = [];
       let msg = '';
       
-      const sortedPunches = [...adjustedPunches].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+      const sortedPunches = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
       const punchesStr = sortedPunches.map(p => `${p.type} ${p.time}${p.status && p.status !== '正常' ? `(${p.status})` : ''}`).join(', ') || '無打卡紀錄';
 
       if (actualPunches === 0) {
@@ -526,13 +480,13 @@ const AttendanceManager: React.FC = () => {
         types.push('未打卡');
         msg = `打卡次數不完整：應打卡 ${expectedPunches} 次，實際僅打卡 ${actualPunches} 次 (${sched.shift})`;
       } else {
-        const { isLate, isEarly } = evaluatePunchesStatus(adjustedPunches, adjustedStart, adjustedEnd, expectsFour, shiftDef?.breakDuration);
+        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, adjustedStart, adjustedEnd, expectsFour, shiftDef?.breakDuration, toleranceMinutes);
 
         if (isLate) types.push('遲到');
         if (isEarly) types.push('早退');
 
         // Check if any individual punch has abnormal status
-        adjustedPunches.forEach(p => {
+        dayAtt.forEach(p => {
           if (p.status === '異常' && !types.includes('異常')) types.push('異常');
           if (p.status === '遲到' && !types.includes('遲到')) types.push('遲到');
           if (p.status === '早退' && !types.includes('早退')) types.push('早退');

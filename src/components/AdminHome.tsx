@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 
-import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getShiftStartEndTimes } from '../utils/taiwanHrEngine';
 
 interface AdminHomeProps {
   setActiveTab: (tab: 'attendance' | 'employees' | 'schedules' | 'payroll' | 'leaves' | 'settings') => void;
@@ -350,9 +350,7 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
       if (hasLeave) return;
       
       const dayAtt = (attMap[empId] && attMap[empId][date]) || [];
-      const shiftName = (sched.shift || '').split('(')[0].trim();
-      const matchedShiftDef = (shifts || []).find(s => s.name === shiftName);
-      const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+      const { startTimeStr: rawStart, endTimeStr: rawEnd, shiftDef: matchedShiftDef, expectsFour } = getShiftStartEndTimes(sched, shifts);
 
       const inRecs = dayAtt.filter(r => r.type === '上班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
       const outRecs = dayAtt.filter(r => r.type === '下班').sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
@@ -381,16 +379,8 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
           message: msg
         });
       } else {
-        let startTimeStr = '';
-        let endTimeStr = '';
-        const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
-        if (timeMatch) {
-          startTimeStr = timeMatch[1];
-          endTimeStr = timeMatch[2];
-        }
-        
         const approvedDayLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
-        const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, approvedDayLeaves);
+        const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(rawStart, rawEnd, approvedDayLeaves);
         
         const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, adjustedStart, adjustedEnd, expectsFour, matchedShiftDef?.breakDuration);
         const dayStatuses = [];
