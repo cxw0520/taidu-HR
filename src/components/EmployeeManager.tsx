@@ -136,6 +136,103 @@ const EmployeeManager: React.FC = () => {
   // 已離職員工抽屜
   const [showResignedDrawer, setShowResignedDrawer] = useState<boolean>(false);
 
+  // 工讀轉正職 Modal State
+  const [showTransitionModal, setShowTransitionModal] = useState(false);
+  const [transitionEmp, setTransitionEmp] = useState<any>(null);
+  const [transEffectiveDate, setTransEffectiveDate] = useState<string>(new Date().toISOString().substring(0, 10));
+  const [transMonthlySalary, setTransMonthlySalary] = useState<number>(33000);
+  const [transRole, setTransRole] = useState<string>('');
+  const [transLaborSub, setTransLaborSub] = useState<number>(33300);
+  const [transNhiSub, setTransNhiSub] = useState<number>(33300);
+  const [transPensionSub, setTransPensionSub] = useState<number>(33300);
+  const [transRoleAllowance, setTransRoleAllowance] = useState<number>(0);
+  const [transAttendanceBonus, setTransAttendanceBonus] = useState<number>(0);
+  const [transEvaluationAllowance, setTransEvaluationAllowance] = useState<number>(0);
+  const [transOtherAllowance, setTransOtherAllowance] = useState<number>(0);
+
+  const handleOpenTransitionModal = (emp: any) => {
+    if (emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003') {
+      alert('模擬資料無法編輯。');
+      return;
+    }
+    setTransitionEmp(emp);
+    setTransEffectiveDate(new Date().toISOString().substring(0, 10));
+    setTransMonthlySalary(33000);
+    setTransRole(emp.role || roles[0]);
+    setTransLaborSub(33300);
+    setTransNhiSub(33300);
+    setTransPensionSub(33300);
+    setTransRoleAllowance(0);
+    setTransAttendanceBonus(0);
+    setTransEvaluationAllowance(0);
+    setTransOtherAllowance(0);
+    setShowTransitionModal(true);
+  };
+
+  const handleTransitionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transitionEmp) return;
+
+    try {
+      const onboardDate = transitionEmp.onboardDate || '2025-01-01';
+      // 舊工讀歷史紀錄
+      const oldRecord = {
+        effectiveDate: onboardDate,
+        salaryType: 'hourly',
+        monthlySalary: transitionEmp.monthlySalary || 190,
+        laborSub: transitionEmp.laborSub || 11100,
+        nhiSub: transitionEmp.nhiSub || 29500,
+        pensionSub: transitionEmp.pensionSub || 11100,
+        role: transitionEmp.role,
+        note: '時薪工讀階段'
+      };
+
+      // 新月薪正職紀錄
+      const newRecord = {
+        effectiveDate: transEffectiveDate,
+        salaryType: 'monthly',
+        monthlySalary: Number(transMonthlySalary),
+        laborSub: Number(transLaborSub),
+        nhiSub: Number(transNhiSub),
+        pensionSub: Number(transPensionSub),
+        role: transRole,
+        roleAllowance: Number(transRoleAllowance),
+        attendanceBonus: Number(transAttendanceBonus),
+        evaluationAllowance: Number(transEvaluationAllowance),
+        otherAllowance: Number(transOtherAllowance),
+        note: '工讀轉正職'
+      };
+
+      const currentHistory = Array.isArray(transitionEmp.salaryTypeHistory) ? transitionEmp.salaryTypeHistory : [oldRecord];
+      const updatedHistory = [...currentHistory, newRecord];
+
+      await updateEmployee(transitionEmp.id, {
+        salaryType: 'monthly',
+        monthlySalary: Number(transMonthlySalary),
+        role: transRole,
+        laborSub: Number(transLaborSub),
+        nhiSub: Number(transNhiSub),
+        pensionSub: Number(transPensionSub),
+        roleAllowance: Number(transRoleAllowance),
+        attendanceBonus: Number(transAttendanceBonus),
+        evaluationAllowance: Number(transEvaluationAllowance),
+        otherAllowance: Number(transOtherAllowance),
+        transitionDate: transEffectiveDate,
+        previousSalaryType: 'hourly',
+        previousMonthlySalary: transitionEmp.monthlySalary || 190,
+        salaryTypeHistory: updatedHistory
+      });
+
+      alert(`✅ 已成功將「${transitionEmp.name}」轉為月薪正職！生效日期：${transEffectiveDate}`);
+      setShowTransitionModal(false);
+      setTransitionEmp(null);
+    } catch (err) {
+      console.error(err);
+      alert('轉正職更新失敗，請檢查網路與權限');
+    }
+  };
+
+
   const handleAddCustomRole = async (e: React.MouseEvent) => {
     e.preventDefault();
     const cleanRoleName = customRoleName.trim();
@@ -396,13 +493,27 @@ const EmployeeManager: React.FC = () => {
                   <span className="badge" style={{ backgroundColor: emp.salaryType === 'hourly' ? '#f3f4f6' : 'rgba(79, 70, 229, 0.1)', color: emp.salaryType === 'hourly' ? '#4b5563' : 'var(--primary)', fontWeight: '600', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>
                     {emp.salaryType === 'hourly' ? '時薪工讀' : '月薪排班'}
                   </span>
+                  {emp.transitionDate && (
+                    <div style={{ fontSize: '11px', color: '#10b981', marginTop: '4px', fontWeight: '600' }}>
+                      ⚡ {emp.transitionDate} 轉正職
+                    </div>
+                  )}
                 </td>
                 <td data-label="帳號狀態">
                   <span className={`badge badge-${emp.status === 'active' ? 'success' : 'neutral'}`}>
                     {emp.status === 'active' ? '啟用中' : '已停用'}
                   </span>
                 </td>
-                <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {emp.salaryType === 'hourly' && (
+                    <button
+                      className="btn-text"
+                      style={{ color: '#10b981', fontWeight: '700', backgroundColor: '#ecfdf5', padding: '4px 8px', borderRadius: '6px', border: '1px solid #a7f3d0' }}
+                      onClick={() => handleOpenTransitionModal(emp)}
+                    >
+                      ⚡ 轉為正職
+                    </button>
+                  )}
                   <button className="btn-text" style={{ color: 'var(--primary)', fontWeight: '600' }} onClick={() => handleOpenEditEmployee(emp)}>編輯</button>
                   <button className="btn-text" style={{ color: '#ef4444', fontWeight: '600' }} onClick={() => handleDeleteEmployeeClick(emp.id)}>刪除</button>
                 </td>
@@ -941,8 +1052,116 @@ const EmployeeManager: React.FC = () => {
           </div>
         </div>
       )}
+      {/* 工讀轉正職 Modal */}
+      {showTransitionModal && transitionEmp && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '560px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e5e7eb', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                ⚡ 工讀轉正職設定（{transitionEmp.name}）
+              </h3>
+              <button onClick={() => setShowTransitionModal(false)} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: '#9ca3af' }}>×</button>
+            </div>
+
+            <div style={{ backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#065f46' }}>
+              💡 <b>歷史薪資隔離保護：</b> 設定轉正職生效日後，過往歷史月份（生效日之前）重算或檢視薪資時，系統會自動選用原工讀時薪（<b>NT$ {transitionEmp.monthlySalary || 190} /時</b>），完全不會影響過去已算好的薪資！
+            </div>
+
+            <form onSubmit={handleTransitionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>轉正職生效日期 <span style={{ color: '#ef4444' }}>*</span></label>
+                  <input
+                    type="date"
+                    value={transEffectiveDate}
+                    onChange={(e) => setTransEffectiveDate(e.target.value)}
+                    required
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                  <span style={{ fontSize: '11px', color: '#6b7280' }}>支援月中生效（如 15 號），當月將自動進行破月切分計薪。</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>新正職月薪底薪 (NT$) <span style={{ color: '#ef4444' }}>*</span></label>
+                  <input
+                    type="number"
+                    value={transMonthlySalary}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setTransMonthlySalary(val);
+                      setTransLaborSub(findClosestGrade(val, LABOR_GRADES_MONTHLY));
+                      setTransNhiSub(findClosestGrade(val, NHI_GRADES));
+                      setTransPensionSub(findClosestGrade(val, PENSION_GRADES_MONTHLY));
+                    }}
+                    required
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>新職務類別</label>
+                <select
+                  value={transRole}
+                  onChange={(e) => setTransRole(e.target.value)}
+                  style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: '#fff' }}
+                >
+                  {roles.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+
+              <div style={{ borderTop: '1px dashed #e5e7eb', paddingTop: '10px', marginTop: '4px' }}>
+                <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--primary)' }}>🏥 新保費級距設定（轉正後）</span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>勞保申報級距</label>
+                  <select value={transLaborSub} onChange={(e) => setTransLaborSub(Number(e.target.value))} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}>
+                    {LABOR_GRADES_MONTHLY.map(g => <option key={g} value={g}>{g} 元</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>健保申報級距</label>
+                  <select value={transNhiSub} onChange={(e) => setTransNhiSub(Number(e.target.value))} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}>
+                    {NHI_GRADES.map(g => <option key={g} value={g}>{g} 元</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>勞退申報級距</label>
+                  <select value={transPensionSub} onChange={(e) => setTransPensionSub(Number(e.target.value))} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}>
+                    {PENSION_GRADES_MONTHLY.map(g => <option key={g} value={g}>{g} 元</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px dashed #e5e7eb', paddingTop: '10px', marginTop: '4px' }}>
+                <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--primary)' }}>💰 正職固定加給 (可選)</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>職務加給</label>
+                  <input type="number" value={transRoleAllowance} onChange={(e) => setTransRoleAllowance(Number(e.target.value))} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #d1d5db', width: '100%' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>全勤獎金</label>
+                  <input type="number" value={transAttendanceBonus} onChange={(e) => setTransAttendanceBonus(Number(e.target.value))} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #d1d5db', width: '100%' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                <button type="button" onClick={() => setShowTransitionModal(false)} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: '600' }}>取消</button>
+                <button type="submit" style={{ flex: 1, padding: '10px', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: '#fff', cursor: 'pointer', fontWeight: '700' }}>
+                  ⚡ 確認調轉為正職
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default EmployeeManager;
+

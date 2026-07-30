@@ -172,18 +172,24 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
         
-        let monthlySalary = emp.monthlySalary || 32000;
-        const salaryType = emp.salaryType || 'monthly';
-        let laborSub = emp.laborSub === 0 ? 0 : (emp.laborSub || (salaryType === 'hourly' ? 11100 : 29500));
-        let nhiSub = emp.nhiSub === 0 ? 0 : (emp.nhiSub || 29500);
-        let pensionSub = emp.pensionSub === 0 ? 0 : (emp.pensionSub || (salaryType === 'hourly' ? 11100 : 29500));
+        // 取得當月生效的薪資與保費設定（歷史隔離保護機制）
+        const effConfig = getEffectiveSalaryConfig(emp, monthStr);
+        let monthlySalary = effConfig.monthlySalary;
+        const salaryType = effConfig.salaryType;
+        let laborSub = effConfig.laborSub;
+        let nhiSub = effConfig.nhiSub;
+        let pensionSub = effConfig.pensionSub;
         let onboardDateStr = emp.onboardDate || '2025-01-01';
         let resignDateStr = emp.resignDate || null;
+
+        // 檢查當月是否為「轉正職月份」
+        const isTransitionMonth = !!(emp.transitionDate && emp.transitionDate.substring(0, 7) === monthStr);
+        const transitionDateStr = emp.transitionDate || '';
 
         // ── 檢查入職與離職月份 ──
         const onboardMonth = onboardDateStr.substring(0, 7);
@@ -214,10 +220,10 @@ export const PayrollCalculator: React.FC = () => {
         }
 
         const nhiDependents = emp.nhiDependents || 0;
-        let attendanceBonus = emp.attendanceBonus || 0;
-        const otherAllowance = emp.otherAllowance || 0;
-        const roleAllowance = emp.roleAllowance || 0;
-        const evaluationAllowance = emp.evaluationAllowance || 0;
+        let attendanceBonus = effConfig.attendanceBonus;
+        const otherAllowance = effConfig.otherAllowance;
+        const roleAllowance = effConfig.roleAllowance;
+        const evaluationAllowance = effConfig.evaluationAllowance;
 
         if (isMock) {
           if (emp.role && emp.role.includes('工程師')) {
@@ -308,11 +314,27 @@ export const PayrollCalculator: React.FC = () => {
         );
 
         // 判斷是否按天數比例計算底薪（fullMonthSalary 未設定或 true = 整月計算，false = 按在職天數比例）
-        // 離職月不管有沒勾選「計算整月」，一律按天數計算
+        // 離職月或轉正職月一律按天數分段計算
         const fullMonthSalary = emp.fullMonthSalary !== false;
         const isResignMonth = !!(resignDateStr && resignDateStr.substring(0, 7) === monthStr);
         let calculatedBaseSalary = 0;
-        if (!isHourly) {
+        let transitionNote = '';
+
+        if (isTransitionMonth) {
+          // ── 破月轉正職：正職月薪部分段計算 ──
+          const [salYr, salMo] = monthStr.split('-').map(Number);
+          const daysInMonth = new Date(salYr, salMo, 0).getDate();
+          const transDay = parseInt(transitionDateStr.substring(8, 10));
+          let endDay = daysInMonth;
+          if (isResignMonth) endDay = parseInt(resignDateStr!.substring(8, 10));
+
+          const fullTimeDays = Math.max(0, endDay - transDay + 1);
+          const proRatedMonthlySalary = Math.round(monthlySalary * fullTimeDays / daysInMonth);
+          calculatedBaseSalary += proRatedMonthlySalary;
+
+          const prevHourlyRate = emp.previousMonthlySalary || 190;
+          transitionNote = `【破月轉正職】${transDay}日生效正職 (${fullTimeDays}天=$${proRatedMonthlySalary.toLocaleString()})，工讀期間時薪 $${prevHourlyRate}`;
+        } else if (!isHourly) {
           if (!fullMonthSalary || isResignMonth) {
             // 按在職天數比例計算底薪（離職月一律此邏輯）
             const [salYr, salMo] = monthStr.split('-').map(Number);
@@ -346,9 +368,11 @@ export const PayrollCalculator: React.FC = () => {
           attendanceByDate[rec.date].push(rec);
         });
 
-        // 1. Calculate hourly workers' base and double holidays salary
-        if (isHourly) {
+        // 1. Calculate hourly workers' base and double holidays salary (包含破月轉正職工讀階段)
+        if (isHourly || isTransitionMonth) {
           Object.keys(attendanceByDate).forEach(date => {
+            if (isTransitionMonth && date >= transitionDateStr) return; // 轉正後日期歸月薪正職段計算
+
             const dayRecords = attendanceByDate[date];
             const parseTime = (timeStr: string) => {
               return parseTimeStrToMinutes(timeStr) / 60;
@@ -523,15 +547,16 @@ export const PayrollCalculator: React.FC = () => {
                 );
                 const isCompensatoryWorkdayDate = holidays.some(h => h.workdayDate === date);
                 const regHours = Math.min(hours, 8);
+                const effHourlyRate = isTransitionMonth ? (emp.previousMonthlySalary || 190) : hourlyRate;
                 // 補班日視同平日，不給節日雙薪；正常放假日才給
                 if (!isCompensatoryWorkdayDate) {
-                  calculatedBaseSalary += regHours * hourlyRate;
+                  calculatedBaseSalary += regHours * effHourlyRate;
                   if (isActualHolidayDate) {
-                    overtimePay += regHours * hourlyRate; // 國定假日工作 → 額外再給一倍
+                    overtimePay += regHours * effHourlyRate; // 國定假日工作 → 額外再給一倍
                   }
                 } else {
                   // 補班日：視同平日計薪
-                  calculatedBaseSalary += regHours * hourlyRate;
+                  calculatedBaseSalary += regHours * effHourlyRate;
                 }
               }
             }
@@ -784,7 +809,7 @@ export const PayrollCalculator: React.FC = () => {
         const specialPeriods = calculateSpecialLeavePeriods(
           onboardDateStr,
           lastDayOfPayMonth,
-          (emp.salaryType || 'monthly') as 'monthly' | 'hourly',
+          salaryType as 'monthly' | 'hourly',
           getWorkedHours,
           approvedAnnualLeaves
         );
@@ -834,6 +859,8 @@ export const PayrollCalculator: React.FC = () => {
           evaluationAllowance,
           empRole: emp.role || '',
           onboardDate: onboardDateStr,
+          salaryType: salaryType,
+          transitionNote: transitionNote || '',
           overtime: overtimePay,
           leaveDeduction,
           personalLeaveDays,
@@ -1364,6 +1391,11 @@ export const PayrollCalculator: React.FC = () => {
                 <td data-label="結算月份">{record.month}</td>
                 <td data-label="底薪">
                   <div style={{ fontWeight: '600' }}>NT$ {record.baseSalary?.toLocaleString()}</div>
+                  {record.transitionNote && (
+                    <div style={{ fontSize: '11px', color: '#047857', marginTop: '3px', backgroundColor: '#ecfdf5', padding: '4px 6px', borderRadius: '4px', border: '1px solid #a7f3d0', fontWeight: '500', lineHeight: '1.3' }}>
+                      ⚡ {record.transitionNote}
+                    </div>
+                  )}
                   {((record.roleAllowance || 0) > 0 || (record.evaluationAllowance || 0) > 0 || (record.attendanceBonus || 0) > 0 || (record.otherAllowance || 0) > 0 || (record.annualLeavePayoff || 0) > 0) && (
                     <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', lineHeight: '1.4', backgroundColor: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       {(record.roleAllowance || 0) > 0 && <div>💼 職加: +{(record.roleAllowance || 0).toLocaleString()}</div>}

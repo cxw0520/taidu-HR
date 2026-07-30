@@ -47,7 +47,6 @@ export function calculatePayrollInsurance(
   // 取得結算月份之第一天與最後一天
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 0); // 0 號代表上個月的最後一天，即本月最後一天
-  const daysInMonth = monthEnd.getDate();
 
   // 確定在職起迄與本月之重疊區間
   const activeStart = oDate > monthStart ? oDate : monthStart;
@@ -669,5 +668,101 @@ export function getAdjustedShiftTimes(
 
   return { adjustedStart, adjustedEnd };
 }
+
+export interface SalaryTypeHistoryItem {
+  effectiveDate: string; // YYYY-MM-DD
+  salaryType: 'monthly' | 'hourly';
+  monthlySalary: number; // hourly rate if hourly, monthly salary if monthly
+  laborSub?: number;
+  nhiSub?: number;
+  pensionSub?: number;
+  role?: string;
+  attendanceBonus?: number;
+  otherAllowance?: number;
+  roleAllowance?: number;
+  evaluationAllowance?: number;
+  note?: string;
+}
+
+/**
+ * 取得指定月份/日期員工生效的薪資結構與型態 (歷史薪資隔離機制)
+ */
+export function getEffectiveSalaryConfig(
+  emp: any,
+  targetYearMonth: string, // YYYY-MM
+  targetDate?: string // YYYY-MM-DD
+): {
+  salaryType: 'monthly' | 'hourly';
+  monthlySalary: number;
+  laborSub: number;
+  nhiSub: number;
+  pensionSub: number;
+  attendanceBonus: number;
+  otherAllowance: number;
+  roleAllowance: number;
+  evaluationAllowance: number;
+} {
+  const currentSalaryType: 'monthly' | 'hourly' = emp.salaryType || 'monthly';
+  const defaultMonthlySalary = emp.monthlySalary || 32000;
+  const defaultLaborSub = emp.laborSub === 0 ? 0 : (emp.laborSub || (currentSalaryType === 'hourly' ? 11100 : 29500));
+  const defaultNhiSub = emp.nhiSub === 0 ? 0 : (emp.nhiSub || 29500);
+  const defaultPensionSub = emp.pensionSub === 0 ? 0 : (emp.pensionSub || (currentSalaryType === 'hourly' ? 11100 : 29500));
+
+  // 檢查是否有 salaryTypeHistory
+  const historyList: SalaryTypeHistoryItem[] = Array.isArray(emp.salaryTypeHistory) ? emp.salaryTypeHistory : [];
+  const queryDate = targetDate || `${targetYearMonth}-31`;
+
+  if (historyList.length > 0) {
+    const sorted = [...historyList].sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+    const matched = sorted.filter(item => item.effectiveDate <= queryDate).pop();
+    if (matched) {
+      const salType = matched.salaryType || currentSalaryType;
+      return {
+        salaryType: salType,
+        monthlySalary: matched.monthlySalary || defaultMonthlySalary,
+        laborSub: matched.laborSub ?? defaultLaborSub,
+        nhiSub: matched.nhiSub ?? defaultNhiSub,
+        pensionSub: matched.pensionSub ?? defaultPensionSub,
+        attendanceBonus: matched.attendanceBonus ?? (emp.attendanceBonus || 0),
+        otherAllowance: matched.otherAllowance ?? (emp.otherAllowance || 0),
+        roleAllowance: matched.roleAllowance ?? (emp.roleAllowance || 0),
+        evaluationAllowance: matched.evaluationAllowance ?? (emp.evaluationAllowance || 0),
+      };
+    }
+  }
+
+  // 若無 historyList 但有 transitionDate (轉正職日期)
+  if (emp.transitionDate) {
+    const tMonth = emp.transitionDate.substring(0, 7);
+    if (targetYearMonth < tMonth || (targetDate && targetDate < emp.transitionDate)) {
+      const prevSalType = emp.previousSalaryType || 'hourly';
+      const prevSal = emp.previousMonthlySalary || (prevSalType === 'hourly' ? 190 : defaultMonthlySalary);
+      return {
+        salaryType: prevSalType,
+        monthlySalary: prevSal,
+        laborSub: prevSalType === 'hourly' ? 11100 : defaultLaborSub,
+        nhiSub: defaultNhiSub,
+        pensionSub: prevSalType === 'hourly' ? 11100 : defaultPensionSub,
+        attendanceBonus: 0,
+        otherAllowance: 0,
+        roleAllowance: 0,
+        evaluationAllowance: 0
+      };
+    }
+  }
+
+  return {
+    salaryType: currentSalaryType,
+    monthlySalary: defaultMonthlySalary,
+    laborSub: defaultLaborSub,
+    nhiSub: defaultNhiSub,
+    pensionSub: defaultPensionSub,
+    attendanceBonus: emp.attendanceBonus || 0,
+    otherAllowance: emp.otherAllowance || 0,
+    roleAllowance: emp.roleAllowance || 0,
+    evaluationAllowance: emp.evaluationAllowance || 0
+  };
+}
+
 
 
