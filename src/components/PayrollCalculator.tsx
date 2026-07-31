@@ -9,7 +9,8 @@ export const PayrollCalculator: React.FC = () => {
     payroll,
     insuranceRates,
     shifts,
-    holidays
+    holidays,
+    typhoonLeaves
   } = useAdminData();
 
   // Local states for calculation and UI
@@ -172,7 +173,7 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig, getShiftStartEndTimes } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig, getShiftStartEndTimes, roundToHalfHour, calculateTyphoonLeaveHours } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
@@ -519,7 +520,7 @@ export const PayrollCalculator: React.FC = () => {
                   }
                 }
 
-                hours = Math.round(hours * 10) / 10;
+                hours = roundToHalfHour(hours);
 
                 // 修正：使用 movedDate 判斷實際放假日（節日移轉後以新日期為準）
                 const isActualHolidayDate = holidays.some(h =>
@@ -556,43 +557,44 @@ export const PayrollCalculator: React.FC = () => {
 
           const d = new Date(req.date);
           const dayOfWeek = d.getDay();
+          const otHours = roundToHalfHour(req.hours || 0);
 
           if (isHourly) {
             const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === req.date);
             const shiftType = dateSched ? dateSched.shift : '';
 
             if (shiftType === '休假') {
-              overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'rest');
-              restDayOvertimeHours += req.hours;
+              overtimePay += calculateOvertimePay(hourlyRate, otHours, 'rest');
+              restDayOvertimeHours += otHours;
             } else if (shiftType === '例假') {
-              overtimePay += Math.round(req.hours * hourlyRate * 2.0);
-              holidayOvertimeHours += req.hours;
+              overtimePay += Math.round(otHours * hourlyRate * 2.0);
+              holidayOvertimeHours += otHours;
             } else if (isActualHoliday) {
-              overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'regular');
-              holidayOvertimeHours += req.hours;
+              overtimePay += calculateOvertimePay(hourlyRate, otHours, 'regular');
+              holidayOvertimeHours += otHours;
             } else {
-              overtimePay += calculateOvertimePay(hourlyRate, req.hours, 'regular');
-              weekdayOvertimeHours += req.hours;
+              overtimePay += calculateOvertimePay(hourlyRate, otHours, 'regular');
+              weekdayOvertimeHours += otHours;
             }
           } else {
             let dayType: 'regular' | 'rest' | 'holiday' = 'regular';
             if (isActualHoliday) {
               dayType = 'holiday';
-              holidayOvertimeHours += req.hours;
+              holidayOvertimeHours += otHours;
             } else if (isCompensatoryWorkday) {
               dayType = 'regular';
-              weekdayOvertimeHours += req.hours;
+              weekdayOvertimeHours += otHours;
             } else if (dayOfWeek === 6) {
               dayType = 'rest';
-              restDayOvertimeHours += req.hours;
+              restDayOvertimeHours += otHours;
             } else if (dayOfWeek === 0) {
               dayType = 'holiday';
-              holidayOvertimeHours += req.hours;
+              holidayOvertimeHours += otHours;
             } else {
               dayType = 'regular';
-              weekdayOvertimeHours += req.hours;
+              weekdayOvertimeHours += otHours;
             }
-            overtimePay += calculateOvertimePay(hourlyRate, req.hours, dayType);
+            overtimePay += calculateOvertimePay(hourlyRate, otHours, dayType);
           }
         });
 
@@ -626,11 +628,36 @@ export const PayrollCalculator: React.FC = () => {
           const totalDays = Math.round((new Date(lvEnd).getTime() - new Date(lvStart).getTime()) / 86400000) + 1;
           const leaveHours = lv.hours || (totalDays * 8);
           const monthLeaveHours = (days / totalDays) * leaveHours;
-          totalLeaveHours += monthLeaveHours;
+          const roundedMonthLeaveHours = roundToHalfHour(monthLeaveHours);
+          totalLeaveHours += roundedMonthLeaveHours;
 
-          if (lv.leaveType === 'personal') totalPersonalHours += monthLeaveHours;
-          else if (lv.leaveType === 'sick') totalSickHours += monthLeaveHours;
-          else if (lv.leaveType === 'typhoon') totalTyphoonHours += monthLeaveHours;
+          if (lv.leaveType === 'personal') totalPersonalHours += roundedMonthLeaveHours;
+          else if (lv.leaveType === 'sick') totalSickHours += roundedMonthLeaveHours;
+          else if (lv.leaveType === 'typhoon') totalTyphoonHours += roundedMonthLeaveHours;
+        }
+
+        // 自動對照後台設定之颱風假 (與該員工當月排班比對)
+        const [tYear, tMonth] = monthStr.split('-').map(Number);
+        const daysInMonthCnt = new Date(tYear, tMonth, 0).getDate();
+        for (let d = 1; d <= daysInMonthCnt; d++) {
+          const dStr = `${monthStr}-${String(d).padStart(2, '0')}`;
+          const activeTyphoon = (typhoonLeaves || []).find((t: any) => t.date === dStr);
+          if (activeTyphoon) {
+            const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === dStr);
+            if (dateSched && !isOffShift(dateSched.shift)) {
+              const { startTimeStr, endTimeStr, shiftDef } = getShiftStartEndTimes(dateSched, shifts);
+              const typHours = calculateTyphoonLeaveHours(
+                startTimeStr,
+                endTimeStr,
+                activeTyphoon.mode,
+                activeTyphoon.startTime,
+                shiftDef?.breakDuration || 60
+              );
+              if (typHours > 0) {
+                totalTyphoonHours += roundToHalfHour(typHours);
+              }
+            }
+          }
         }
 
         const personalLeaveDays = Math.round((totalPersonalHours / 8) * 100) / 100;

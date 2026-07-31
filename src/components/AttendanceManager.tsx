@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
-import { parseTimeStrToMinutes, isOffShift, evaluatePunchesStatus, getAdjustedShiftTimes, getShiftStartEndTimes } from '../utils/taiwanHrEngine';
+import { parseTimeStrToMinutes, isOffShift, evaluatePunchesStatus, getAdjustedShiftTimes, getShiftStartEndTimes, roundToHalfHour } from '../utils/taiwanHrEngine';
 
 const AttendanceManager: React.FC = () => {
   const {
@@ -356,7 +356,7 @@ const AttendanceManager: React.FC = () => {
           }
         }
 
-        dayHours = Math.round(dayHours * 10) / 10;
+        dayHours = roundToHalfHour(dayHours);
         totalHours += dayHours;
 
         dailyDetails.push({
@@ -373,7 +373,7 @@ const AttendanceManager: React.FC = () => {
         });
       });
 
-      summary[empId].totalHours = Math.round(totalHours * 10) / 10;
+      summary[empId].totalHours = roundToHalfHour(totalHours);
       summary[empId].dailyDetails = dailyDetails;
     });
 

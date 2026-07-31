@@ -20,6 +20,7 @@ export interface AdminDataContextType {
   insuranceRates: any;
   toleranceMinutes: number;
   holidays: any[];
+  typhoonLeaves: any[];
   
   loading: boolean;
   
@@ -59,6 +60,7 @@ export interface AdminDataContextType {
   saveInsuranceRates: (data: any) => Promise<void>;
   saveRules: (data: any) => Promise<void>;
   saveHolidays: (list: any[]) => Promise<void>;
+  saveTyphoonLeaves: (list: any[]) => Promise<void>;
   
   savePayrollDoc: (id: string, data: any) => Promise<void>;
   publishPayroll: (year: number, month: number) => Promise<void>;
@@ -91,6 +93,7 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
   const [toleranceMinutes, setToleranceMinutes] = useState<number>(240);
   const [holidays, setHolidays] = useState<any[]>([]);
+  const [typhoonLeaves, setTyphoonLeaves] = useState<any[]>([]);
   
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -111,7 +114,7 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     
     const checkAllResolved = (key: string) => {
       resolved.add(key);
-      if (resolved.size === 13) {
+      if (resolved.size === 14) {
         setLoading(false);
       }
     };
@@ -293,6 +296,21 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
     unsubs.push(unsubHolidays);
 
+    // 14. Subscribe Typhoon Leaves Settings
+    const unsubTyphoon = onSnapshot(doc(db, 'settings', 'typhoon_leaves'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && Array.isArray(data.list)) {
+          setTyphoonLeaves(data.list);
+        }
+      }
+      checkAllResolved('typhoon');
+    }, err => {
+      console.error("Subscribe typhoon leaves error:", err);
+      checkAllResolved('typhoon');
+    });
+    unsubs.push(unsubTyphoon);
+
     return () => unsubs.forEach(unsub => unsub());
   }, []);
 
@@ -460,6 +478,10 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     await setDoc(doc(db, 'settings', 'holidays'), { list });
   };
 
+  const saveTyphoonLeaves = async (list: any[]) => {
+    await setDoc(doc(db, 'settings', 'typhoon_leaves'), { list });
+  };
+
   const savePayrollDoc = async (id: string, data: any) => {
     await setDoc(doc(db, 'payroll', id), data);
   };
@@ -496,6 +518,7 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       insuranceRates,
       toleranceMinutes,
       holidays,
+      typhoonLeaves,
       
       loading,
       
@@ -534,6 +557,7 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       saveInsuranceRates,
       saveRules,
       saveHolidays,
+      saveTyphoonLeaves,
       
       savePayrollDoc,
       publishPayroll,

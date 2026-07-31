@@ -3,7 +3,7 @@ import { useAdminData } from '../context/AdminDataContext';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
-import { isOffShift } from '../utils/taiwanHrEngine';
+import { isOffShift, getMonthlyExpectedHours } from '../utils/taiwanHrEngine';
 import WeeklyStationBoard from './WeeklyStationBoard';
 
 // 寫入班表更新通知
@@ -41,6 +41,11 @@ const Scheduler: React.FC = () => {
   const [calendarEmpFilter, setCalendarEmpFilter] = useState<string>('all');
   const [calendarHideOff, setCalendarHideOff] = useState<boolean>(false);
   const [calendarCompactMode, setCalendarCompactMode] = useState<boolean>(false);
+
+  // 當月正職人員應上班時數計算
+  const { workingDays: monthlyWorkingDays, expectedHours: monthlyExpectedHours } = useMemo(() => {
+    return getMonthlyExpectedHours(viewYear, viewMonth, holidays);
+  }, [viewYear, viewMonth, holidays]);
 
   // Quick Schedule State
   const [isQuickSchedMode, setIsQuickSchedMode] = useState<boolean>(false);
@@ -526,6 +531,27 @@ const Scheduler: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* 當月正職應上班時數與法定工作日統計 Banner */}
+      <div style={{ backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '-8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '18px' }}>💼</span>
+          <div>
+            <span style={{ fontSize: '14px', fontWeight: '700', color: '#065f46' }}>
+              {viewYear} 年 {viewMonth} 月 正職人員法定應上班時數：
+            </span>
+            <span style={{ fontSize: '16px', fontWeight: '800', color: '#047857', marginLeft: '6px' }}>
+              {monthlyExpectedHours} 小時
+            </span>
+            <span style={{ fontSize: '12px', color: '#047857', marginLeft: '8px' }}>
+              (扣除例假日與國定假日共 {monthlyWorkingDays} 個工作日 × 8h)
+            </span>
+          </div>
+        </div>
+        <div style={{ fontSize: '12px', color: '#065f46', fontWeight: '600' }}>
+          💡 排班提示：正職月薪同仁請參照此標準時數進行班表規劃與調配
+        </div>
       </div>
 
       {/* 2. 日曆主體 */}

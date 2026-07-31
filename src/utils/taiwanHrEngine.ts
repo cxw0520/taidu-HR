@@ -501,6 +501,86 @@ export function evaluatePunchesStatus(
   return { isLate, isEarly };
 }
 
+/**
+ * 薪資計算工時最小單位：半小時 (0.5 小時) 結算
+ * 例：7.2 小時 -> 7.0 小時，7.7 小時 -> 7.5 小時，0.4 小時 -> 0 小時
+ */
+export function roundToHalfHour(hours: number): number {
+  if (!hours || hours <= 0) return 0;
+  return Math.floor(hours * 2) / 2;
+}
+
+/**
+ * 計算當月正職人員法定應上班時數
+ * (扣除週六、週日與登記之國定假日/挪休日)
+ */
+export function getMonthlyExpectedHours(
+  year: number,
+  month: number,
+  holidays: any[] = []
+): { workingDays: number; expectedHours: number } {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  let workingDays = 0;
+
+  const holidayDateSet = new Set(
+    (holidays || []).map(h => h.movedDate || h.date).filter(Boolean)
+  );
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const monthStr = String(month).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    const dateStr = `${year}-${monthStr}-${dayStr}`;
+
+    const dateObj = new Date(year, month - 1, day);
+    const dayOfWeek = dateObj.getDay();
+
+    // 0 = 週日, 6 = 週六
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const isNationalHoliday = holidayDateSet.has(dateStr);
+
+    if (!isWeekend && !isNationalHoliday) {
+      workingDays++;
+    }
+  }
+
+  return {
+    workingDays,
+    expectedHours: workingDays * 8
+  };
+}
+
+/**
+ * 颱風假受影響排班時數計算 helper
+ */
+export function calculateTyphoonLeaveHours(
+  startTimeStr: string,
+  endTimeStr: string,
+  mode: 'full_day' | 'partial',
+  typhoonStartStr?: string,
+  breakDuration: number = 60
+): number {
+  if (!startTimeStr || !endTimeStr) return 0;
+
+  const startMins = parseTimeStrToMinutes(startTimeStr);
+  let endMins = parseTimeStrToMinutes(endTimeStr);
+  if (endMins < startMins) endMins += 24 * 60;
+
+  const totalShiftMins = Math.max(0, endMins - startMins - breakDuration);
+
+  if (mode === 'full_day') {
+    return Math.max(0, totalShiftMins / 60);
+  }
+
+  if (!typhoonStartStr) return 0;
+  let typhoonStartMins = parseTimeStrToMinutes(typhoonStartStr);
+  if (typhoonStartMins < startMins) typhoonStartMins = startMins;
+
+  if (typhoonStartMins >= endMins) return 0;
+
+  const affectedMins = Math.max(0, endMins - typhoonStartMins);
+  return Math.min(totalShiftMins / 60, Math.max(0, affectedMins / 60));
+}
+
 export interface SpecialLeavePeriod {
   name: string;
   startDate: string;
