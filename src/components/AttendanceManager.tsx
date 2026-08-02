@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
-import { parseTimeStrToMinutes, isOffShift, evaluatePunchesStatus, getAdjustedShiftTimes, getShiftStartEndTimes, roundToHalfHour } from '../utils/taiwanHrEngine';
+import { parseTimeStrToMinutes, isOffShift, getAdjustedShiftTimes, getShiftStartEndTimes, roundToHalfHour, analyzeDayPunches } from '../utils/taiwanHrEngine';
+import type { PunchSlot } from '../utils/taiwanHrEngine';
 
 const AttendanceManager: React.FC = () => {
   const {
@@ -10,7 +11,6 @@ const AttendanceManager: React.FC = () => {
     shifts,
     leaves,
     overtimeReqs,
-    toleranceMinutes,
     addAttendanceRecord,
     updateAttendanceRecord,
     deleteAttendanceRecord
@@ -92,15 +92,11 @@ const AttendanceManager: React.FC = () => {
         totalHours: number;
         dailyDetails?: Array<{
           date: string;
-          punch1: string;
-          punch1Eff?: string;
-          punch2: string;
-          punch2Eff?: string;
-          punch3: string;
-          punch3Eff?: string;
-          punch4: string;
-          punch4Eff?: string;
+          slots: PunchSlot[];
           hours: number;
+          hasMissingPunch: boolean;
+          isLate: boolean;
+          isEarly: boolean;
         }>;
       } 
     } = {};
@@ -129,247 +125,28 @@ const AttendanceManager: React.FC = () => {
 
       const dailyDetails: Array<{
         date: string;
-        punch1: string;
-        punch1Eff?: string;
-        punch2: string;
-        punch2Eff?: string;
-        punch3: string;
-        punch3Eff?: string;
-        punch4: string;
-        punch4Eff?: string;
+        slots: PunchSlot[];
         hours: number;
+        hasMissingPunch: boolean;
+        isLate: boolean;
+        isEarly: boolean;
       }> = [];
 
       let totalHours = 0;
       dates.forEach(date => {
         const dayRecords = empDates[date];
-        const sortedRecs = dayRecords.filter(r => r.time).sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
-
-        let dayHours = 0;
-        const parseTime = (timeStr: string) => {
-          return parseTimeStrToMinutes(timeStr) / 60;
-        };
-
         const dateSched = schedules.find((s: any) => s.employeeId === empId && s.date === date);
-        const { startTimeStr: rawStart, endTimeStr: rawEnd, shiftDef } = getShiftStartEndTimes(dateSched, shifts);
-        let startTimeStr = rawStart;
-        let endTimeStr = rawEnd;
-
-        if (dateSched && startTimeStr && endTimeStr) {
-          // 依核准的「班別調整」請假單調整預期上下班時間
-          const dayLeaves = (leaves || []).filter(l => l.employeeId === empId && l.startDate <= date && l.endDate >= date);
-          const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
-          startTimeStr = adjustedStart;
-          endTimeStr = adjustedEnd;
-        }
-
-        const hasFixedBreak = shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime;
-        let start1 = 0;
-        let end1 = 0;
-        let start2 = 0;
-        let end2 = 0;
-
-        if (dateSched && startTimeStr && endTimeStr) {
-          if (hasFixedBreak) {
-            start1 = parseTime(startTimeStr);
-            end1 = parseTime(shiftDef.breakStartTime);
-            if (end1 < start1) end1 += 24;
-
-            start2 = parseTime(shiftDef.breakEndTime);
-            if (start2 < start1) start2 += 24;
-
-            end2 = parseTime(endTimeStr);
-            if (end2 < start2) end2 += 24;
-          } else {
-            start1 = parseTime(startTimeStr);
-            end1 = parseTime(endTimeStr);
-            if (end1 < start1) end1 += 24;
-          }
-        }
-
-        // Count total punch pairs
-        let totalPairs = 0;
-        for (let k = 0; k < sortedRecs.length; k++) {
-          if (sortedRecs[k].type === '上班') {
-            for (let l = k + 1; l < sortedRecs.length; l++) {
-              if (sortedRecs[l].type === '下班') {
-                totalPairs++;
-                k = l;
-                break;
-              }
-            }
-          }
-        }
-
-        dayHours = 0;
-        let punchPairsCount = 0;
-        let firstInTime = 0;
-        let lastOutTime = 0;
-
-        // Initialize punches fallbacks
-        let punch1 = '—';
-        let punch2 = '—';
-        let punch3 = '—';
-        let punch4 = '—';
-
-        const ins = sortedRecs.filter(r => r.type === '上班');
-        const outs = sortedRecs.filter(r => r.type === '下班');
-        if (sortedRecs.length <= 2) {
-          punch1 = ins[0]?.time || '—';
-          punch4 = outs[0]?.time || '—';
-        } else {
-          punch1 = ins[0]?.time || '—';
-          punch2 = outs[0]?.time || '—';
-          punch3 = ins[1]?.time || '—';
-          punch4 = outs[1]?.time || '—';
-        }
-
-        let punch1Eff = punch1;
-        let punch2Eff = punch2;
-        let punch3Eff = punch3;
-        let punch4Eff = punch4;
-
-        let idx = 0;
-        while (idx < sortedRecs.length) {
-          if (sortedRecs[idx].type === '上班') {
-            let nextOut = null;
-            let nextOutIndex = -1;
-            for (let j = idx + 1; j < sortedRecs.length; j++) {
-              if (sortedRecs[j].type === '下班') {
-                nextOut = sortedRecs[j];
-                nextOutIndex = j;
-                break;
-              }
-            }
-            if (nextOut) {
-              const inTime = parseTime(sortedRecs[idx].time);
-              let outTime = parseTime(nextOut.time);
-              if (outTime < inTime) outTime += 24;
-
-              let effectiveIn = inTime;
-              let effectiveOut = outTime;
-
-              if (dateSched && startTimeStr && endTimeStr) {
-                let expectedStart = undefined;
-                let expectedEnd = undefined;
-
-                if (hasFixedBreak && totalPairs >= 2) {
-                  if (punchPairsCount === 0) {
-                    expectedStart = start1;
-                    expectedEnd = end1;
-                  } else if (punchPairsCount === 1) {
-                    expectedStart = start2;
-                    expectedEnd = end2;
-                  }
-                } else {
-                  if (punchPairsCount === 0) {
-                    expectedStart = start1;
-                  }
-                  if (punchPairsCount === totalPairs - 1) {
-                    expectedEnd = hasFixedBreak ? end2 : end1;
-                  }
-                }
-
-                if (expectedStart !== undefined) {
-                  effectiveIn = Math.max(inTime, expectedStart);
-                }
-                if (expectedEnd !== undefined) {
-                  effectiveOut = Math.min(outTime, expectedEnd);
-                }
-              }
-
-              if (punchPairsCount === 0) {
-                firstInTime = effectiveIn;
-              }
-              lastOutTime = effectiveOut;
-
-              dayHours += Math.max(0, effectiveOut - effectiveIn);
-
-              const formatDecimalToTimeStr = (tDec: number) => {
-                const totalMins = Math.round(tDec * 60);
-                const hrs = Math.floor(totalMins / 60) % 24;
-                const mins = totalMins % 60;
-                return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-              };
-
-              const actInStr = sortedRecs[idx].time || '—';
-              const actOutStr = nextOut.time || '—';
-              const effInStr = formatDecimalToTimeStr(effectiveIn);
-              const effOutStr = formatDecimalToTimeStr(effectiveOut);
-
-              if (punchPairsCount === 0) {
-                punch1 = actInStr;
-                punch1Eff = effInStr;
-                if (totalPairs <= 1) {
-                  punch4 = actOutStr;
-                  punch4Eff = effOutStr;
-                } else {
-                  punch2 = actOutStr;
-                  punch2Eff = effOutStr;
-                }
-              } else if (punchPairsCount === 1) {
-                punch3 = actInStr;
-                punch3Eff = effInStr;
-                punch4 = actOutStr;
-                punch4Eff = effOutStr;
-              }
-
-              punchPairsCount++;
-              idx = nextOutIndex + 1;
-            } else {
-              idx++;
-            }
-          } else {
-            idx++;
-          }
-        }
-
-        if (dayHours > 0) {
-          if (dateSched && shiftDef) {
-            if (punchPairsCount === 1) {
-              if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
-                const bStart = parseTime(shiftDef.breakStartTime);
-                let bEnd = parseTime(shiftDef.breakEndTime);
-                if (bEnd < bStart) bEnd += 24;
-
-                let adjustedBStart = bStart;
-                let adjustedBEnd = bEnd;
-                if (adjustedBStart < firstInTime && adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
-                  adjustedBStart += 24;
-                  adjustedBEnd += 24;
-                } else if (adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
-                  adjustedBStart += 24;
-                  adjustedBEnd += 24;
-                } else if (adjustedBStart - 24 >= firstInTime) {
-                  adjustedBStart -= 24;
-                  adjustedBEnd -= 24;
-                }
-
-                const startOverlap = Math.max(firstInTime, adjustedBStart);
-                const endOverlap = Math.min(lastOutTime, adjustedBEnd);
-                const overlap = Math.max(0, endOverlap - startOverlap);
-                dayHours = Math.max(0, dayHours - overlap);
-              } else if (shiftDef.breakDuration > 0) {
-                dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
-              }
-            }
-          }
-        }
-
-        dayHours = roundToHalfHour(dayHours);
-        totalHours += dayHours;
-
+        
+        const analysis = analyzeDayPunches(dayRecords, dateSched, shifts);
+        
+        totalHours += analysis.effectiveHours;
         dailyDetails.push({
           date,
-          punch1,
-          punch1Eff,
-          punch2,
-          punch2Eff,
-          punch3,
-          punch3Eff,
-          punch4,
-          punch4Eff,
-          hours: dayHours
+          slots: analysis.slots,
+          hours: analysis.effectiveHours,
+          hasMissingPunch: analysis.hasMissingPunch,
+          isLate: analysis.isLate,
+          isEarly: analysis.isEarly
         });
       });
 
@@ -462,40 +239,43 @@ const AttendanceManager: React.FC = () => {
       const hasApprovedOvertime = empOvertimes.some(ot => ot.date === date && ot.status === 'approved');
       const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
 
-      // 依核准的「班別調整」假單調整當天班表起迄時間
-      const approvedShiftAdjLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
-      const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(rawStart, rawEnd, approvedShiftAdjLeaves);
 
-      const actualPunches = dayAtt.length;
+      // 依核准的「班別調整」假單調整當天班表起迄時間 (kept for future use)
+      const approvedShiftAdjLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
+      getAdjustedShiftTimes(rawStart, rawEnd, approvedShiftAdjLeaves); // no-op - used for leave adjustment context
+
+      // Slot-based analysis for the day
+      const dayAnalysis = dayAtt.length > 0 ? analyzeDayPunches(dayAtt, sched, shifts) : null;
+
       let types: string[] = [];
       let msg = '';
-      
-      const sortedPunches = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
-      const punchesStr = sortedPunches.map(p => `${p.type} ${p.time}${p.status && p.status !== '正常' ? `(${p.status})` : ''}`).join(', ') || '無打卡紀錄';
 
-      if (actualPunches === 0) {
+      if (dayAtt.length === 0) {
         types.push('未打卡');
         msg = `當天有排班 (${sched.shift})，但無任何打卡紀錄`;
-      } else if (actualPunches < expectedPunches) {
-        types.push('未打卡');
-        msg = `打卡次數不完整：應打卡 ${expectedPunches} 次，實際僅打卡 ${actualPunches} 次 (${sched.shift})`;
-      } else {
-        const { isLate, isEarly } = evaluatePunchesStatus(dayAtt, adjustedStart, adjustedEnd, expectsFour, shiftDef?.breakDuration, toleranceMinutes);
+      } else if (dayAnalysis) {
+        if (dayAnalysis.hasMissingPunch) types.push('缺卡');
+        if (dayAnalysis.isLate) types.push('遲到');
+        if (dayAnalysis.isEarly) types.push('早退');
 
-        if (isLate) types.push('遲到');
-        if (isEarly) types.push('早退');
-
-        // Check if any individual punch has abnormal status
+        // Check if any individual punch has abnormal status from device
         dayAtt.forEach(p => {
           if (p.status === '異常' && !types.includes('異常')) types.push('異常');
-          if (p.status === '遲到' && !types.includes('遲到')) types.push('遲到');
-          if (p.status === '早退' && !types.includes('早退')) types.push('早退');
         });
 
         if (types.length > 0) {
           msg = `班表: ${sched.shift}`;
+          if (dayAnalysis.hasMissingPunch) {
+            const missingLabels = dayAnalysis.slots.filter(s => s.isMissing).map(s => s.label).join('、');
+            msg += ` — 缺少：${missingLabels}`;
+          }
         }
       }
+
+      // Build punch summary from analysis slots when possible
+      const punchesStr = dayAnalysis && dayAnalysis.slots.length > 0
+        ? dayAnalysis.slots.map(s => `${s.label} ${s.isMissing ? '缺卡' : s.matchedTime}(${s.status})`).join(' | ')
+        : (dayAtt.length === 0 ? '無打卡紀錄' : [...dayAtt].sort((a: any, b: any) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || '')).map((p: any) => `${p.type} ${p.time}`).join(', '));
 
       if (types.length > 0) {
         list.push({
@@ -1232,56 +1012,95 @@ const AttendanceManager: React.FC = () => {
       {/* 個人工時明細彈窗 */}
       {showWorkHoursDetailModal && selectedDetailEmployee && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <div className="glass-card" style={{ width: '90%', maxWidth: '700px', padding: '32px', borderRadius: '16px', maxHeight: '90vh', overflowY: 'auto', position: 'relative', backgroundColor: '#fff', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+          <div className="glass-card" style={{ width: '92%', maxWidth: '820px', padding: '32px', borderRadius: '16px', maxHeight: '90vh', overflowY: 'auto', position: 'relative', backgroundColor: '#fff', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid #e5e7eb', paddingBottom: '12px' }}>
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: 'var(--text-main)' }}>⏱️ {selectedDetailEmployee.name} - 個人工時明細 ({viewYear}年{viewMonth}月)</h3>
               <button onClick={() => { setShowWorkHoursDetailModal(false); setSelectedDetailEmployee(null); }} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
             </div>
-            <div className="table-scroll-wrap">
-              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f9fafb' }}>
-                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>日期</th>
-                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>上班</th>
-                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>下班</th>
-                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>上班</th>
-                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>下班</th>
-                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>時數</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {!selectedDetailEmployee.dailyDetails || selectedDetailEmployee.dailyDetails.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>此月份無出勤明細紀錄。</td>
-                    </tr>
-                  ) : (
-                    selectedDetailEmployee.dailyDetails.map((detail: any, idx: number) => {
-                      const renderPunchCell = (act: string, eff: string) => {
-                        if (!act || act === '—') return <span style={{ color: '#9ca3af' }}>—</span>;
-                        if (!eff || eff === '—' || act === eff) return <span>{act}</span>;
-                        return (
-                          <span>
-                            <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>{act}</span>
-                            <span style={{ color: '#4f46e5', fontWeight: '700' }}>➔ {eff}</span>
-                          </span>
-                        );
-                      };
 
-                      return (
-                        <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                          <td style={{ padding: '12px', fontWeight: '600', color: 'var(--text-main)' }}>{detail.date}</td>
-                          <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch1, detail.punch1Eff)}</td>
-                          <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch2, detail.punch2Eff)}</td>
-                          <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch3, detail.punch3Eff)}</td>
-                          <td style={{ padding: '12px' }}>{renderPunchCell(detail.punch4, detail.punch4Eff)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{detail.hours} 小時</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {!selectedDetailEmployee.dailyDetails || selectedDetailEmployee.dailyDetails.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>此月份無出勤明細紀錄。</div>
+              ) : (
+                selectedDetailEmployee.dailyDetails.map((detail: any, idx: number) => {
+                  const statusColor: Record<string, { bg: string; text: string }> = {
+                    '正常': { bg: '#dcfce7', text: '#16a34a' },
+                    '遲到': { bg: '#fef3c7', text: '#d97706' },
+                    '早退': { bg: '#fee2e2', text: '#dc2626' },
+                    '缺卡': { bg: '#f3f4f6', text: '#6b7280' },
+                  };
+
+                  const hasMissing = detail.hasMissingPunch;
+                  const rowBg = hasMissing ? 'rgba(239,68,68,0.04)' : (detail.isLate || detail.isEarly) ? 'rgba(245,158,11,0.04)' : '#fff';
+
+                  return (
+                    <div key={idx} style={{
+                      display: 'grid',
+                      gridTemplateColumns: '90px 1fr auto',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      backgroundColor: rowBg,
+                      border: `1px solid ${hasMissing ? '#fecdd3' : '#e5e7eb'}`,
+                    }}>
+                      {/* 日期 */}
+                      <div style={{ fontWeight: '700', fontSize: '13px', color: 'var(--text-main)' }}>
+                        {detail.date.slice(5)}
+                      </div>
+
+                      {/* 打卡槽列表 */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {detail.slots && detail.slots.length > 0 ? detail.slots.map((slot: any, si: number) => {
+                          const sc = statusColor[slot.status] || statusColor['正常'];
+                          return (
+                            <div key={si} style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              minWidth: '72px',
+                              padding: '6px 8px',
+                              borderRadius: '8px',
+                              backgroundColor: sc.bg,
+                              border: `1px solid ${sc.bg}`,
+                            }}>
+                              <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', marginBottom: '2px' }}>
+                                {slot.label}
+                              </span>
+                              <span style={{ fontSize: '13px', fontWeight: '700', color: slot.isMissing ? '#9ca3af' : '#1e293b' }}>
+                                {slot.isMissing ? '缺卡' : slot.matchedTime}
+                              </span>
+                              <span style={{
+                                fontSize: '10px',
+                                fontWeight: '700',
+                                color: sc.text,
+                                marginTop: '2px'
+                              }}>
+                                {slot.status}
+                              </span>
+                            </div>
+                          );
+                        }) : (
+                          <span style={{ color: '#9ca3af', fontSize: '13px' }}>無排班資料</span>
+                        )}
+                      </div>
+
+                      {/* 時數 */}
+                      <div style={{ textAlign: 'right', minWidth: '60px' }}>
+                        {hasMissing ? (
+                          <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: '600' }}>缺卡</span>
+                        ) : (
+                          <span style={{ fontSize: '14px', fontWeight: '800', color: 'var(--primary)' }}>
+                            {detail.hours} h
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
               <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-muted)' }}>出勤天數: <strong style={{ color: 'var(--text-main)' }}>{selectedDetailEmployee.daysCount} 天</strong></span>
               <span style={{ fontSize: '15px', fontWeight: '700', color: 'var(--primary)' }}>累計工時: {selectedDetailEmployee.totalHours} 小時</span>

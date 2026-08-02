@@ -510,6 +510,190 @@ export function roundToHalfHour(hours: number): number {
   return Math.floor(hours * 2) / 2;
 }
 
+
+/**
+ * 每日打卡分析引擎（新版）
+ * 
+ * 根據班別定義解析出【每個打卡時間窗格】(上班1、下班1、上班2、下班2)，
+ * 然後從當天所有打卡紀錄中，為每個窗格找出「最接近預期時間」的一筆打卡，
+ * 最後判定每格的狀態（正常/遲到/早退/缺卡）並計算實際有效工時。
+ *
+ * 特性：
+ * - 不會將同一窗格附近的多次重複打卡重複計算，只取最接近的一筆
+ * - 缺卡的時段視為無法計算，不產生任何工時
+ * - 遲到/早退只影響狀態，不影響有效工時計算（以實際打卡時間計算）
+ */
+export interface PunchSlot {
+  label: string;           // '上班', '下班', '休息開始', '休息結束'
+  type: '上班' | '下班';
+  expectedMins: number;    // 預期時間（分鐘）
+  matchedTime: string;     // 匹配到的打卡時間（HH:MM），缺卡為 ''
+  matchedMins: number;     // 匹配到的分鐘數，缺卡為 -1
+  status: '正常' | '遲到' | '早退' | '缺卡';
+  isMissing: boolean;
+}
+
+export interface DayPunchAnalysis {
+  slots: PunchSlot[];
+  effectiveHours: number;    // 已扣休息的有效工時（半小時單位）
+  hasMissingPunch: boolean;  // 是否有缺卡
+  isLate: boolean;
+  isEarly: boolean;
+  periodHours: [number, number][];  // 每段實際上班時間 [inMins, outMins]
+}
+
+export function analyzeDayPunches(
+  dayAtts: any[],
+  dateSched: any,
+  shifts: any[],
+  toleranceMins: number = 5
+): DayPunchAnalysis {
+  const { startTimeStr, endTimeStr, shiftDef, expectsFour } = getShiftStartEndTimes(dateSched, shifts);
+  
+  const noResult: DayPunchAnalysis = {
+    slots: [],
+    effectiveHours: 0,
+    hasMissingPunch: false,
+    isLate: false,
+    isEarly: false,
+    periodHours: []
+  };
+
+  if (!startTimeStr || !endTimeStr) return noResult;
+
+  const baseStart = parseTimeStrToMinutes(startTimeStr);
+  let baseEnd = parseTimeStrToMinutes(endTimeStr);
+  if (baseEnd < baseStart) baseEnd += 24 * 60;
+
+  // 建立預期的打卡窗格
+  const expectedSlots: { label: string; type: '上班' | '下班'; expectedMins: number }[] = [];
+
+  if (expectsFour && shiftDef?.breakStartTime && shiftDef?.breakEndTime) {
+    // 兩段班：上班1 → 下班1(休息開始) → 上班2(休息結束) → 下班2
+    let breakStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
+    let breakEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
+    if (breakStart < baseStart) breakStart += 24 * 60;
+    if (breakEnd < baseStart) breakEnd += 24 * 60;
+    expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
+    expectedSlots.push({ label: '休息開始', type: '下班', expectedMins: breakStart });
+    expectedSlots.push({ label: '休息結束', type: '上班', expectedMins: breakEnd });
+    expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
+  } else if (expectsFour && shiftDef?.breakDuration > 0) {
+    // 有休息時長但無固定時間：用班別中段估算休息時間
+    const midMins = Math.floor((baseStart + baseEnd) / 2);
+    const halfBreak = Math.floor((shiftDef.breakDuration || 60) / 2);
+    expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
+    expectedSlots.push({ label: '休息開始', type: '下班', expectedMins: midMins - halfBreak });
+    expectedSlots.push({ label: '休息結束', type: '上班', expectedMins: midMins + halfBreak });
+    expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
+  } else {
+    // 普通兩次打卡
+    expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
+    expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
+  }
+
+  // 依打卡時間排序
+  const sortedAtts = [...dayAtts]
+    .filter(r => r.time)
+    .sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
+
+  // 為每個窗格找最接近且尚未被使用的打卡紀錄
+  const usedIds = new Set<string>();
+
+  const slots: PunchSlot[] = expectedSlots.map(slot => {
+    const candidatesOfType = sortedAtts.filter(r =>
+      r.type === slot.type && !usedIds.has(r.id || r.timestamp + r.time)
+    );
+    
+    if (candidatesOfType.length === 0) {
+      return {
+        ...slot,
+        matchedTime: '',
+        matchedMins: -1,
+        status: '缺卡' as const,
+        isMissing: true
+      };
+    }
+
+    // 找與預期時間最近的一筆
+    let bestMatch = candidatesOfType[0];
+    let bestDiff = Infinity;
+    for (const rec of candidatesOfType) {
+      let recMins = parseTimeStrToMinutes(rec.time);
+      // 處理跨夜：若預期在24:00後，調整紀錄時間
+      if (slot.expectedMins >= 24 * 60 && recMins < 12 * 60) recMins += 24 * 60;
+      const diff = Math.abs(recMins - slot.expectedMins);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestMatch = rec;
+      }
+    }
+
+    const matchId = bestMatch.id || bestMatch.timestamp + bestMatch.time;
+    usedIds.add(matchId);
+
+    let matchedMins = parseTimeStrToMinutes(bestMatch.time);
+    if (slot.expectedMins >= 24 * 60 && matchedMins < 12 * 60) matchedMins += 24 * 60;
+
+    // 狀態判定
+    let status: PunchSlot['status'] = '正常';
+    if (bestMatch.status === '遲到') {
+      status = '遲到';
+    } else if (bestMatch.status === '早退') {
+      status = '早退';
+    } else if (slot.type === '上班') {
+      if (matchedMins > slot.expectedMins + toleranceMins) status = '遲到';
+    } else {
+      if (matchedMins < slot.expectedMins - 1) status = '早退';
+    }
+
+    return {
+      ...slot,
+      matchedTime: bestMatch.time,
+      matchedMins,
+      status,
+      isMissing: false
+    };
+  });
+
+  // 計算有效工時 — 依成對的上班/下班窗格
+  const periodHours: [number, number][] = [];
+  let effectiveHours = 0;
+  let hasMissingPunch = false;
+  let isLate = false;
+  let isEarly = false;
+
+  for (let i = 0; i < slots.length; i += 2) {
+    const inSlot = slots[i];
+    const outSlot = slots[i + 1];
+    if (!inSlot || !outSlot) continue;
+    
+    if (inSlot.isMissing || outSlot.isMissing) {
+      hasMissingPunch = true;
+      continue; // 缺卡段落無法計算
+    }
+
+    let inMins = inSlot.matchedMins;
+    let outMins = outSlot.matchedMins;
+    if (outMins < inMins) outMins += 24 * 60;
+
+    const segHours = Math.max(0, (outMins - inMins) / 60);
+    effectiveHours += segHours;
+    periodHours.push([inMins, outMins]);
+
+    if (inSlot.status === '遲到') isLate = true;
+    if (outSlot.status === '早退') isEarly = true;
+  }
+
+  // 第一次上班遲到 / 最後一次下班早退
+  if (slots.length > 0 && slots[0].status === '遲到') isLate = true;
+  if (slots.length > 0 && slots[slots.length - 1].status === '早退') isEarly = true;
+
+  effectiveHours = roundToHalfHour(effectiveHours);
+
+  return { slots, effectiveHours, hasMissingPunch, isLate, isEarly, periodHours };
+}
+
 /**
  * 計算當月正職人員法定應上班時數
  * (扣除週六、週日與登記之國定假日/挪休日)
