@@ -511,6 +511,7 @@ export function roundToHalfHour(hours: number): number {
 }
 
 
+
 /**
  * 每日打卡分析引擎（新版）
  * 
@@ -519,9 +520,10 @@ export function roundToHalfHour(hours: number): number {
  * 最後判定每格的狀態（正常/遲到/早退/缺卡）並計算實際有效工時。
  *
  * 特性：
+ * - 有固定休息起訖時間（breakStartTime/breakEndTime）→ 4槽位，兩段分別計算，休息自然排除
+ * - 只有休息時長（breakDuration）→ 2槽位，計算完工時後扣除休息時長
  * - 不會將同一窗格附近的多次重複打卡重複計算，只取最接近的一筆
  * - 缺卡的時段視為無法計算，不產生任何工時
- * - 遲到/早退只影響狀態，不影響有效工時計算（以實際打卡時間計算）
  */
 export interface PunchSlot {
   label: string;           // '上班', '下班', '休息開始', '休息結束'
@@ -567,27 +569,23 @@ export function analyzeDayPunches(
 
   // 建立預期的打卡窗格
   const expectedSlots: { label: string; type: '上班' | '下班'; expectedMins: number }[] = [];
+  // 是否使用固定休息時間4槽位模式
+  const useFixedBreak = expectsFour && !!(shiftDef?.breakStartTime && shiftDef?.breakEndTime);
 
-  if (expectsFour && shiftDef?.breakStartTime && shiftDef?.breakEndTime) {
-    // 兩段班：上班1 → 下班1(休息開始) → 上班2(休息結束) → 下班2
-    let breakStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
-    let breakEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
+  if (useFixedBreak) {
+    // 四次打卡（固定休息起訖）：上班 → 休息開始 → 休息結束 → 下班
+    // 休息時間自然被排除（兩段分開計算）
+    let breakStart = parseTimeStrToMinutes(shiftDef!.breakStartTime);
+    let breakEnd = parseTimeStrToMinutes(shiftDef!.breakEndTime);
     if (breakStart < baseStart) breakStart += 24 * 60;
     if (breakEnd < baseStart) breakEnd += 24 * 60;
     expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
     expectedSlots.push({ label: '休息開始', type: '下班', expectedMins: breakStart });
     expectedSlots.push({ label: '休息結束', type: '上班', expectedMins: breakEnd });
     expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
-  } else if (expectsFour && shiftDef?.breakDuration > 0) {
-    // 有休息時長但無固定時間：用班別中段估算休息時間
-    const midMins = Math.floor((baseStart + baseEnd) / 2);
-    const halfBreak = Math.floor((shiftDef.breakDuration || 60) / 2);
-    expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
-    expectedSlots.push({ label: '休息開始', type: '下班', expectedMins: midMins - halfBreak });
-    expectedSlots.push({ label: '休息結束', type: '上班', expectedMins: midMins + halfBreak });
-    expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
   } else {
-    // 普通兩次打卡
+    // 兩次打卡（普通班或只有休息時長）：上班 → 下班
+    // 若有 breakDuration，計算完工時後再扣除（見下方）
     expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
     expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
   }
@@ -656,48 +654,116 @@ export function analyzeDayPunches(
     };
   });
 
-  // 計算有效工時 — 依成對的上班/下班窗格
+  // ─── 計算有效工時 ───────────────────────────────────────────
   const periodHours: [number, number][] = [];
   let effectiveHours = 0;
   let hasMissingPunch = false;
   let isLate = false;
   let isEarly = false;
 
-  for (let i = 0; i < slots.length; i += 2) {
-    const inSlot = slots[i];
-    const outSlot = slots[i + 1];
-    if (!inSlot || !outSlot) continue;
-    
-    if (inSlot.isMissing || outSlot.isMissing) {
+  if (useFixedBreak) {
+    // 4槽位模式：先嘗試計算兩段
+    const slot0 = slots[0]; // 上班
+    const slot1 = slots[1]; // 休息開始（下班）
+    const slot2 = slots[2]; // 休息結束（上班）
+    const slot3 = slots[3]; // 下班
+
+    const firstMissing = slot0?.isMissing;
+    const lastMissing  = slot3?.isMissing;
+    const midMissing   = slot1?.isMissing || slot2?.isMissing;
+
+    if (firstMissing || lastMissing) {
+      // 第一次上班或最後一次下班缺卡 → 真正缺卡，無法計算
       hasMissingPunch = true;
-      continue; // 缺卡段落無法計算
+    } else if (midMissing) {
+      // 中間休息打卡缺卡（只打了3次）→ 降回2槽位模式：用第一次上班 + 最後一次下班計算
+      // 並自動扣除班表規定的休息時間
+      const inMins  = slot0!.matchedMins;
+      let outMins   = slot3!.matchedMins;
+      if (outMins < inMins) outMins += 24 * 60;
+      let rawHours = Math.max(0, (outMins - inMins) / 60);
+
+      // 扣除休息時間（優先用固定起訖，否則用 breakDuration）
+      if (shiftDef!.breakStartTime && shiftDef!.breakEndTime) {
+        let bStart = parseTimeStrToMinutes(shiftDef!.breakStartTime);
+        let bEnd   = parseTimeStrToMinutes(shiftDef!.breakEndTime);
+        if (bEnd < bStart) bEnd += 24 * 60;
+        const overlapStart = Math.max(inMins, bStart);
+        const overlapEnd   = Math.min(outMins, bEnd);
+        rawHours = Math.max(0, rawHours - Math.max(0, (overlapEnd - overlapStart) / 60));
+      } else if (shiftDef?.breakDuration && shiftDef.breakDuration > 0) {
+        rawHours = Math.max(0, rawHours - shiftDef.breakDuration / 60);
+      }
+
+      effectiveHours = rawHours;
+      periodHours.push([inMins, outMins]);
+      hasMissingPunch = true; // 標記有缺卡（顯示用），但工時已計算
+    } else {
+      // 四次全齊 → 兩段分別計算，休息自然排除
+      for (let i = 0; i < slots.length; i += 2) {
+        const inSlot  = slots[i];
+        const outSlot = slots[i + 1];
+        if (!inSlot || !outSlot || inSlot.isMissing || outSlot.isMissing) continue;
+        let inMins  = inSlot.matchedMins;
+        let outMins = outSlot.matchedMins;
+        if (outMins < inMins) outMins += 24 * 60;
+        effectiveHours += Math.max(0, (outMins - inMins) / 60);
+        periodHours.push([inMins, outMins]);
+      }
     }
 
-    let inMins = inSlot.matchedMins;
-    let outMins = outSlot.matchedMins;
-    if (outMins < inMins) outMins += 24 * 60;
+    // 遲到/早退判定
+    if (slot0 && !slot0.isMissing && slot0.status === '遲到') isLate = true;
+    if (slot3 && !slot3.isMissing && slot3.status === '早退') isEarly = true;
 
-    const segHours = Math.max(0, (outMins - inMins) / 60);
-    effectiveHours += segHours;
-    periodHours.push([inMins, outMins]);
+  } else {
+    // 2槽位模式
+    for (let i = 0; i < slots.length; i += 2) {
+      const inSlot  = slots[i];
+      const outSlot = slots[i + 1];
+      if (!inSlot || !outSlot) continue;
+      if (inSlot.isMissing || outSlot.isMissing) {
+        hasMissingPunch = true;
+        continue;
+      }
+      let inMins  = inSlot.matchedMins;
+      let outMins = outSlot.matchedMins;
+      if (outMins < inMins) outMins += 24 * 60;
+      effectiveHours += Math.max(0, (outMins - inMins) / 60);
+      periodHours.push([inMins, outMins]);
+      if (inSlot.status  === '遲到') isLate = true;
+      if (outSlot.status === '早退') isEarly = true;
+    }
 
-    if (inSlot.status === '遲到') isLate = true;
-    if (outSlot.status === '早退') isEarly = true;
+    // 第一次上班遲到 / 最後一次下班早退
+    if (slots.length > 0 && slots[0].status === '遲到') isLate = true;
+    if (slots.length > 0 && slots[slots.length - 1].status === '早退') isEarly = true;
+
+    // 扣除休息時間
+    if (!hasMissingPunch && effectiveHours > 0 && shiftDef) {
+      if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
+        let bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
+        let bEnd   = parseTimeStrToMinutes(shiftDef.breakEndTime);
+        if (bEnd < bStart) bEnd += 24 * 60;
+        if (periodHours.length > 0) {
+          const [workIn, workOut] = periodHours[0];
+          if (bStart < workIn && bStart + 24 * 60 >= workIn && bStart + 24 * 60 <= workOut) {
+            bStart += 24 * 60; bEnd += 24 * 60;
+          }
+          const overlapHours = Math.max(0, (Math.min(workOut, bEnd) - Math.max(workIn, bStart)) / 60);
+          effectiveHours = Math.max(0, effectiveHours - overlapHours);
+        }
+      } else if (shiftDef.breakDuration > 0) {
+        effectiveHours = Math.max(0, effectiveHours - shiftDef.breakDuration / 60);
+      }
+    }
   }
-
-  // 第一次上班遲到 / 最後一次下班早退
-  if (slots.length > 0 && slots[0].status === '遲到') isLate = true;
-  if (slots.length > 0 && slots[slots.length - 1].status === '早退') isEarly = true;
 
   effectiveHours = roundToHalfHour(effectiveHours);
 
   return { slots, effectiveHours, hasMissingPunch, isLate, isEarly, periodHours };
 }
 
-/**
- * 計算當月正職人員法定應上班時數
- * (扣除週六、週日與登記之國定假日/挪休日)
- */
 export function getMonthlyExpectedHours(
   year: number,
   month: number,
