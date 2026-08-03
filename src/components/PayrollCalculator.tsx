@@ -173,7 +173,7 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig, getShiftStartEndTimes, roundToHalfHour, calculateTyphoonLeaveHours } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig, getShiftStartEndTimes, roundToHalfHour, calculateTyphoonLeaveHours, analyzeDayPunches } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
@@ -360,185 +360,39 @@ export const PayrollCalculator: React.FC = () => {
         });
 
         // 1. Calculate hourly workers' base and double holidays salary (包含破月轉正職工讀階段)
+        // 使用 analyzeDayPunches 引擎統一處理，可正確處理4槽位班別缺打卡（3次打卡）的情況
         if (isHourly || isTransitionMonth) {
           Object.keys(attendanceByDate).forEach(date => {
             if (isTransitionMonth && date >= transitionDateStr) return; // 轉正後日期歸月薪正職段計算
 
             const dayRecords = attendanceByDate[date];
-            const parseTime = (timeStr: string) => {
-              return parseTimeStrToMinutes(timeStr) / 60;
-            };
 
-            // Filter and sort punches chronologically
-            const dayPunches = dayRecords
-              .filter(r => (r.type === '上班' || r.type === '下班') && r.time)
-              .sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
+            // 需至少有一筆打卡（引擎會自行判斷是否缺卡）
+            if (dayRecords.length === 0) return;
 
-            if (dayPunches.length >= 2) {
-              const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
-              const { startTimeStr: rawStart, endTimeStr: rawEnd, shiftDef } = getShiftStartEndTimes(dateSched, shifts);
-              let startTimeStr = rawStart;
-              let endTimeStr = rawEnd;
+            const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
 
-              if (dateSched && startTimeStr && endTimeStr) {
-                // 依核准的「班別調整」請假單調整預期上下班時間
-                const dayLeaves = approvedLeaves.filter(l => l.employeeId === emp.id && l.startDate <= date && l.endDate >= date);
-                const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
-                startTimeStr = adjustedStart;
-                endTimeStr = adjustedEnd;
-              }
+            // 使用統一引擎計算當日有效工時（已處理4槽位缺打卡、休息扣除、半小時取捨）
+            const analysis = analyzeDayPunches(dayRecords, dateSched, shifts);
+            let hours = analysis.effectiveHours;
 
-              const hasFixedBreak = shiftDef && shiftDef.breakStartTime && shiftDef.breakEndTime;
-              let start1 = 0;
-              let end1 = 0;
-              let start2 = 0;
-              let end2 = 0;
-
-              if (dateSched && startTimeStr && endTimeStr) {
-                if (hasFixedBreak) {
-                  start1 = parseTime(startTimeStr);
-                  end1 = parseTime(shiftDef.breakStartTime);
-                  if (end1 < start1) end1 += 24;
-
-                  start2 = parseTime(shiftDef.breakEndTime);
-                  if (start2 < start1) start2 += 24;
-
-                  end2 = parseTime(endTimeStr);
-                  if (end2 < start2) end2 += 24;
-                } else {
-                  start1 = parseTime(startTimeStr);
-                  end1 = parseTime(endTimeStr);
-                  if (end1 < start1) end1 += 24;
+            if (hours > 0) {
+              // 修正：使用 movedDate 判斷實際放假日（節日移轉後以新日期為準）
+              const isActualHolidayDate = holidays.some(h =>
+                h.movedDate ? h.movedDate === date : h.date === date
+              );
+              const isCompensatoryWorkdayDate = holidays.some(h => h.workdayDate === date);
+              const regHours = Math.min(hours, 8);
+              const effHourlyRate = isTransitionMonth ? (emp.previousMonthlySalary || 190) : hourlyRate;
+              // 補班日視同平日，不給節日雙薪；正常放假日才給
+              if (!isCompensatoryWorkdayDate) {
+                calculatedBaseSalary += regHours * effHourlyRate;
+                if (isActualHolidayDate) {
+                  overtimePay += regHours * effHourlyRate; // 國定假日工作 → 額外再給一倍
                 }
-              }
-
-              // Count total punch pairs
-              let totalPairs = 0;
-              for (let k = 0; k < dayPunches.length; k++) {
-                if (dayPunches[k].type === '上班') {
-                  for (let l = k + 1; l < dayPunches.length; l++) {
-                    if (dayPunches[l].type === '下班') {
-                      totalPairs++;
-                      k = l;
-                      break;
-                    }
-                  }
-                }
-              }
-
-              let hours = 0;
-              let punchPairsCount = 0;
-              let firstInTime = 0;
-              let lastOutTime = 0;
-
-              for (let i = 0; i < dayPunches.length; i++) {
-                if (dayPunches[i].type === '上班') {
-                  let nextOutIndex = -1;
-                  for (let j = i + 1; j < dayPunches.length; j++) {
-                    if (dayPunches[j].type === '下班') {
-                      nextOutIndex = j;
-                      break;
-                    }
-                  }
-                  if (nextOutIndex !== -1) {
-                    const inTime = parseTime(dayPunches[i].time);
-                    let outTime = parseTime(dayPunches[nextOutIndex].time);
-                    if (outTime < inTime) outTime += 24;
-
-                    let effectiveIn = inTime;
-                    let effectiveOut = outTime;
-
-                    if (dateSched && startTimeStr && endTimeStr) {
-                      let expectedStart = undefined;
-                      let expectedEnd = undefined;
-
-                      if (hasFixedBreak && totalPairs >= 2) {
-                        if (punchPairsCount === 0) {
-                          expectedStart = start1;
-                          expectedEnd = end1;
-                        } else if (punchPairsCount === 1) {
-                          expectedStart = start2;
-                          expectedEnd = end2;
-                        }
-                      } else {
-                        if (punchPairsCount === 0) {
-                          expectedStart = start1;
-                        }
-                        if (punchPairsCount === totalPairs - 1) {
-                          expectedEnd = hasFixedBreak ? end2 : end1;
-                        }
-                      }
-
-                      if (expectedStart !== undefined) {
-                        effectiveIn = Math.max(inTime, expectedStart);
-                      }
-                      if (expectedEnd !== undefined) {
-                        effectiveOut = Math.min(outTime, expectedEnd);
-                      }
-                    }
-
-                    if (punchPairsCount === 0) {
-                      firstInTime = effectiveIn;
-                    }
-                    lastOutTime = effectiveOut;
-
-                    hours += Math.max(0, effectiveOut - effectiveIn);
-                    punchPairsCount++;
-                    i = nextOutIndex;
-                  }
-                }
-              }
-
-              if (hours > 0) {
-                if (dateSched && shiftDef) {
-                  if (punchPairsCount === 1) {
-                    if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
-                      const bStart = parseTime(shiftDef.breakStartTime);
-                      let bEnd = parseTime(shiftDef.breakEndTime);
-                      if (bEnd < bStart) bEnd += 24;
-
-                      let adjustedBStart = bStart;
-                      let adjustedBEnd = bEnd;
-                      if (adjustedBStart < firstInTime && adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
-                        adjustedBStart += 24;
-                        adjustedBEnd += 24;
-                      } else if (adjustedBStart + 24 >= firstInTime && adjustedBStart + 24 <= lastOutTime) {
-                        adjustedBStart += 24;
-                        adjustedBEnd += 24;
-                      } else if (adjustedBStart - 24 >= firstInTime) {
-                        adjustedBStart -= 24;
-                        adjustedBEnd -= 24;
-                      }
-
-                      const startOverlap = Math.max(firstInTime, adjustedBStart);
-                      const endOverlap = Math.min(lastOutTime, adjustedBEnd);
-                      const overlap = Math.max(0, endOverlap - startOverlap);
-                      hours = Math.max(0, hours - overlap);
-                    } else if (shiftDef.breakDuration > 0) {
-                      hours = Math.max(0, hours - (shiftDef.breakDuration / 60));
-                    }
-                  }
-                }
-
-                hours = roundToHalfHour(hours);
-
-                // 修正：使用 movedDate 判斷實際放假日（節日移轉後以新日期為準）
-                const isActualHolidayDate = holidays.some(h =>
-                  h.movedDate ? h.movedDate === date : h.date === date
-                );
-                const isCompensatoryWorkdayDate = holidays.some(h => h.workdayDate === date);
-                const regHours = Math.min(hours, 8);
-                const effHourlyRate = isTransitionMonth ? (emp.previousMonthlySalary || 190) : hourlyRate;
-                // 補班日視同平日，不給節日雙薪；正常放假日才給
-                if (!isCompensatoryWorkdayDate) {
-                  calculatedBaseSalary += regHours * effHourlyRate;
-                  if (isActualHolidayDate) {
-                    overtimePay += regHours * effHourlyRate; // 國定假日工作 → 額外再給一倍
-                  }
-                } else {
-                  // 補班日：視同平日計薪
-                  calculatedBaseSalary += regHours * effHourlyRate;
-                }
+              } else {
+                // 補班日：視同平日計薪
+                calculatedBaseSalary += regHours * effHourlyRate;
               }
             }
           });
