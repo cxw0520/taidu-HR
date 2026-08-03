@@ -388,7 +388,11 @@ export function getShiftStartEndTimes(
 
   const shiftRaw = dateSched.shift || '';
   const shiftName = shiftRaw.split('(')[0].trim();
-  const shiftDef = (shifts || []).find((s: any) => s.name === shiftName || s.name === shiftRaw);
+  const shiftDef = (shifts || []).find((s: any) =>
+    s.name === shiftName ||
+    s.name === shiftRaw ||
+    (shiftName && s.name && (s.name.startsWith(shiftName) || shiftName.startsWith(s.name)))
+  );
 
   let startTimeStr = dateSched.startTime || '';
   let endTimeStr = dateSched.endTime || '';
@@ -409,8 +413,14 @@ export function getShiftStartEndTimes(
   }
 
   const expectsFour = shiftDef
-    ? !!((shiftDef.breakStartTime && shiftDef.breakEndTime) || (shiftDef.breakDuration && shiftDef.breakDuration > 0))
-    : false;
+    ? !!(
+        (shiftDef.breakStartTime && shiftDef.breakEndTime) ||
+        (shiftDef.breakDuration && shiftDef.breakDuration > 0) ||
+        shiftDef.expectsFour ||
+        shiftDef.isFourPunches ||
+        shiftDef.punchCount === 4
+      )
+    : (shiftRaw.includes('四次') || shiftRaw.includes('雙段') || shiftRaw.includes('4次') || shiftRaw.includes('全天'));
 
   return { startTimeStr, endTimeStr, shiftDef, expectsFour };
 }
@@ -569,45 +579,33 @@ export function analyzeDayPunches(
 
   // 建立預期的打卡窗格
   const expectedSlots: { label: string; type: '上班' | '下班'; expectedMins: number }[] = [];
-  // 是否使用固定休息時間4槽位模式
-  const useFixedBreak = expectsFour && !!(shiftDef?.breakStartTime && shiftDef?.breakEndTime);
 
-  // 判斷實際打卡是否呈現 上/下/上/下 的四次模式（breakDuration 班別也可能打四次卡）
-  const sortedAttsForDetect = [...dayAtts]
-    .filter(r => r.time)
-    .sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
-  const inSeq = sortedAttsForDetect.map(r => r.type);
-  const isActualFourPunch =
-    inSeq.length >= 4 &&
-    inSeq[0] === '上班' && inSeq[1] === '下班' && inSeq[2] === '上班' && inSeq[3] === '下班';
+  if (expectsFour) {
+    // 四次打卡班別：建立 4 個槽位 (上班 → 休息開始 → 休息結束 → 下班)
+    let breakStart: number;
+    let breakEnd: number;
 
-  // 四次打卡但只有 breakDuration（無固定休息起訖）：
-  // 根據實際第一次下班/第二次上班時間推算出休息窗格
-  const useDurationFourPunch = expectsFour && !useFixedBreak && isActualFourPunch;
+    if (shiftDef?.breakStartTime && shiftDef?.breakEndTime) {
+      breakStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
+      breakEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
+    } else {
+      // 若僅設定 breakDuration 或未設固定起訖，取班別中間推算出預估休息時間
+      const bDuration = (shiftDef?.breakDuration && shiftDef.breakDuration > 0) ? shiftDef.breakDuration : 60;
+      const shiftLength = Math.max(0, baseEnd - baseStart);
+      const midMins = baseStart + Math.floor(shiftLength / 2);
+      breakStart = midMins - Math.floor(bDuration / 2);
+      breakEnd = breakStart + bDuration;
+    }
 
-  if (useFixedBreak) {
-    // 四次打卡（固定休息起訖）：上班 → 休息開始 → 休息結束 → 下班
-    // 休息時間自然被排除（兩段分開計算）
-    let breakStart = parseTimeStrToMinutes(shiftDef!.breakStartTime);
-    let breakEnd = parseTimeStrToMinutes(shiftDef!.breakEndTime);
     if (breakStart < baseStart) breakStart += 24 * 60;
     if (breakEnd < baseStart) breakEnd += 24 * 60;
-    expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
+
+    expectedSlots.push({ label: '上班',    type: '上班', expectedMins: baseStart });
     expectedSlots.push({ label: '休息開始', type: '下班', expectedMins: breakStart });
     expectedSlots.push({ label: '休息結束', type: '上班', expectedMins: breakEnd });
-    expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
-  } else if (useDurationFourPunch) {
-    // 四次打卡（breakDuration 班別，但實際打了4次）：
-    // 用實際第一次下班 / 第二次上班的時間作為預期休息窗格
-    const actualBreakStart = parseTimeStrToMinutes(sortedAttsForDetect[1].time);
-    const actualBreakEnd   = parseTimeStrToMinutes(sortedAttsForDetect[2].time);
-    expectedSlots.push({ label: '上班',    type: '上班', expectedMins: baseStart });
-    expectedSlots.push({ label: '休息開始', type: '下班', expectedMins: actualBreakStart });
-    expectedSlots.push({ label: '休息結束', type: '上班', expectedMins: actualBreakEnd });
     expectedSlots.push({ label: '下班',    type: '下班', expectedMins: baseEnd });
   } else {
-    // 兩次打卡（普通班或只有休息時長）：上班 → 下班
-    // 若有 breakDuration，計算完工時後再扣除（見下方）
+    // 兩次打卡班別：上班 → 下班
     expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
     expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
   }
@@ -683,7 +681,7 @@ export function analyzeDayPunches(
   let isLate = false;
   let isEarly = false;
 
-  if (useFixedBreak || useDurationFourPunch) {
+  if (expectsFour) {
     // 4槽位模式：先嘗試計算兩段
     const slot0 = slots[0]; // 上班
     const slot1 = slots[1]; // 休息開始（下班）
@@ -698,7 +696,7 @@ export function analyzeDayPunches(
       // 第一次上班或最後一次下班缺卡 → 真正缺卡，無法計算
       hasMissingPunch = true;
     } else if (midMissing) {
-      // 中間休息打卡缺卡（只打了3次）→ 降回2槽位模式：用第一次上班 + 最後一次下班計算
+      // 中間休息打卡缺卡（只打了3次或2次）→ 降回2槽位模式：用第一次上班 + 最後一次下班計算
       // 並自動扣除班表規定的休息時間
       const inMins  = slot0!.matchedMins;
       let outMins   = slot3!.matchedMins;
@@ -715,13 +713,16 @@ export function analyzeDayPunches(
         rawHours = Math.max(0, rawHours - Math.max(0, (overlapEnd - overlapStart) / 60));
       } else if (shiftDef?.breakDuration && shiftDef.breakDuration > 0) {
         rawHours = Math.max(0, rawHours - shiftDef.breakDuration / 60);
+      } else {
+        // 預設扣 1 小時休息
+        rawHours = Math.max(0, rawHours - 1);
       }
 
       effectiveHours = rawHours;
       periodHours.push([inMins, outMins]);
       hasMissingPunch = true; // 標記有缺卡（顯示用），但工時已計算
     } else {
-      // 四次全齊 → 兩段分別計算，休息自然排除（不論 fixedBreak 或 durationFour 都如此）
+      // 四次全齊 → 兩段分別計算，休息自然排除
       for (let i = 0; i < slots.length; i += 2) {
         const inSlot  = slots[i];
         const outSlot = slots[i + 1];

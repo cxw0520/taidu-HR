@@ -1086,12 +1086,13 @@ const AttendanceManager: React.FC = () => {
                       </div>
 
                       {/* 時數 */}
-                      <div style={{ textAlign: 'right', minWidth: '60px' }}>
-                        {hasMissing ? (
-                          <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: '600' }}>缺卡</span>
-                        ) : (
-                          <span style={{ fontSize: '14px', fontWeight: '800', color: 'var(--primary)' }}>
-                            {detail.hours} h
+                      <div style={{ textAlign: 'right', minWidth: '75px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <span style={{ fontSize: '14px', fontWeight: '800', color: hasMissing ? '#dc2626' : 'var(--primary)' }}>
+                          {detail.hours} h
+                        </span>
+                        {hasMissing && (
+                          <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: '600', backgroundColor: '#fee2e2', padding: '1px 6px', borderRadius: '4px', marginTop: '2px' }}>
+                            缺卡
                           </span>
                         )}
                       </div>
