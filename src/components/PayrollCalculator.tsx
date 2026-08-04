@@ -710,6 +710,10 @@ export const PayrollCalculator: React.FC = () => {
 
         console.log(`[Diagnostic] Employee: ${emp.name} | Month: ${monthStr} | Onboard: ${onboardDateStr} | Resign: ${resignDateStr} | Status: ${emp.status} | NHI Self: ${ins.employeeNhi} | NHI Employer: ${ins.employerNhi} | Labor Days: ${ins.laborDays}`);
 
+        if (emp.name.includes('吳雅君')) {
+          alert(`[診斷彈窗] 吳雅君計算中:\n- 到職日 (onboard): ${onboardDateStr}\n- 離職日 (resign): ${resignDateStr}\n- 結算月份 (month): ${monthStr}\n- 健保投保額 (nhiSub): ${nhiSub}\n- 健保自付 (employeeNhi): ${ins.employeeNhi}\n- 健保雇主 (employerNhi): ${ins.employerNhi}\n- 勞保天數 (laborDays): ${ins.laborDays}`);
+        }
+
         const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction + lateDeduction;
         const totalAllowance = attendanceBonus + otherAllowance + roleAllowance + evaluationAllowance;
         const netSalary = calculatedBaseSalary + totalAllowance + overtimePay + annualLeavePayoff - deductions;

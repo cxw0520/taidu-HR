@@ -129,14 +129,16 @@ export function calculatePayrollInsurance(
   // === 2. 全民健保計算 (採用月底在職足月計費制) ===
   let paysNhiThisMonth = false;
   
-  // 健保規則：月底最後一天需在職；或者「同月申報入出籍」(當月到職且當月離職)
-  const isEmployedAtMonthEnd = (!rDate || rDate >= monthEnd);
-  const startAndLeaveSameMonth = 
-    (oDate >= monthStart && oDate <= monthEnd) && 
-    (rDate && rDate >= monthStart && rDate <= monthEnd);
-
-  if (isEmployedAtMonthEnd || startAndLeaveSameMonth) {
+  if (!rDate) {
+    // 沒有離職日期，代表月底在職，需計收健保費
     paysNhiThisMonth = true;
+  } else {
+    // 有離職日期：必須做到當月月底（大於或等於當月最後一天）才計收健保費
+    const monthEndStr = `${year}-${String(month).padStart(2, '0')}-${String(monthEnd.getDate()).padStart(2, '0')}`;
+    const rDateStr = `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}`;
+    if (rDateStr >= monthEndStr) {
+      paysNhiThisMonth = true;
+    }
   }
 
   let employeeNhi = 0;
