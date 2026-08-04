@@ -1061,22 +1061,29 @@ export const PayrollCalculator: React.FC = () => {
   };
 
   const handleExportPayrollCSV = () => {
-    const headers = ['員工姓名', '結算月份', '底薪', '職務加給', '考核加給', '全勤獎金', '其他津貼', '加班費', '請假扣薪', '勞保自付', '健保自付', '實發薪資', '狀態'];
-    const rows = filteredPayroll.map((r: any) => [
-      `"${r.empName || ''}"`,
-      r.month || '',
-      r.baseSalary || 0,
-      r.roleAllowance || 0,
-      r.evaluationAllowance || 0,
-      r.attendanceBonus || 0,
-      r.otherAllowance || 0,
-      r.overtime || 0,
-      r.leaveDeduction || 0,
-      r.employeeLabor || 0,
-      r.employeeNhi || 0,
-      r.netSalary || 0,
-      `"${r.status || ''}"`
-    ]);
+    const headers = ['員工姓名', '結算月份', '底薪', '職務加給', '考核加給', '全勤獎金', '其他津貼', '加班費', '請假扣薪', '勞保自付', '健保自付', '實發薪資', '狀態', '銀行代碼', '銀行帳號'];
+    const rows = filteredPayroll.map((r: any) => {
+      const emp = employees.find((e: any) => e.id === r.employeeId);
+      const bankCode = emp?.bankCode || '';
+      const bankAccount = emp?.bankAccount || '';
+      return [
+        `"${r.empName || ''}"`,
+        r.month || '',
+        r.baseSalary || 0,
+        r.roleAllowance || 0,
+        r.evaluationAllowance || 0,
+        r.attendanceBonus || 0,
+        r.otherAllowance || 0,
+        r.overtime || 0,
+        r.leaveDeduction || 0,
+        r.employeeLabor || 0,
+        r.employeeNhi || 0,
+        r.netSalary || 0,
+        `"${r.status || ''}"`,
+        `"${bankCode}"`,
+        `"${bankAccount}"`
+      ];
+    });
     exportCSV(headers, rows, `薪資總表_${payMonthFilter}.csv`);
   };
 

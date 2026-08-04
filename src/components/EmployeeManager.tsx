@@ -195,6 +195,7 @@ const EmployeeManager: React.FC = () => {
   const [newIdentityNumber, setNewIdentityNumber] = useState('');
   const [newOnboardDate, setNewOnboardDate] = useState(new Date().toISOString().substring(0, 10));
   const [newBankAccount, setNewBankAccount] = useState('');
+  const [newBankCode, setNewBankCode] = useState('');
   const [newBirthDate, setNewBirthDate] = useState('');
   const [newAddress, setNewAddress] = useState('');
   
@@ -241,6 +242,7 @@ const EmployeeManager: React.FC = () => {
   const [editOnboardDate, setEditOnboardDate] = useState('');
   const [editResignDate, setEditResignDate] = useState('');
   const [editBankAccount, setEditBankAccount] = useState('');
+  const [editBankCode, setEditBankCode] = useState('');
   const [editBirthDate, setEditBirthDate] = useState('');
   const [editAddress, setEditAddress] = useState('');
   const [editEmergencyContactName, setEditEmergencyContactName] = useState('');
@@ -414,6 +416,7 @@ const EmployeeManager: React.FC = () => {
         onboardDate: newOnboardDate,
         resignDate: null,
         bankAccount: newBankAccount,
+        bankCode: newBankCode,
         monthlySalary: Number(newMonthlySalary),
         laborSub: Number(newLaborSub),
         nhiSub: Number(newNhiSub),
@@ -498,6 +501,7 @@ const EmployeeManager: React.FC = () => {
     setEditOnboardDate(emp.onboardDate || '');
     setEditResignDate(emp.resignDate || '');
     setEditBankAccount(emp.bankAccount || '');
+    setEditBankCode(emp.bankCode || '');
     const salType = emp.salaryType || 'monthly';
     const laborGrades = salType === 'monthly' ? LABOR_GRADES_MONTHLY : LABOR_GRADES_HOURLY;
     const pensionGrades = salType === 'monthly' ? PENSION_GRADES_MONTHLY : PENSION_GRADES_HOURLY;
@@ -536,6 +540,7 @@ const EmployeeManager: React.FC = () => {
         onboardDate: editOnboardDate,
         resignDate: editResignDate || null,
         bankAccount: editBankAccount,
+        bankCode: editBankCode,
         monthlySalary: Number(editMonthlySalary),
         laborSub: Number(editLaborSub),
         nhiSub: Number(editNhiSub),
@@ -799,9 +804,15 @@ const EmployeeManager: React.FC = () => {
                   計算整月薪資（不按在職天數比例折算）
                 </label>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行帳戶</label>
-                <input type="text" required value={newBankAccount} onChange={(e) => setNewBankAccount(e.target.value)} placeholder="822-12345..." style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行代碼</label>
+                  <input type="text" value={newBankCode} onChange={(e) => setNewBankCode(e.target.value)} placeholder="822" maxLength={4} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行帳號</label>
+                  <input type="text" required value={newBankAccount} onChange={(e) => setNewBankAccount(e.target.value)} placeholder="12345678901234" style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
               </div>
 
               {/* 個人資訊 */}
@@ -1021,9 +1032,15 @@ const EmployeeManager: React.FC = () => {
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>離職日期 (未離職留空)</label>
                 <input type="date" value={editResignDate} onChange={(e) => setEditResignDate(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行帳戶</label>
-                <input type="text" required value={editBankAccount} onChange={(e) => setEditBankAccount(e.target.value)} placeholder="822-12345..." style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行代碼</label>
+                  <input type="text" value={editBankCode} onChange={(e) => setEditBankCode(e.target.value)} placeholder="822" maxLength={4} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>銀行帳號</label>
+                  <input type="text" required value={editBankAccount} onChange={(e) => setEditBankAccount(e.target.value)} placeholder="12345678901234" style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
+                </div>
               </div>
 
               {/* 個人資訊 */}
