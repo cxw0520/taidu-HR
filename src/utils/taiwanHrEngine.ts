@@ -39,8 +39,26 @@ export function calculatePayrollInsurance(
   salaryConfig: { laborSub: number; nhiSub: number; pensionSub: number; nhiDependents?: number },
   rates: InsuranceRates = DEFAULT_INSURANCE_RATES
 ) {
-  const oDate = typeof onboardDate === 'string' ? new Date(onboardDate) : onboardDate;
-  const rDate = resignDate ? (typeof resignDate === 'string' ? new Date(resignDate) : resignDate) : null;
+  // 強健的本地時間午夜解析函式，避免時區與瀏覽器解析 YYYY-MM-DD 的偏差
+  const parseToLocalMidnight = (dateInput: Date | string): Date => {
+    if (dateInput instanceof Date) {
+      return new Date(dateInput.getFullYear(), dateInput.getMonth(), dateInput.getDate());
+    }
+    if (typeof dateInput === 'string') {
+      const match = dateInput.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+      if (match) {
+        const y = parseInt(match[1], 10);
+        const m = parseInt(match[2], 10) - 1;
+        const d = parseInt(match[3], 10);
+        return new Date(y, m, d);
+      }
+    }
+    const d = new Date(dateInput);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  };
+
+  const oDate = parseToLocalMidnight(onboardDate);
+  const rDate = resignDate ? parseToLocalMidnight(resignDate) : null;
   
   const [year, month] = targetYearMonth.split('-').map(Number);
   
