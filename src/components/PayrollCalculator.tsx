@@ -200,8 +200,16 @@ export const PayrollCalculator: React.FC = () => {
           await deleteDoc(doc(db, 'payroll', payrollId));
           continue;
         }
-        if (resignDateStr && resignDateStr.substring(0, 7) < monthStr) {
-          // 計算月份在離職月之後，代表當月已離職，刪除可能存在的舊薪資單並跳過
+        // 員工狀態已為離職（resigned）
+        if (emp.status === 'resigned') {
+          // 如果沒有離職日，或者離職月份小於當前計算月份，代表當月已非在職員工，直接跳過並刪除薪資單
+          if (!resignDateStr || resignDateStr.substring(0, 7) < monthStr) {
+            const payrollId = `${emp.id}-${monthStr}`;
+            await deleteDoc(doc(db, 'payroll', payrollId));
+            continue;
+          }
+        } else if (resignDateStr && resignDateStr.substring(0, 7) < monthStr) {
+          // 雙重防呆：若狀態非離職但離職日期在當月之前，也自動跳過並刪除薪資單
           const payrollId = `${emp.id}-${monthStr}`;
           await deleteDoc(doc(db, 'payroll', payrollId));
           continue;
