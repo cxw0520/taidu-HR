@@ -708,6 +708,8 @@ export const PayrollCalculator: React.FC = () => {
           insuranceRates
         );
 
+        console.log(`[Diagnostic] Employee: ${emp.name} | Month: ${monthStr} | Onboard: ${onboardDateStr} | Resign: ${resignDateStr} | Status: ${emp.status} | NHI Self: ${ins.employeeNhi} | NHI Employer: ${ins.employerNhi} | Labor Days: ${ins.laborDays}`);
+
         const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction + lateDeduction;
         const totalAllowance = attendanceBonus + otherAllowance + roleAllowance + evaluationAllowance;
         const netSalary = calculatedBaseSalary + totalAllowance + overtimePay + annualLeavePayoff - deductions;
@@ -1263,7 +1265,25 @@ export const PayrollCalculator: React.FC = () => {
           <tbody>
             {filteredPayroll.map(record => (
               <tr key={record.id}>
-                <td data-label="員工姓名">{record.empName}</td>
+                <td data-label="員工姓名">
+                  <div style={{ fontWeight: '600' }}>{record.empName}</div>
+                  {(() => {
+                    const emp = employees.find((e: any) => e.id === record.employeeId);
+                    if (emp && (emp.status === 'resigned' || emp.resignDate)) {
+                      return (
+                        <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', backgroundColor: '#fef2f2', padding: '4px 6px', borderRadius: '4px', border: '1px solid #fee2e2', fontWeight: '500', display: 'inline-block' }}>
+                          ⚠️ 已離職 (離職日: {emp.resignDate || '未設定'})
+                          {emp.resignDate && emp.resignDate.substring(0, 7) === record.month && (
+                            <div style={{ fontSize: '10px', color: '#b91c1c', marginTop: '2px' }}>
+                              💡 離職當月健保費免收
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </td>
                 <td data-label="結算月份">{record.month}</td>
                 <td data-label="底薪">
                   <div style={{ fontWeight: '600' }}>NT$ {record.baseSalary?.toLocaleString()}</div>
