@@ -475,7 +475,8 @@ const AttendanceManager: React.FC = () => {
 
   const handleExportInsuranceEnrollmentCSV = () => {
     const headers = ['員工姓名', '身分證字號', '到職日期', '勞保投保薪資', '健保投保薪資', '實際眷屬數'];
-    const rows = employees.map((emp: any) => [
+    const activeEmployees = (employees || []).filter((emp: any) => emp.status !== 'resigned');
+    const rows = activeEmployees.map((emp: any) => [
       `"${emp.name || ''}"`,
       `"${emp.identityNumber || ''}"`,
       `"${emp.onboardDate || ''}"`,
@@ -929,7 +930,9 @@ const AttendanceManager: React.FC = () => {
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>選擇員工</label>
                 <select value={addAttEmployeeId} onChange={(e) => setAddAttEmployeeId(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }} required>
                   <option value="">-- 請選擇員工 --</option>
-                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
+                  {(employees || []).filter((emp: any) => emp.status !== 'resigned').map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>
+                  ))}
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

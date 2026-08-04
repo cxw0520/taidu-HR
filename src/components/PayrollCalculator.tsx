@@ -1384,7 +1384,7 @@ export const PayrollCalculator: React.FC = () => {
                   style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}
                 >
                   <option value="">-- 請選擇員工 --</option>
-                  {employees.map(emp => (
+                  {(employees || []).filter((emp: any) => emp.status !== 'resigned').map(emp => (
                     <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>
                   ))}
                 </select>

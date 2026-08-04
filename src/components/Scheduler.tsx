@@ -42,6 +42,29 @@ const Scheduler: React.FC = () => {
   const [calendarHideOff, setCalendarHideOff] = useState<boolean>(false);
   const [calendarCompactMode, setCalendarCompactMode] = useState<boolean>(false);
 
+  // 篩選出在該月份屬於「在職」的員工（即已入職且未在該月前離職）
+  const activeEmployees = useMemo(() => {
+    const targetMonthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
+    return (employees || []).filter((emp: any) => {
+      // 排除尚未入職的人
+      if (emp.onboardDate && emp.onboardDate.substring(0, 7) > targetMonthStr) {
+        return false;
+      }
+      // 排除在計算月份之前就已離職的人
+      if (emp.resignDate && emp.resignDate.substring(0, 7) < targetMonthStr) {
+        return false;
+      }
+      return true;
+    });
+  }, [employees, viewYear, viewMonth]);
+
+  // 當當前篩選員工已被排除了，將篩選重置為 all
+  useEffect(() => {
+    if (calendarEmpFilter !== 'all' && !activeEmployees.some(e => e.id === calendarEmpFilter)) {
+      setCalendarEmpFilter('all');
+    }
+  }, [activeEmployees, calendarEmpFilter]);
+
   // 當月正職人員應上班時數計算
   const { workingDays: monthlyWorkingDays, expectedHours: monthlyExpectedHours } = useMemo(() => {
     return getMonthlyExpectedHours(viewYear, viewMonth, holidays);
@@ -70,6 +93,17 @@ const Scheduler: React.FC = () => {
   const [editSchedShift, setEditSchedShift] = useState<string>('');
   const [editSchedStatus, setEditSchedStatus] = useState<string>('已確認');
 
+  // 當當前快速排班員工已被排除了，重置快速排班員工
+  useEffect(() => {
+    if (quickSchedEmpId && !activeEmployees.some(e => e.id === quickSchedEmpId)) {
+      if (activeEmployees.length > 0) {
+        setQuickSchedEmpId(activeEmployees[0].id);
+      } else {
+        setQuickSchedEmpId('');
+      }
+    }
+  }, [activeEmployees, quickSchedEmpId]);
+
   // Weekly Station Board Modal
   const [showWeeklyBoardModal, setShowWeeklyBoardModal] = useState<boolean>(false);
   const [weeklyBoardStartDate] = useState<string>(() => {
@@ -91,10 +125,10 @@ const Scheduler: React.FC = () => {
 
   // Set default employee for quick schedule when enabled
   useEffect(() => {
-    if (isQuickSchedMode && employees.length > 0 && !quickSchedEmpId) {
-      setQuickSchedEmpId(employees[0].id);
+    if (isQuickSchedMode && activeEmployees.length > 0 && !quickSchedEmpId) {
+      setQuickSchedEmpId(activeEmployees[0].id);
     }
-  }, [isQuickSchedMode, employees, quickSchedEmpId]);
+  }, [isQuickSchedMode, activeEmployees, quickSchedEmpId]);
 
   // 1. Calendar Helper calculations
   const daysInMonth = useMemo(() => new Date(viewYear, viewMonth, 0).getDate(), [viewYear, viewMonth]);
@@ -449,7 +483,7 @@ const Scheduler: React.FC = () => {
               style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
             >
               <option value="all">顯示全部員工</option>
-              {employees.map(emp => (
+              {activeEmployees.map(emp => (
                 <option key={emp.id} value={emp.id}>{emp.name} ({emp.salaryType === 'hourly' ? '工讀' : '正職'})</option>
               ))}
             </select>
@@ -488,7 +522,7 @@ const Scheduler: React.FC = () => {
                 onChange={(e) => setQuickSchedEmpId(e.target.value)}
                 style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '13px', backgroundColor: '#fff' }}
               >
-                {employees.map(emp => (
+                {activeEmployees.map(emp => (
                   <option key={emp.id} value={emp.id}>{emp.name}</option>
                 ))}
               </select>
@@ -850,7 +884,7 @@ const Scheduler: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {employees.map(emp => {
+                    {activeEmployees.map(emp => {
                       const empMonthScheds = schedules.filter(s => 
                         s.employeeId === emp.id && 
                         s.date && 
@@ -972,7 +1006,7 @@ const Scheduler: React.FC = () => {
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>選擇員工</label>
                 <select required value={schedEmployeeId} onChange={(e) => setSchedEmployeeId(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}>
                   <option value="">-- 請選擇員工 --</option>
-                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
+                  {activeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1020,7 +1054,7 @@ const Scheduler: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>選擇員工</label>
                 <select required value={editSchedEmployeeId} onChange={(e) => setEditSchedEmployeeId(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', backgroundColor: '#fff' }}>
-                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
+                  {activeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>)}
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
