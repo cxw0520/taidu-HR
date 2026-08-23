@@ -647,12 +647,20 @@ const Scheduler: React.FC = () => {
                   dayLabel = `🔄 ${movedHoliday.name} (月薪挪移假)`;
                   badgeBg = '#d8b4fe';
                   badgeText = '#581c87';
-                } else if (origHoliday) {
+                } else if (origHoliday && origHoliday.movedDate === origHoliday.date) {
+                  // 未挪移的國定假日：顯示紅色
                   cellBg = '#fee2e2';
                   dateColor = '#ef4444';
-                  dayLabel = origHoliday.movedDate !== origHoliday.date ? `🎉 ${origHoliday.name} (原)` : `🎉 ${origHoliday.name}`;
+                  dayLabel = `🎉 ${origHoliday.name}`;
                   badgeBg = '#fca5a5';
                   badgeText = '#991b1b';
+                } else if (origHoliday && origHoliday.movedDate !== origHoliday.date) {
+                  // 已挪移到其他日期的國定假日原始日：顯示灰色提示，不計入實際假日
+                  cellBg = '#f3f4f6';
+                  dateColor = '#9ca3af';
+                  dayLabel = `↪ ${origHoliday.name}（已挪移至 ${origHoliday.movedDate}）`;
+                  badgeBg = '#e5e7eb';
+                  badgeText = '#6b7280';
                 } else if (dayOfWeek === 0) {
                   cellBg = '#fff5f5';
                   dateColor = '#ef4444';
@@ -858,7 +866,8 @@ const Scheduler: React.FC = () => {
             let monthlyHolidaysCount = 0;
             for (let d = 1; d <= daysInMonth; d++) {
               const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-              if (holidays.some(h => h.movedDate ? h.movedDate === dateStr : h.date === dateStr)) {
+              // 只計算「實際放假日」（movedDate）在本月份的假日，排除已挪移到其他月份的原始日
+              if (holidays.some(h => (h.movedDate || h.date) === dateStr)) {
                 monthlyHolidaysCount++;
               }
             }
@@ -896,13 +905,24 @@ const Scheduler: React.FC = () => {
                       let targetSaturdays = 0;
                       let targetHolidays = 0;
                       
+                      const empOnboardMonth = emp.onboardDate ? emp.onboardDate.substring(0, 7) : '2000-01';
+                      const currentMonthStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
+
                       for (let d = 1; d <= daysInMonth; d++) {
                         const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                         const dayOfWeek = new Date(viewYear, viewMonth - 1, d).getDay();
-                        const isMonthlyHoliday = holidays.some(h => h.movedDate ? h.movedDate === dateStr : h.date === dateStr);
+                        // 以實際放假日（movedDate）判斷，不計算已挪移到其他月份的原始日
+                        const isMonthlyHoliday = holidays.some(h => (h.movedDate || h.date) === dateStr);
                         
                         if (isMonthlyHoliday) {
-                          targetHolidays++;
+                          // 若員工是當月才入職，且此假日的 movedDate 在入職月之前，則不計入（員工沒享到該假）
+                          const holiday = holidays.find(h => (h.movedDate || h.date) === dateStr);
+                          const holidayMovedMonth = holiday ? (holiday.movedDate || holiday.date).substring(0, 7) : currentMonthStr;
+                          if (empOnboardMonth > holidayMovedMonth) {
+                            // 員工入職月比假日實際放假月還晚，跳過此假日
+                          } else {
+                            targetHolidays++;
+                          }
                         } else if (dayOfWeek === 0) {
                           targetSundays++;
                         } else if (dayOfWeek === 6) {
