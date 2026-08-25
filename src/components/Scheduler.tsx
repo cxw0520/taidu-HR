@@ -863,6 +863,11 @@ const Scheduler: React.FC = () => {
           </div>
 
           {(() => {
+            // 【偵錯面板】收集本月所有計算到的國定假日
+            const monthPrefix = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
+            const debugHolidays = holidays.filter(h => (h.movedDate || h.date).startsWith(monthPrefix));
+            const debugOrigOnly = holidays.filter(h => h.date.startsWith(monthPrefix) && (h.movedDate || h.date) !== h.date);
+
             let monthlyHolidaysCount = 0;
             for (let d = 1; d <= daysInMonth; d++) {
               const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -873,8 +878,37 @@ const Scheduler: React.FC = () => {
             }
             const hasMonthlyHolidays = monthlyHolidaysCount > 0;
 
+            // 【暫時偵錯顯示 - 確認後可刪除】
+            console.log(`[DEBUG] ${viewYear}-${viewMonth} 國定假日計算:`, {
+              全部假日: holidays.map(h => ({ name: h.name, date: h.date, movedDate: h.movedDate })),
+              本月實際放假: debugHolidays.map(h => ({ name: h.name, movedDate: h.movedDate || h.date })),
+              本月原始但已挪走: debugOrigOnly.map(h => ({ name: h.name, date: h.date, movedDate: h.movedDate })),
+              monthlyHolidaysCount,
+            });
+
             return (
-              <div className="table-responsive">
+              <div>
+                {/* 【暫時偵錯面板 - 可刪除】 */}
+                <div style={{ background: '#fefce8', border: '1px solid #fbbf24', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '12px' }}>
+                  <strong>🔍 偵錯：{viewYear}-{viewMonth} 國定假日資料</strong>
+                  <div style={{ marginTop: '6px' }}>
+                    <strong>本月實際放假日（movedDate）：</strong>
+                    {debugHolidays.length === 0 ? ' 無' : debugHolidays.map((h, i) => (
+                      <span key={i} style={{ display: 'inline-block', marginLeft: '8px', background: '#fde68a', padding: '1px 6px', borderRadius: '4px' }}>
+                        {h.name} → {h.movedDate || h.date}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: '4px' }}>
+                    <strong>本月原始但已挪到其他月：</strong>
+                    {debugOrigOnly.length === 0 ? ' 無' : debugOrigOnly.map((h, i) => (
+                      <span key={i} style={{ display: 'inline-block', marginLeft: '8px', background: '#fca5a5', padding: '1px 6px', borderRadius: '4px' }}>
+                        {h.name}（原 {h.date} → 挪至 {h.movedDate}）
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: '4px' }}><strong>計算到的假日天數：{monthlyHolidaysCount} 天</strong></div>
+                </div>
                 <table className="data-table">
                   <thead>
                     <tr>
