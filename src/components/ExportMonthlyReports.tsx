@@ -1,5 +1,5 @@
 import React from 'react';
-import { evaluatePunchesStatus, parseTimeStrToMinutes } from '../utils/taiwanHrEngine';
+import { parseTimeStrToMinutes, analyzeDayPunches, isOffShift, getAdjustedShiftTimes, getShiftStartEndTimes } from '../utils/taiwanHrEngine';
 
 // ====== 共用樣式 ======
 const reportStyle: React.CSSProperties = {
@@ -350,48 +350,94 @@ export const MonthlyRequestsReport: React.FC<{ month: string, leaves: any[], ove
 };
 
 // ====== 6. x月份差勤異常報告 ======
-export const MonthlyExceptionsReport: React.FC<{ month: string, attendance: any[], schedules: any[], employees: any[] }> = ({ month, attendance, schedules, employees }) => {
+export const MonthlyExceptionsReport: React.FC<{ month: string, attendance: any[], schedules: any[], employees: any[], leaves: any[], overtimeReqs: any[], shifts: any[] }> = ({ month, attendance, schedules, employees, leaves, overtimeReqs, shifts }) => {
   const exceptions: any[] = [];
   
-  // 找出該月份所有排班
-  const monthSchedules = schedules.filter(s => s.date.startsWith(month));
-  
-  monthSchedules.forEach(sched => {
-    if (sched.shift === '休假' || sched.shift === '例假' || !sched.shift) return;
-    
-    const empAtt = attendance.filter(a => a.employeeId === sched.employeeId && a.date === sched.date);
-    const sortedAtt = [...empAtt].sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
-    
-    const firstIn = sortedAtt.find(a => a.type === 'in');
-    const lastOut = [...sortedAtt].reverse().find(a => a.type === 'out');
-    
-    // 如果連上班或下班卡都沒有，視為異常
-    if (!firstIn || !lastOut) {
-      exceptions.push({
-        date: sched.date,
-        employeeId: sched.employeeId,
-        shift: sched.shift,
-        issue: !firstIn && !lastOut ? '曠職 (無打卡)' : (!firstIn ? '缺上班卡' : '缺下班卡'),
-        inTime: firstIn?.time || '-',
-        outTime: lastOut?.time || '-'
+  const monthStr = month;
+  const monthSchedules = schedules.filter(s => s.date && s.date.startsWith(monthStr));
+
+  // Build attendance map by employee and date
+  const attMap: { [empId: string]: { [date: string]: any[] } } = {};
+  attendance.forEach(rec => {
+    if (!rec.employeeId || !rec.date || !rec.date.startsWith(monthStr)) return;
+    if (!attMap[rec.employeeId]) attMap[rec.employeeId] = {};
+    if (!attMap[rec.employeeId][rec.date]) attMap[rec.employeeId][rec.date] = [];
+    attMap[rec.employeeId][rec.date].push(rec);
+  });
+
+  // Build leaves map
+  const leavesMap: { [empId: string]: any[] } = {};
+  (leaves || []).forEach(l => {
+    if (!l.employeeId) return;
+    if (!leavesMap[l.employeeId]) leavesMap[l.employeeId] = [];
+    leavesMap[l.employeeId].push(l);
+  });
+
+  // Build overtime map
+  const otMap: { [empId: string]: any[] } = {};
+  (overtimeReqs || []).forEach(o => {
+    if (!o.employeeId) return;
+    if (!otMap[o.employeeId]) otMap[o.employeeId] = [];
+    otMap[o.employeeId].push(o);
+  });
+
+  monthSchedules.forEach((sched: any) => {
+    const empId = sched.employeeId;
+    const date = sched.date;
+    const empName = sched.empName || employees.find(e => e.id === empId)?.name || empId;
+
+    // Skip off shift
+    if (isOffShift(sched.shift)) return;
+
+    // Skip approved leave
+    const empLeaves = leavesMap[empId] || [];
+    const hasLeave = empLeaves.some(l => l.leaveType !== 'shift_adj' && l.startDate <= date && l.endDate >= date && l.status === 'approved');
+    if (hasLeave) return;
+
+    const dayAtt = (attMap[empId] && attMap[empId][date]) || [];
+    const { startTimeStr: rawStart, endTimeStr: rawEnd } = getShiftStartEndTimes(sched, shifts);
+
+    const approvedShiftAdjLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
+    getAdjustedShiftTimes(rawStart, rawEnd, approvedShiftAdjLeaves);
+
+    const dayAnalysis = dayAtt.length > 0 ? analyzeDayPunches(dayAtt, sched, shifts) : null;
+    let types: string[] = [];
+    let msg = '';
+
+    if (dayAtt.length === 0) {
+      types.push('未打卡');
+      msg = `當天有排班 (${sched.shift})，但無任何打卡紀錄`;
+    } else if (dayAnalysis) {
+      if (dayAnalysis.hasMissingPunch) types.push('缺卡');
+      if (dayAnalysis.isLate) types.push('遲到');
+      if (dayAnalysis.isEarly) types.push('早退');
+
+      dayAtt.forEach(p => {
+        if (p.status === '異常' && !types.includes('異常')) types.push('異常');
       });
-      return;
+
+      if (types.length > 0) {
+        msg = `班表: ${sched.shift}`;
+        if (dayAnalysis.hasMissingPunch) {
+          const missingLabels = dayAnalysis.slots.filter(s => s.isMissing).map(s => s.label).join('、');
+          msg += ` — 缺少：${missingLabels}`;
+        }
+      }
     }
 
-    // 呼叫 evaluatePunchesStatus 判斷是否遲到早退
-    const status = evaluatePunchesStatus(firstIn.time, lastOut.time, sched.shift);
-    if (status.isLate || status.isEarly) {
-      let issueStr = [];
-      if (status.isLate) issueStr.push('遲到');
-      if (status.isEarly) issueStr.push('早退');
-      
+    const punchesStr = dayAnalysis && dayAnalysis.slots.length > 0
+      ? dayAnalysis.slots.map(s => `${s.label} ${s.isMissing ? '缺卡' : s.matchedTime}(${s.status})`).join(' | ')
+      : (dayAtt.length === 0 ? '無打卡紀錄' : [...dayAtt].sort((a: any, b: any) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || '')).map((p: any) => `${p.type} ${p.time}`).join(', '));
+
+    if (types.length > 0) {
       exceptions.push({
-        date: sched.date,
-        employeeId: sched.employeeId,
-        shift: sched.shift,
-        issue: issueStr.join('、'),
-        inTime: firstIn.time,
-        outTime: lastOut.time
+        date,
+        employeeId: empId,
+        empName,
+        shift: sched.shift || '',
+        issue: types.join('、'),
+        message: msg,
+        punchesStr
       });
     }
   });
@@ -407,21 +453,19 @@ export const MonthlyExceptionsReport: React.FC<{ month: string, attendance: any[
             <tr>
               <th style={thTdStyle}>日期</th>
               <th style={thTdStyle}>員工</th>
-              <th style={thTdStyle}>班別</th>
-              <th style={thTdStyle}>異常狀況</th>
-              <th style={thTdStyle}>上班打卡</th>
-              <th style={thTdStyle}>下班打卡</th>
+              <th style={thTdStyle}>異常類型</th>
+              <th style={thTdStyle}>打卡紀錄</th>
+              <th style={thTdStyle}>班表說明</th>
             </tr>
           </thead>
           <tbody>
-            {exceptions.map((ex, idx) => (
+            {exceptions.sort((a, b) => a.date.localeCompare(b.date)).map((ex, idx) => (
               <tr key={idx}>
                 <td style={thTdStyle}>{ex.date}</td>
-                <td style={thTdStyle}>{employees.find(e => e.id === ex.employeeId)?.name}</td>
-                <td style={thTdStyle}>{ex.shift}</td>
+                <td style={thTdStyle}>{ex.empName}</td>
                 <td style={{ ...thTdStyle, color: 'red' }}>{ex.issue}</td>
-                <td style={thTdStyle}>{ex.inTime}</td>
-                <td style={thTdStyle}>{ex.outTime}</td>
+                <td style={thTdStyle}>{ex.punchesStr}</td>
+                <td style={thTdStyle}>{ex.message}</td>
               </tr>
             ))}
           </tbody>

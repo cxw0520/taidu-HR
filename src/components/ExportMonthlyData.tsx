@@ -151,7 +151,15 @@ export const ExportMonthlyData: React.FC = () => {
             punchCorrections={adminData.punchCorrections} 
             employees={adminData.employees} 
           />
-          <MonthlyExceptionsReport month={selectedMonth} attendance={adminData.attendance} schedules={adminData.schedules} employees={adminData.employees} />
+          <MonthlyExceptionsReport 
+            month={selectedMonth} 
+            attendance={adminData.attendance} 
+            schedules={adminData.schedules} 
+            employees={adminData.employees} 
+            leaves={adminData.leaves}
+            overtimeReqs={adminData.overtimeReqs}
+            shifts={adminData.shifts}
+          />
         </div>
       )}
     </>
