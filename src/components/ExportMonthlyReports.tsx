@@ -29,10 +29,15 @@ export const MonthlyScheduleReport: React.FC<{ month: string, schedules: any[], 
   const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
+  // 過濾出這個月有排班的員工 (排除未排班或已離職)
+  const scheduledEmployees = employees.filter(emp => 
+    monthSchedules.some(s => s.employeeId === emp.id)
+  );
+
   return (
-    <div id="report-schedule" style={reportStyle}>
+    <div id="report-schedule" style={{ ...reportStyle, width: 'max-content', minWidth: '1200px' }}>
       <h2>{month} 班表</h2>
-      <table style={tableStyle}>
+      <table style={{ ...tableStyle, whiteSpace: 'nowrap' }}>
         <thead>
           <tr>
             <th style={thTdStyle}>員工</th>
@@ -40,7 +45,7 @@ export const MonthlyScheduleReport: React.FC<{ month: string, schedules: any[], 
           </tr>
         </thead>
         <tbody>
-          {employees.map(emp => (
+          {scheduledEmployees.map(emp => (
             <tr key={emp.id}>
               <td style={thTdStyle}>{emp.name}</td>
               {days.map(d => {
@@ -72,14 +77,14 @@ export const MonthlyPayrollSummaryReport: React.FC<{ month: string, payroll: any
           <tr>
             <th style={thTdStyle}>員工姓名</th>
             <th style={thTdStyle}>底薪</th>
-            <th style={thTdStyle}>伙食津貼</th>
+            <th style={thTdStyle}>職務加給</th>
+            <th style={thTdStyle}>考核加給</th>
             <th style={thTdStyle}>全勤獎金</th>
-            <th style={thTdStyle}>應稅薪資(小計)</th>
-            <th style={thTdStyle}>加班費(免稅)</th>
-            <th style={thTdStyle}>總薪資(應發)</th>
-            <th style={thTdStyle}>勞保(自付)</th>
-            <th style={thTdStyle}>健保(自付)</th>
+            <th style={thTdStyle}>其他津貼</th>
+            <th style={thTdStyle}>加班費</th>
             <th style={thTdStyle}>請假扣薪</th>
+            <th style={thTdStyle}>勞保自付</th>
+            <th style={thTdStyle}>健保自付</th>
             <th style={thTdStyle}>實發薪資</th>
           </tr>
         </thead>
@@ -89,16 +94,16 @@ export const MonthlyPayrollSummaryReport: React.FC<{ month: string, payroll: any
             return (
               <tr key={p.id}>
                 <td style={thTdStyle}>{emp?.name || p.employeeId}</td>
-                <td style={thTdStyle}>{p.baseSalary}</td>
-                <td style={thTdStyle}>{p.mealAllowance}</td>
-                <td style={thTdStyle}>{p.attendanceBonus}</td>
-                <td style={thTdStyle}>{p.taxableSalary}</td>
-                <td style={thTdStyle}>{p.overtimePay}</td>
-                <td style={thTdStyle}>{p.grossSalary}</td>
+                <td style={thTdStyle}>{p.baseSalary || 0}</td>
+                <td style={thTdStyle}>{p.roleAllowance || 0}</td>
+                <td style={thTdStyle}>{p.evaluationAllowance || 0}</td>
+                <td style={thTdStyle}>{p.attendanceBonus || 0}</td>
+                <td style={thTdStyle}>{p.otherAllowance || 0}</td>
+                <td style={thTdStyle}>{p.overtime || 0}</td>
+                <td style={thTdStyle}>{p.leaveDeduction || 0}</td>
                 <td style={thTdStyle}>{p.employeeLabor || 0}</td>
                 <td style={thTdStyle}>{p.employeeNhi || 0}</td>
-                <td style={thTdStyle}>{p.leaveDeduction || 0}</td>
-                <td style={thTdStyle}>{p.netSalary}</td>
+                <td style={thTdStyle}>{p.netSalary || 0}</td>
               </tr>
             );
           })}
@@ -124,6 +129,9 @@ export const MonthlyPayslipsReport: React.FC<{ month: string, payroll: any[], em
     <div id="report-payslips" style={{ backgroundColor: '#fff', width: '700px' }}>
       {monthPayroll.map((p) => {
         const emp = employees.find(e => e.id === p.employeeId);
+        const gross = (p.baseSalary || 0) + (p.roleAllowance || 0) + (p.evaluationAllowance || 0) + (p.attendanceBonus || 0) + (p.otherAllowance || 0) + (p.overtime || 0) + (p.adminBonus || 0) + (p.annualLeavePayoff || 0) + (p.retroactivePay || 0);
+        const totalDed = (p.leaveDeduction || 0) + (p.lateDeduction || 0) + (p.employeeLabor || 0) + (p.employeeNhi || 0) + (p.withholdingTax || 0) + (p.insuranceAdjustment || 0) + (p.otherDeductions || 0) + (p.pensionVoluntary || 0);
+
         return (
           <div key={p.id} className="pdf-page" style={{ ...reportStyle, width: '700px', minHeight: '900px', boxSizing: 'border-box' }}>
             <h2 style={{ textAlign: 'center', borderBottom: '2px solid #333', paddingBottom: '10px' }}>
@@ -139,37 +147,67 @@ export const MonthlyPayslipsReport: React.FC<{ month: string, payroll: any[], em
                 </tr>
                 <tr>
                   <td style={thTdStyle}>本薪</td>
-                  <td style={thTdStyle}>{p.baseSalary}</td>
+                  <td style={thTdStyle}>{p.baseSalary || 0}</td>
                   <td style={thTdStyle}>勞保費 (自付)</td>
                   <td style={thTdStyle}>{p.employeeLabor || 0}</td>
                 </tr>
                 <tr>
-                  <td style={thTdStyle}>伙食津貼</td>
-                  <td style={thTdStyle}>{p.mealAllowance}</td>
+                  <td style={thTdStyle}>職務加給</td>
+                  <td style={thTdStyle}>{p.roleAllowance || 0}</td>
                   <td style={thTdStyle}>健保費 (自付)</td>
                   <td style={thTdStyle}>{p.employeeNhi || 0}</td>
                 </tr>
                 <tr>
-                  <td style={thTdStyle}>全勤獎金</td>
-                  <td style={thTdStyle}>{p.attendanceBonus}</td>
+                  <td style={thTdStyle}>考核加給</td>
+                  <td style={thTdStyle}>{p.evaluationAllowance || 0}</td>
                   <td style={thTdStyle}>請假扣款</td>
                   <td style={thTdStyle}>{p.leaveDeduction || 0}</td>
                 </tr>
                 <tr>
-                  <td style={thTdStyle}>免稅加班費</td>
-                  <td style={thTdStyle}>{p.overtimePay}</td>
-                  <td style={thTdStyle}>其他扣款</td>
-                  <td style={thTdStyle}>{p.deductions || 0}</td>
+                  <td style={thTdStyle}>全勤獎金</td>
+                  <td style={thTdStyle}>{p.attendanceBonus || 0}</td>
+                  <td style={thTdStyle}>遲到扣款</td>
+                  <td style={thTdStyle}>{p.lateDeduction || 0}</td>
                 </tr>
-                <tr style={{ fontWeight: 'bold' }}>
+                <tr>
+                  <td style={thTdStyle}>其他津貼</td>
+                  <td style={thTdStyle}>{p.otherAllowance || 0}</td>
+                  <td style={thTdStyle}>代扣所得稅</td>
+                  <td style={thTdStyle}>{p.withholdingTax || 0}</td>
+                </tr>
+                <tr>
+                  <td style={thTdStyle}>行政獎金</td>
+                  <td style={thTdStyle}>{p.adminBonus || 0}</td>
+                  <td style={thTdStyle}>勞健保補扣</td>
+                  <td style={thTdStyle}>{p.insuranceAdjustment || 0}</td>
+                </tr>
+                <tr>
+                  <td style={thTdStyle}>特休結算</td>
+                  <td style={thTdStyle}>{p.annualLeavePayoff || 0}</td>
+                  <td style={thTdStyle}>勞退自提</td>
+                  <td style={thTdStyle}>{p.pensionVoluntary || 0}</td>
+                </tr>
+                <tr>
+                  <td style={thTdStyle}>補發薪資</td>
+                  <td style={thTdStyle}>{p.retroactivePay || 0}</td>
+                  <td style={thTdStyle}>其他扣款</td>
+                  <td style={thTdStyle}>{p.otherDeductions || 0}</td>
+                </tr>
+                <tr>
+                  <td style={thTdStyle}>加班費</td>
+                  <td style={thTdStyle}>{p.overtime || 0}</td>
+                  <td style={thTdStyle}></td>
+                  <td style={thTdStyle}></td>
+                </tr>
+                <tr style={{ fontWeight: 'bold', backgroundColor: '#f3f4f6' }}>
                   <td style={thTdStyle}>應發總計</td>
-                  <td style={thTdStyle}>{p.grossSalary}</td>
+                  <td style={thTdStyle}>{gross}</td>
                   <td style={thTdStyle}>扣款總計</td>
-                  <td style={thTdStyle}>{(p.employeeLabor || 0) + (p.employeeNhi || 0) + (p.leaveDeduction || 0) + (p.deductions || 0)}</td>
+                  <td style={thTdStyle}>{totalDed}</td>
                 </tr>
                 <tr style={{ fontWeight: 'bold', fontSize: '18px', backgroundColor: '#eff6ff' }}>
                   <td colSpan={2} style={{ ...thTdStyle, textAlign: 'right' }}>實發薪資 (匯款金額)</td>
-                  <td colSpan={2} style={{ ...thTdStyle, color: '#1d4ed8' }}>{p.netSalary}</td>
+                  <td colSpan={2} style={{ ...thTdStyle, color: '#1d4ed8' }}>{p.netSalary || 0}</td>
                 </tr>
               </tbody>
             </table>
