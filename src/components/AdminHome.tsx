@@ -2,6 +2,7 @@ import React from 'react';
 import { useAdminData } from '../context/AdminDataContext';
 
 import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getShiftStartEndTimes } from '../utils/taiwanHrEngine';
+import { ExportMonthlyData } from './ExportMonthlyData';
 
 interface AdminHomeProps {
   setActiveTab: (tab: 'attendance' | 'employees' | 'schedules' | 'payroll' | 'leaves' | 'settings') => void;
@@ -408,6 +409,9 @@ const AdminHome: React.FC<AdminHomeProps> = ({ setActiveTab }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-10px' }}>
+        <ExportMonthlyData />
+      </div>
       {/* 上方兩欄區塊：人力成本與差勤待審核概覽 */}
       <div className="alerts-approvals-panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px' }}>
         
