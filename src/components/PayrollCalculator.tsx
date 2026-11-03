@@ -290,7 +290,9 @@ export const PayrollCalculator: React.FC = () => {
                 }
                 
                 const actualInMins = parseTimeStrToMinutes(rec.time);
-                const isLate = rec.status === '遲到' || (!rec.status && idx === 0 && actualInMins > expectedStart + 5) || (!rec.status && idx === 1 && hasFixedBreak && actualInMins > expectedStart + 5);
+                // 只有第一筆上班卡（或固定休息班別的第二筆）才計遲到；其餘多按的上班卡忽略，避免誤按造成巨額扣款
+                const countable = idx === 0 || (idx === 1 && hasFixedBreak);
+                const isLate = countable && (rec.status ? rec.status === '遲到' : actualInMins > expectedStart + 5);
                 
                 if (isLate) {
                   lateCount++;
