@@ -517,7 +517,7 @@ export const PayrollCalculator: React.FC = () => {
                 endTimeStr,
                 activeTyphoon.mode,
                 activeTyphoon.startTime,
-                shiftDef?.breakDuration || 60
+                shiftDef?.breakDuration ?? 60
               );
               if (typHours > 0) {
                 totalTyphoonHours += roundToHalfHour(typHours);
