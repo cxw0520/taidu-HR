@@ -403,7 +403,30 @@ export const AdminDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const pc = punchCorrections.find(p => p.id === id);
     if (!pc) return;
     await updateDoc(doc(db, 'punch_corrections', id), { status: 'approved' });
-    
+
+    // 檢查是否為「按錯鍵」：同日同員工、時間相近（±60 分鐘）、但類型相反的打卡
+    // 例：下班時誤按成「上班」，再申請補「下班」卡 → 直接把誤按那筆改成正確類型
+    const toMin = (t: string) => { const [h, m] = (t || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+    const sameDay = attendance.filter(a => a.employeeId === pc.employeeId && a.date === pc.date);
+    const sameTypeCount = (type: string) => sameDay.filter(a => a.type === type).length;
+    const misPressed = sameDay
+      .filter(a => a.type && a.type !== pc.type && Math.abs(toMin(a.time) - toMin(pc.time)) <= 60)
+      // 只在該類型有重複時才視為誤按，避免把唯一一筆正確的卡改掉
+      .filter(a => sameTypeCount(a.type) > 1)
+      .sort((a, b) => Math.abs(toMin(a.time) - toMin(pc.time)) - Math.abs(toMin(b.time) - toMin(pc.time)))[0];
+
+    if (misPressed) {
+      await updateDoc(doc(db, 'attendance', misPressed.id), {
+        type: pc.type,
+        time: pc.time,
+        status: '正常',
+        location: `${misPressed.location || ''}（誤按${misPressed.type}，補卡更正）`,
+        correctedFrom: misPressed.type,
+        source: 'admin_manual'
+      });
+      return;
+    }
+
     // Create new attendance record representing the corrected clock
     await addDoc(collection(db, 'attendance'), {
       employeeId: pc.employeeId,
