@@ -702,12 +702,12 @@ export const PayrollCalculator: React.FC = () => {
           }
         });
 
-        // 問題二修正：颱風假不扣薪（視為無薪假但不扣全勤也不扣薪）
+        // 颱風假「不計薪」：月薪人員依日薪扣除未上班時數（不影響全勤）；時薪人員本就依實際工時計薪，不另扣
+        const typhoonDeduction = isHourly ? 0 : Math.round(typhoonLeaveDays * dailyRate);
         const leaveDeduction = Math.round(
           personalLeaveDays * dailyRate * 1.0 + 
           sickLeaveDays * dailyRate * 0.5
-          // typhoonLeaveDays 不扣薪
-        );
+        ) + typhoonDeduction;
         const lateDeduction = isHourly ? 0 : Math.round(lateMinutesTotal * (monthlySalaryBasis / 14400));
 
         const ins = calculatePayrollInsurance(
@@ -783,17 +783,21 @@ export const PayrollCalculator: React.FC = () => {
         }
 
         // 扣款細項
-        if (leaveDeduction > 0) {
+        const nonTyphoonLeaveDeduction = leaveDeduction - typhoonDeduction;
+        if (nonTyphoonLeaveDeduction > 0) {
           const leaveNote = [
             personalLeaveDays > 0 ? `事假${personalLeaveDays}天` : '',
             sickLeaveDays > 0 ? `病假${sickLeaveDays}天(半薪)` : ''
           ].filter(Boolean).join('；');
-          payrollItems.push({ type: 'deduct', label: '請假扣薪', amount: -leaveDeduction, note: leaveNote });
+          payrollItems.push({ type: 'deduct', label: '請假扣薪', amount: -nonTyphoonLeaveDeduction, note: leaveNote });
+        }
+        if (typhoonDeduction > 0) {
+          payrollItems.push({ type: 'deduct', label: '颱風假（不計薪）', amount: -typhoonDeduction, note: `${typhoonLeaveDays} 天 × 日薪 $${Math.round(dailyRate).toLocaleString()}；不影響全勤` });
         }
         if (lateDeduction > 0) payrollItems.push({ type: 'deduct', label: '遲到扣款', amount: -lateDeduction, note: `遲到累計 ${lateMinutesTotal} 分鐘` });
         if (ins.employeeLabor > 0) payrollItems.push({ type: 'deduct', label: '勞保費（員工自付）', amount: -ins.employeeLabor, note: `勞保投保薪資 $${laborSub.toLocaleString()}` });
         if (ins.employeeNhi > 0) payrollItems.push({ type: 'deduct', label: '健保費（員工自付）', amount: -ins.employeeNhi, note: `健保投保薪資 $${nhiSub.toLocaleString()}` });
-        if (typhoonLeaveDays > 0) payrollItems.push({ type: 'info', label: '颱風假（不扣薪）', amount: 0, note: `共 ${typhoonLeaveDays} 天颱風假，不計薪但不扣全勤` });
+        if (typhoonLeaveDays > 0 && typhoonDeduction === 0) payrollItems.push({ type: 'info', label: '颱風假', amount: 0, note: `共 ${typhoonLeaveDays} 天颱風假（時薪依實際工時計薪），不影響全勤` });
 
         const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction + lateDeduction;
         const totalAllowance = attendanceBonus + otherAllowance + roleAllowance + evaluationAllowance;
