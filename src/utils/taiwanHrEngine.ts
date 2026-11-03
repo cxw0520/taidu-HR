@@ -408,10 +408,11 @@ export function getShiftStartEndTimes(
 
   const shiftRaw = dateSched.shift || '';
   const shiftName = shiftRaw.split('(')[0].trim();
+  // 優先找完全相同名稱，避免「12-20」誤配到「12-20.5(休18)」這類以它開頭的其他班別
   const shiftDef = (shifts || []).find((s: any) =>
-    s.name === shiftName ||
-    s.name === shiftRaw ||
-    (shiftName && s.name && (s.name.startsWith(shiftName) || shiftName.startsWith(s.name)))
+    s.name === shiftName || s.name === shiftRaw
+  ) || (shifts || []).find((s: any) =>
+    shiftName && s.name && (s.name.startsWith(shiftName) || shiftName.startsWith(s.name))
   );
 
   let startTimeStr = dateSched.startTime || '';
