@@ -90,6 +90,9 @@ export const PayrollCalculator: React.FC = () => {
   const [editPayMissedPunches, setEditPayMissedPunches] = useState<number>(0);
 
   const [editPayStatus, setEditPayStatus] = useState('待審核');
+  // 問題三：細項明細和可見性開關
+  const [editPayItems, setEditPayItems] = useState<Array<{ type: string; label: string; amount: number; note: string }>>([]);
+  const [editPayDetailsVisible, setEditPayDetailsVisible] = useState(false);
 
   // Filtered payroll
   const filteredPayroll = useMemo(() => {
@@ -385,18 +388,17 @@ export const PayrollCalculator: React.FC = () => {
             let hours = analysis.effectiveHours;
 
             if (hours > 0) {
-              // 修正：使用 movedDate 判斷實際放假日（節日移轉後以新日期為準）
-              const isActualHolidayDate = holidays.some(h =>
-                h.movedDate ? h.movedDate === date : h.date === date
-              );
+              // 問題一修正：工讀生（時薪）永遠以法定原始日（h.date）判斷國定假日雙薪
+              // 正職（月薪）才以 movedDate（挪移後日期）判斷。工讀生的假日挪移對薪資計算無效。
+              const isActualHolidayDateForHourly = holidays.some(h => h.date === date);
               const isCompensatoryWorkdayDate = holidays.some(h => h.workdayDate === date);
               const regHours = Math.min(hours, 8);
               const effHourlyRate = isTransitionMonth ? (emp.previousMonthlySalary || 190) : hourlyRate;
               // 補班日視同平日，不給節日雙薪；正常放假日才給
               if (!isCompensatoryWorkdayDate) {
                 calculatedBaseSalary += regHours * effHourlyRate;
-                if (isActualHolidayDate) {
-                  overtimePay += regHours * effHourlyRate; // 國定假日工作 → 額外再給一倍
+                if (isActualHolidayDateForHourly) {
+                  overtimePay += regHours * effHourlyRate; // 國定假日（法定原始日）工作 → 額外再給一倍
                 }
               } else {
                 // 補班日：視同平日計薪
@@ -537,11 +539,16 @@ export const PayrollCalculator: React.FC = () => {
         }
 
         // Calculate missed punch count
+        // 問題二修正：颱風假當日不計入缺卡
         let missedPunchCount = 0;
         const [yr, mo] = monthStr.split('-').map(Number);
         const daysInMonthCount = new Date(yr, mo, 0).getDate();
+        // 建立颱風假日期 Set 方便查找
+        const typhoonDateSet = new Set((typhoonLeaves || []).map((t: any) => t.date));
         for (let d = 1; d <= daysInMonthCount; d++) {
           const dateStr = `${monthStr}-${String(d).padStart(2, '0')}`;
+          // 颱風假當日：視為無需打卡，不計缺卡
+          if (typhoonDateSet.has(dateStr)) continue;
           const daySched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === dateStr);
           if (daySched && !isOffShift(daySched.shift)) {
             const hasLeave = approvedLeaves.some(l => 
@@ -693,10 +700,11 @@ export const PayrollCalculator: React.FC = () => {
           }
         });
 
+        // 問題二修正：颱風假不扣薪（視為無薪假但不扣全勤也不扣薪）
         const leaveDeduction = Math.round(
           personalLeaveDays * dailyRate * 1.0 + 
-          sickLeaveDays * dailyRate * 0.5 + 
-          typhoonLeaveDays * dailyRate * 1.0
+          sickLeaveDays * dailyRate * 0.5
+          // typhoonLeaveDays 不扣薪
         );
         const lateDeduction = isHourly ? 0 : Math.round(lateMinutesTotal * (monthlySalaryBasis / 14400));
 
@@ -714,13 +722,86 @@ export const PayrollCalculator: React.FC = () => {
           alert(`[診斷彈窗] 吳雅君計算中:\n- 到職日 (onboard): ${onboardDateStr}\n- 離職日 (resign): ${resignDateStr}\n- 結算月份 (month): ${monthStr}\n- 健保投保額 (nhiSub): ${nhiSub}\n- 健保自付 (employeeNhi): ${ins.employeeNhi}\n- 健保雇主 (employerNhi): ${ins.employerNhi}\n- 勞保天數 (laborDays): ${ins.laborDays}`);
         }
 
+        // 問題四：三節獎金自動計入 items[]
+        // 從系統設定讀取三節獎金設定
+        const { doc: firestoreDoc, getDoc: firestoreGetDoc } = await import('firebase/firestore');
+        const bonusSettingSnap = await firestoreGetDoc(firestoreDoc(db, 'settings', 'festival_bonuses'));
+        const bonusSettings = bonusSettingSnap.exists() ? bonusSettingSnap.data() : null;
+
+        // 判斷當月是否包含三節（依農曆節日月份判斷）
+        // 春節 = 農曆1月，約落在西曆1-2月；端午 = 農曆5月，約落在西曆5-6月；中秋 = 農曆7-8月，約落在西曆8-10月
+        // 實際做法：以國定假日列表中的假日名稱比對當月有無三節假日
+        const monthHolidays = (holidays || []).filter(h => (h.date || '').startsWith(monthStr));
+        const hasLunarNewYear = monthHolidays.some(h => h.name && (h.name.includes('春節') || h.name.includes('除夕') || h.name.includes('農曆新年')));
+        const hasDragonBoat = monthHolidays.some(h => h.name && h.name.includes('端午'));
+        const hasMidAutumn = monthHolidays.some(h => h.name && h.name.includes('中秋'));
+
+        // 問題三：建立薪資細項明細 items[]
+        const payrollItems: Array<{ type: string; label: string; amount: number; note: string }> = [];
+
+        // 基本項目
+        if (calculatedBaseSalary !== 0) {
+          payrollItems.push({ type: 'income', label: '底薪', amount: calculatedBaseSalary, note: transitionNote || '' });
+        }
+        if (roleAllowance > 0) payrollItems.push({ type: 'income', label: '職務加給', amount: roleAllowance, note: '' });
+        if (evaluationAllowance > 0) payrollItems.push({ type: 'income', label: '考核加給', amount: evaluationAllowance, note: '' });
+        if (attendanceBonus > 0) payrollItems.push({ type: 'income', label: '全勤獎金', amount: attendanceBonus, note: attendanceBonusNote || '' });
+        if (attendanceBonusNote && attendanceBonus === 0 && (lateMinutesTotal > 30 || lateCount > 3)) {
+          payrollItems.push({ type: 'deduct', label: '全勤獎金（不發放）', amount: 0, note: attendanceBonusNote });
+        }
+        if (otherAllowance > 0) payrollItems.push({ type: 'income', label: '其他津貼', amount: otherAllowance, note: '' });
+        if (overtimePay > 0) payrollItems.push({ type: 'income', label: '加班費', amount: overtimePay, note: `平日${weekdayOvertimeHours}h / 休息日${restDayOvertimeHours}h / 假日${holidayOvertimeHours}h` });
+        if (annualLeavePayoff > 0) payrollItems.push({ type: 'income', label: '特休結清', amount: annualLeavePayoff, note: '' });
+
+        // 三節獎金（問題四）
+        let festivalBonus = 0;
+        const isFulltime = !isHourly;
+        if (bonusSettings) {
+          if (hasLunarNewYear) {
+            const amount = isFulltime ? (bonusSettings.lunarNewYear?.fulltime || 0) : (bonusSettings.lunarNewYear?.parttime || 0);
+            if (amount > 0) {
+              payrollItems.push({ type: 'bonus', label: '春節獎金', amount, note: '系統設定自動計入' });
+              festivalBonus += amount;
+            }
+          }
+          if (hasDragonBoat) {
+            const amount = isFulltime ? (bonusSettings.dragonBoat?.fulltime || 0) : (bonusSettings.dragonBoat?.parttime || 0);
+            if (amount > 0) {
+              payrollItems.push({ type: 'bonus', label: '端午獎金', amount, note: '系統設定自動計入' });
+              festivalBonus += amount;
+            }
+          }
+          if (hasMidAutumn) {
+            const amount = isFulltime ? (bonusSettings.midAutumn?.fulltime || 0) : (bonusSettings.midAutumn?.parttime || 0);
+            if (amount > 0) {
+              payrollItems.push({ type: 'bonus', label: '中秋獎金', amount, note: '系統設定自動計入' });
+              festivalBonus += amount;
+            }
+          }
+        }
+
+        // 扣款細項
+        if (leaveDeduction > 0) {
+          const leaveNote = [
+            personalLeaveDays > 0 ? `事假${personalLeaveDays}天` : '',
+            sickLeaveDays > 0 ? `病假${sickLeaveDays}天(半薪)` : ''
+          ].filter(Boolean).join('；');
+          payrollItems.push({ type: 'deduct', label: '請假扣薪', amount: -leaveDeduction, note: leaveNote });
+        }
+        if (lateDeduction > 0) payrollItems.push({ type: 'deduct', label: '遲到扣款', amount: -lateDeduction, note: `遲到累計 ${lateMinutesTotal} 分鐘` });
+        if (ins.employeeLabor > 0) payrollItems.push({ type: 'deduct', label: '勞保費（員工自付）', amount: -ins.employeeLabor, note: `勞保投保薪資 $${laborSub.toLocaleString()}` });
+        if (ins.employeeNhi > 0) payrollItems.push({ type: 'deduct', label: '健保費（員工自付）', amount: -ins.employeeNhi, note: `健保投保薪資 $${nhiSub.toLocaleString()}` });
+        if (typhoonLeaveDays > 0) payrollItems.push({ type: 'info', label: '颱風假（不扣薪）', amount: 0, note: `共 ${typhoonLeaveDays} 天颱風假，不計薪但不扣全勤` });
+
         const deductions = ins.employeeLabor + ins.employeeNhi + leaveDeduction + lateDeduction;
         const totalAllowance = attendanceBonus + otherAllowance + roleAllowance + evaluationAllowance;
-        const netSalary = calculatedBaseSalary + totalAllowance + overtimePay + annualLeavePayoff - deductions;
+        const netSalary = calculatedBaseSalary + totalAllowance + overtimePay + annualLeavePayoff + festivalBonus - deductions;
         
         const payrollId = `${emp.id}-${monthStr}`;
         const existingRecord = payroll.find(p => p.id === payrollId);
         const isPublished = existingRecord ? (existingRecord.isPublished ?? false) : false;
+        // 保留既有的細項可見性設定，不重置
+        const detailsVisibleToEmployee = existingRecord?.detailsVisibleToEmployee ?? false;
 
         await setDoc(doc(db, 'payroll', payrollId), {
           empName: emp.name,
@@ -740,10 +821,14 @@ export const PayrollCalculator: React.FC = () => {
           leaveDeduction,
           personalLeaveDays,
           sickLeaveDays,
+          typhoonLeaveDays,
+          festivalBonus,
           deductions,
           netSalary,
           status: existingRecord ? existingRecord.status : '待審核',
           isPublished,
+          detailsVisibleToEmployee,  // 問題三：細項對員工是否可見
+          items: payrollItems,        // 問題三：薪資細項明細陣列
           timestamp: new Date().getTime(),
           lateMinutes: lateMinutesTotal,
           weekdayOvertime: weekdayOvertimeHours,
@@ -905,6 +990,9 @@ export const PayrollCalculator: React.FC = () => {
     setEditPayEmployeeLabor(record.employeeLabor || 0);
     setEditPayEmployeeNhi(record.employeeNhi || 0);
     setEditPayLeaveDeduction(record.leaveDeduction || 0);
+    // 問題三：載入細項和可見性設定
+    setEditPayItems(Array.isArray(record.items) ? record.items : []);
+    setEditPayDetailsVisible(record.detailsVisibleToEmployee ?? false);
 
     setShowEditPayrollModal(true);
   };
@@ -957,7 +1045,10 @@ export const PayrollCalculator: React.FC = () => {
         pensionVoluntary: Number(editPayPensionVoluntary),
         employeeLabor: Number(editPayEmployeeLabor),
         employeeNhi: Number(editPayEmployeeNhi),
-        leaveDeduction: Number(editPayLeaveDeduction)
+        leaveDeduction: Number(editPayLeaveDeduction),
+        // 問題三：儲存細項明細和可見性設定
+        items: editPayItems,
+        detailsVisibleToEmployee: editPayDetailsVisible
       });
       setShowEditPayrollModal(false);
     } catch (err) {
@@ -1780,6 +1871,114 @@ export const PayrollCalculator: React.FC = () => {
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>節日加班時數</label>
                   <input type="number" required value={editPayHolidayOvertime} onChange={(e) => setEditPayHolidayOvertime(Number(e.target.value))} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
                 </div>
+              </div>
+
+              {/* 問題三：明細記錄區塊 */}
+              <div style={{ borderTop: '2px solid #e5e7eb', paddingTop: '16px', marginTop: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>📋 薪資明細記錄</div>
+                  {/* 允許員工查看細項 Toggle */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '600', color: editPayDetailsVisible ? '#10b981' : '#6b7280' }}>
+                      {editPayDetailsVisible ? '✅ 員工可查看細項' : '🔒 細項對員工隱藏'}
+                    </span>
+                    <div
+                      onClick={() => setEditPayDetailsVisible(prev => !prev)}
+                      style={{
+                        width: '40px', height: '22px', borderRadius: '11px', cursor: 'pointer',
+                        backgroundColor: editPayDetailsVisible ? '#10b981' : '#d1d5db',
+                        position: 'relative', transition: 'background-color 0.2s'
+                      }}
+                    >
+                      <div style={{
+                        width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#fff',
+                        position: 'absolute', top: '2px',
+                        left: editPayDetailsVisible ? '20px' : '2px',
+                        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                      }} />
+                    </div>
+                  </label>
+                </div>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '10px' }}>
+                  ℹ️ 薪資單發布後，員工可以看到實發金額。若開啟「員工可查看細項」，員工才能看到下方各項明細。
+                </div>
+
+                {/* 細項列表 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '300px', overflowY: 'auto' }}>
+                  {editPayItems.map((item, idx) => (
+                    <div key={idx} style={{
+                      display: 'grid', gridTemplateColumns: '80px 1fr 90px 1fr 30px',
+                      gap: '6px', alignItems: 'center',
+                      backgroundColor: item.type === 'deduct' ? '#fff5f5' : item.type === 'bonus' ? '#f0fdf4' : item.type === 'info' ? '#f0f9ff' : '#f8f9fa',
+                      padding: '8px', borderRadius: '8px', border: `1px solid ${item.type === 'deduct' ? '#fed7d7' : item.type === 'bonus' ? '#c6f6d5' : item.type === 'info' ? '#bae6fd' : '#e2e8f0'}`
+                    }}>
+                      <select
+                        value={item.type}
+                        onChange={(e) => {
+                          const updated = [...editPayItems];
+                          updated[idx] = { ...updated[idx], type: e.target.value };
+                          setEditPayItems(updated);
+                        }}
+                        style={{ padding: '4px 6px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '12px', backgroundColor: '#fff' }}
+                      >
+                        <option value="income">加項</option>
+                        <option value="bonus">獎金</option>
+                        <option value="deduct">扣項</option>
+                        <option value="info">備註</option>
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="項目名稱"
+                        value={item.label}
+                        onChange={(e) => {
+                          const updated = [...editPayItems];
+                          updated[idx] = { ...updated[idx], label: e.target.value };
+                          setEditPayItems(updated);
+                        }}
+                        style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '12px' }}
+                      />
+                      <input
+                        type="number"
+                        placeholder="金額"
+                        value={item.amount}
+                        onChange={(e) => {
+                          const updated = [...editPayItems];
+                          updated[idx] = { ...updated[idx], amount: Number(e.target.value) };
+                          setEditPayItems(updated);
+                        }}
+                        style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '12px' }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="備註（可留空）"
+                        value={item.note}
+                        onChange={(e) => {
+                          const updated = [...editPayItems];
+                          updated[idx] = { ...updated[idx], note: e.target.value };
+                          setEditPayItems(updated);
+                        }}
+                        style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '12px' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEditPayItems(editPayItems.filter((_, i) => i !== idx))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '16px', padding: '0', lineHeight: 1 }}
+                      >×</button>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setEditPayItems([...editPayItems, { type: 'income', label: '', amount: 0, note: '' }])}
+                  style={{
+                    marginTop: '8px', width: '100%', padding: '8px', borderRadius: '8px',
+                    border: '2px dashed #d1d5db', backgroundColor: 'transparent', cursor: 'pointer',
+                    fontSize: '13px', color: '#64748b', fontWeight: '600'
+                  }}
+                >
+                  + 新增明細項目
+                </button>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

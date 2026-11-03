@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export const SettingsManager: React.FC = () => {
   const {
@@ -61,6 +63,15 @@ export const SettingsManager: React.FC = () => {
   const [newHolidayWorkdayDate, setNewHolidayWorkdayDate] = useState(''); // 補班日（若有）
   const [syncingHolidays, setSyncingHolidays] = useState(false);
 
+  // 6. 問題四：三節獎金設定 States
+  const [festivalLunarNewYearFulltime, setFestivalLunarNewYearFulltime] = useState(0);
+  const [festivalLunarNewYearParttime, setFestivalLunarNewYearParttime] = useState(0);
+  const [festivalDragonBoatFulltime, setFestivalDragonBoatFulltime] = useState(0);
+  const [festivalDragonBoatParttime, setFestivalDragonBoatParttime] = useState(0);
+  const [festivalMidAutumnFulltime, setFestivalMidAutumnFulltime] = useState(0);
+  const [festivalMidAutumnParttime, setFestivalMidAutumnParttime] = useState(0);
+  const [festivalBonusSaveMsg, setFestivalBonusSaveMsg] = useState({ type: '', text: '' });
+
   // Sync form states from context changes
   useEffect(() => {
     if (insuranceRates) {
@@ -79,6 +90,53 @@ export const SettingsManager: React.FC = () => {
       setCfgToleranceMinutes(toleranceMinutes);
     }
   }, [toleranceMinutes]);
+
+  // 載入三節獎金設定
+  useEffect(() => {
+    const loadFestivalBonuses = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'festival_bonuses'));
+        if (snap.exists()) {
+          const data = snap.data();
+          setFestivalLunarNewYearFulltime(data.lunarNewYear?.fulltime || 0);
+          setFestivalLunarNewYearParttime(data.lunarNewYear?.parttime || 0);
+          setFestivalDragonBoatFulltime(data.dragonBoat?.fulltime || 0);
+          setFestivalDragonBoatParttime(data.dragonBoat?.parttime || 0);
+          setFestivalMidAutumnFulltime(data.midAutumn?.fulltime || 0);
+          setFestivalMidAutumnParttime(data.midAutumn?.parttime || 0);
+        }
+      } catch (err) {
+        console.error('載入三節獎金設定失敗:', err);
+      }
+    };
+    loadFestivalBonuses();
+  }, []);
+
+  const handleSaveFestivalBonuses = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFestivalBonusSaveMsg({ type: '', text: '' });
+    try {
+      await setDoc(doc(db, 'settings', 'festival_bonuses'), {
+        lunarNewYear: {
+          fulltime: Number(festivalLunarNewYearFulltime),
+          parttime: Number(festivalLunarNewYearParttime)
+        },
+        dragonBoat: {
+          fulltime: Number(festivalDragonBoatFulltime),
+          parttime: Number(festivalDragonBoatParttime)
+        },
+        midAutumn: {
+          fulltime: Number(festivalMidAutumnFulltime),
+          parttime: Number(festivalMidAutumnParttime)
+        }
+      });
+      setFestivalBonusSaveMsg({ type: 'success', text: '三節獎金設定儲存成功！下次重新計算薪資時自動帶入。' });
+      setTimeout(() => setFestivalBonusSaveMsg({ type: '', text: '' }), 4000);
+    } catch (err) {
+      console.error(err);
+      setFestivalBonusSaveMsg({ type: 'error', text: '儲存失敗，請檢查權限。' });
+    }
+  };
 
   // Roles Handlers
   const handleAddCustomRole = async (e: React.FormEvent) => {
@@ -1266,6 +1324,35 @@ export const SettingsManager: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 三節獎金設定 */}
+      <div className="card" style={{ marginTop: '24px', padding: '24px', borderRadius: '12px', backgroundColor: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+        <h3 style={{ marginTop: 0, marginBottom: '8px' }}>🎁 三節獎金設定</h3>
+        <p style={{ color: '#6b7280', fontSize: '13px', marginTop: 0 }}>設定春節、端午、中秋獎金金額（正職 / 工讀），薪資計算時於對應月份自動帶入。</p>
+        <form onSubmit={handleSaveFestivalBonuses}>
+          {([
+            ['春節', festivalLunarNewYearFulltime, setFestivalLunarNewYearFulltime, festivalLunarNewYearParttime, setFestivalLunarNewYearParttime],
+            ['端午', festivalDragonBoatFulltime, setFestivalDragonBoatFulltime, festivalDragonBoatParttime, setFestivalDragonBoatParttime],
+            ['中秋', festivalMidAutumnFulltime, setFestivalMidAutumnFulltime, festivalMidAutumnParttime, setFestivalMidAutumnParttime],
+          ] as [string, number, (v: number) => void, number, (v: number) => void][]).map(([label, ft, setFt, pt, setPt]) => (
+            <div key={label} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
+              <strong>{label}</strong>
+              <label style={{ fontSize: '13px' }}>正職 (元)
+                <input type="number" min={0} value={ft} onChange={e => setFt(Number(e.target.value))} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #d1d5db' }} />
+              </label>
+              <label style={{ fontSize: '13px' }}>工讀 (元)
+                <input type="number" min={0} value={pt} onChange={e => setPt(Number(e.target.value))} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #d1d5db' }} />
+              </label>
+            </div>
+          ))}
+          {festivalBonusSaveMsg.text && (
+            <div style={{ padding: '10px', borderRadius: '6px', marginBottom: '12px', fontSize: '13px', backgroundColor: festivalBonusSaveMsg.type === 'success' ? '#ecfdf5' : '#fef2f2', color: festivalBonusSaveMsg.type === 'success' ? '#065f46' : '#991b1b' }}>
+              {festivalBonusSaveMsg.text}
+            </div>
+          )}
+          <button type="submit" style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>儲存三節獎金設定</button>
+        </form>
+      </div>
     </div>
   );
 };

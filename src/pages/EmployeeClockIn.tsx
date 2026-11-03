@@ -2049,7 +2049,10 @@ const EmployeeClockIn: React.FC = () => {
         const otherAllowance = selectedSlip.otherAllowance || 0;
         const annualLeavePayoff = selectedSlip.annualLeavePayoff || 0;
         const retroactivePay = selectedSlip.retroactivePay || 0;
-        const otherAdditionsTotal = attendanceBonus + overtime + adminBonus + otherAllowance + annualLeavePayoff + retroactivePay;
+        const festivalBonus = selectedSlip.festivalBonus || 0;
+        const otherAdditionsTotal = attendanceBonus + overtime + adminBonus + otherAllowance + annualLeavePayoff + retroactivePay + festivalBonus;
+        const slipItems: Array<{ type: string; label: string; amount: number; note?: string }> = Array.isArray(selectedSlip.items) ? selectedSlip.items : [];
+        const showDetails = selectedSlip.detailsVisibleToEmployee === true && slipItems.length > 0;
 
         const lateMinutes = selectedSlip.lateMinutes || 0;
         const lateDeduction = selectedSlip.lateDeduction || 0;
@@ -2174,6 +2177,12 @@ const EmployeeClockIn: React.FC = () => {
                           <span>上月補發</span>
                           <span>NT$ {retroactivePay.toLocaleString()}</span>
                         </div>
+                        {festivalBonus > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                            <span>三節獎金</span>
+                            <span>NT$ {festivalBonus.toLocaleString()}</span>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold', borderTop: '1px dashed #ccc', paddingTop: '4px', marginTop: '2px' }}>
                           <span>合計</span>
                           <span>NT$ {otherAdditionsTotal.toLocaleString()}</span>
@@ -2274,6 +2283,19 @@ const EmployeeClockIn: React.FC = () => {
                     <span>實發金額：NT$ {netPay.toLocaleString()}</span>
                   </div>
                 </div>
+
+                {/* 問題三：細項明細（管理員開啟後才顯示） */}
+                {showDetails && (
+                  <div style={{ borderTop: '2px solid #000', marginTop: '16px', paddingTop: '16px' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>薪資細項明細</div>
+                    {slipItems.map((it, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '13px', padding: '4px 0', borderBottom: '1px dashed #ddd', color: it.amount < 0 ? '#dc2626' : '#000' }}>
+                        <span>{it.label}{it.note ? <span style={{ fontSize: '11px', color: '#6b7280' }}>（{it.note}）</span> : null}</span>
+                        <span style={{ whiteSpace: 'nowrap' }}>{it.amount < 0 ? '-' : ''}NT$ {Math.abs(it.amount || 0).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
               </div>
 
