@@ -24,11 +24,12 @@ export const PayrollCalculator: React.FC = () => {
   const [payError, setPayError] = useState('');
   const [paySuccess, setPaySuccess] = useState('');
 
-  // 排定發佈
+  // 薄資鎖定
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleMsg, setScheduleMsg] = useState({ type: '', text: '' });
+  const [lockSaving, setLockSaving] = useState(false);
 
   // Manual payroll creation states
   const [showAddPayrollModal, setShowAddPayrollModal] = useState(false);
@@ -186,6 +187,11 @@ export const PayrollCalculator: React.FC = () => {
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
+
+        // 已鎖定的薪資單跳過，保護數據不被覆蓋
+        const existingRecordId = `${emp.id}-${monthStr}`;
+        const existingRec = payroll.find((p: any) => p.id === existingRecordId);
+        if (existingRec?.isLocked) continue;
         
         // 取得當月生效的薪資與保費設定（歷史隔離保護機制）
         const effConfig = getEffectiveSalaryConfig(emp, monthStr);
@@ -917,6 +923,16 @@ export const PayrollCalculator: React.FC = () => {
   };
 
   const handleGeneratePayroll = async () => {
+    // 鎖定防護：如果當月有任何已鎖定的薪資單，就閘止重算
+    const lockedCount = payroll.filter(r => r.month === payMonthFilter && r.isLocked).length;
+    if (lockedCount > 0) {
+      const force = window.confirm(`⚠️ ${payMonthFilter} 有 ${lockedCount} 筆薪資單已鎖定，重新計算時鎖定的人員會被跳過。
+
+如果要重算鎖定人員，請先到該員薪資單點「解鎖」。
+
+點確定跳過鎖定人員、重算其餘人員`);
+      if (!force) return;
+    }
     await runPayrollCalculation(payMonthFilter, false);
   };
 
@@ -996,6 +1012,20 @@ export const PayrollCalculator: React.FC = () => {
       });
     } catch (err) {
       console.error("Failed to toggle payroll publication:", err);
+    }
+  };
+
+  const handleToggleLock = async (id: string, currentLocked: boolean) => {
+    if (!currentLocked) {
+      if (!window.confirm('鎖定後將無法重新計算該筆薪資，確定要鎖定嗎？')) return;
+    }
+    setLockSaving(true);
+    try {
+      await updateDoc(doc(db, 'payroll', id), { isLocked: !currentLocked });
+    } catch (err) {
+      console.error('Lock toggle failed:', err);
+    } finally {
+      setLockSaving(false);
     }
   };
 
@@ -1514,6 +1544,7 @@ export const PayrollCalculator: React.FC = () => {
                   <span className={`badge badge-${record.isPublished ? 'success' : 'neutral'}`} style={{ backgroundColor: record.isPublished ? 'rgba(16,185,129,0.1)' : 'rgba(156,163,175,0.1)', color: record.isPublished ? '#10b981' : '#6b7280' }}>
                     {record.isPublished ? '已發佈' : '未發佈'}
                   </span>
+                  {record.isLocked && <span style={{ marginLeft: '4px', fontSize: '12px' }}>🔒</span>}
                 </td>
                 <td data-label="操作" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button className="btn-text" style={{ color: record.isPublished ? '#6b7280' : '#10b981', border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => handleTogglePayrollPublish(record.id, record.isPublished)}>
@@ -1524,6 +1555,15 @@ export const PayrollCalculator: React.FC = () => {
                   </button>
                   <button className="btn-text" style={{ color: 'var(--primary)', border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => handleOpenEditPayroll(record)}>
                     編輯
+                  </button>
+                  <button
+                    className="btn-text"
+                    disabled={lockSaving}
+                    style={{ color: record.isLocked ? '#f59e0b' : '#64748b', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 600 }}
+                    onClick={() => handleToggleLock(record.id, record.isLocked)}
+                    title={record.isLocked ? '解鎖後可重新計算' : '鎖定後無法重算'}
+                  >
+                    {record.isLocked ? '🔓 解鎖' : '🔒 鎖定'}
                   </button>
                   <button className="btn-text" style={{ color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => handleDeletePayroll(record.id)}>
                     刪除
