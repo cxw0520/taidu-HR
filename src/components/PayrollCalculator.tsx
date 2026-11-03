@@ -24,6 +24,12 @@ export const PayrollCalculator: React.FC = () => {
   const [payError, setPayError] = useState('');
   const [paySuccess, setPaySuccess] = useState('');
 
+  // 排定發佈
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleDateTime, setScheduleDateTime] = useState('');
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleMsg, setScheduleMsg] = useState({ type: '', text: '' });
+
   // Manual payroll creation states
   const [showAddPayrollModal, setShowAddPayrollModal] = useState(false);
   const [addPayEmployeeId, setAddPayEmployeeId] = useState('');
@@ -934,6 +940,31 @@ export const PayrollCalculator: React.FC = () => {
     }
   };
 
+  // 排定發佈 —— 將当月所有未發佈的薪資單寫入 scheduledPublishAt
+  const handleSchedulePublish = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scheduleDateTime) return;
+    setScheduleSaving(true);
+    setScheduleMsg({ type: '', text: '' });
+    try {
+      const monthStr = payMonthFilter;
+      const scheduledAt = new Date(scheduleDateTime).getTime();
+      const querySnapshot = await getDocs(
+        query(collection(db, 'payroll'), where('month', '==', monthStr))
+      );
+      let count = 0;
+      for (const d of querySnapshot.docs) {
+        if (!d.data().isPublished) {
+          await updateDoc(doc(db, 'payroll', d.id), { scheduledPublishAt: scheduledAt });
+          count++;
+        }
+      }
+      setScheduleMsg({ type: 'success', text: `已將 ${count} 筆薪資單排定於 ${new Date(scheduleDateTime).toLocaleString('zh-TW')}自動發佈，屆時有員工登入打卡頁就會自動觸發。` });
+    } catch (err) {
+      setScheduleMsg({ type: 'error', text: '排定失敗，請稍後再試' });
+    } finally { setScheduleSaving(false); }
+  };
+
   // Unpublish payroll for the month
   const handleUnpublishPayroll = async () => {
     const monthStr = payMonthFilter;
@@ -1259,6 +1290,9 @@ export const PayrollCalculator: React.FC = () => {
           </button>
           <button className="btn-primary btn-sm" onClick={handlePublishPayroll} style={{ backgroundColor: '#10b981' }}>
             📢 發佈當月薪資
+          </button>
+          <button className="btn-primary btn-sm" onClick={() => { setShowScheduleModal(true); setScheduleMsg({ type:'', text:'' }); const now = new Date(); now.setMinutes(0,0,0); setScheduleDateTime(new Date(now.getTime() + 3600000).toISOString().slice(0,16)); }} style={{ backgroundColor: '#6366f1' }}>
+            🕐 排定自動發佈
           </button>
           <button className="btn-primary btn-sm" onClick={handleUnpublishPayroll} style={{ backgroundColor: '#ef4444' }}>
             🔕 取消發佈當月薪資
@@ -2047,6 +2081,44 @@ export const PayrollCalculator: React.FC = () => {
                   style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}
                 >
                   儲存修改
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 排定自動發佈 Modal */}
+      {showScheduleModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
+          onClick={() => setShowScheduleModal(false)}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '100%', maxWidth: '420px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 6px' }}>🕐 排定自動發佈</h3>
+            <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 20px' }}>
+              設定後，當月所有<strong>未發佈</strong>的薪資單會在排定時間到達後，由任何登入員工打開打卡頁面時自動發佈。
+            </p>
+            <form onSubmit={handleSchedulePublish}>
+              <label style={{ fontSize: '13px', fontWeight: 600 }}>結算月份：<strong>{payMonthFilter}</strong></label>
+              <div style={{ marginTop: '12px', marginBottom: '16px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>預定發佈時間</label>
+                <input
+                  type="datetime-local"
+                  value={scheduleDateTime}
+                  onChange={e => setScheduleDateTime(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box' }}
+                />
+              </div>
+              {scheduleMsg.text && (
+                <div style={{ padding: '10px', borderRadius: '8px', marginBottom: '12px', fontSize: '13px', backgroundColor: scheduleMsg.type === 'success' ? '#ecfdf5' : '#fef2f2', color: scheduleMsg.type === 'success' ? '#065f46' : '#991b1b' }}>
+                  {scheduleMsg.text}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button type="button" onClick={() => setShowScheduleModal(false)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', cursor: 'pointer', fontWeight: 600 }}>取消</button>
+                <button type="submit" disabled={scheduleSaving} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                  {scheduleSaving ? '儲存中...' : '確認排定'}
                 </button>
               </div>
             </form>

@@ -46,6 +46,13 @@ service cloud.firestore {
     match /payroll/{payrollId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
       allow write: if isAdmin();
+      // 排定自動發佈：時間到了任何已登入的使用者（含員工打卡頁面）都可以將 isPublished 翻成 true
+      // 條件：1) 只改 isPublished 欄位  2) 改成 true  3) scheduledPublishAt 已到期
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isPublished'])
+        && request.resource.data.isPublished == true
+        && resource.data.scheduledPublishAt != null
+        && resource.data.scheduledPublishAt <= request.time.toMillis();
     }
 
     // ── 5. 系統設定 ──

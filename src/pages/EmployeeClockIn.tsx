@@ -4,7 +4,7 @@ import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import {
   collection, addDoc, serverTimestamp, query, where, onSnapshot,
-  doc, getDoc, updateDoc, deleteDoc
+  doc, getDoc, updateDoc, deleteDoc, getDocs
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
 import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getShiftStartEndTimes } from '../utils/taiwanHrEngine';
@@ -334,6 +334,26 @@ const EmployeeClockIn: React.FC = () => {
       setMyLeaves([]); setMyOvertimes([]); setMyPunchCorrections([]); setMyAppeals([]);
       return;
     }
+
+    // 排定自動發佈：任何登入的員工打開頁面就觸發，不需管理員
+    const runScheduledPublish = async () => {
+      try {
+        const now = Date.now();
+        const allPay = await getDocs(collection(db, 'payroll'));
+        const toPublish = allPay.docs.filter(d => {
+          const data = d.data();
+          return !data.isPublished && data.scheduledPublishAt && data.scheduledPublishAt <= now;
+        });
+        await Promise.all(toPublish.map(d => updateDoc(doc(db, 'payroll', d.id), { isPublished: true })));
+        if (toPublish.length > 0) {
+          console.log(`自動發佈 ${toPublish.length} 筆薪資單完成`);
+        }
+      } catch (e) {
+        // 非管理員可能沒有寫入權限（安全規則會擋回），靜默失敗即可
+      }
+    };
+    runScheduledPublish();
+
     const todayStr = new Date().toLocaleDateString('sv');
 
     // 出勤紀錄
