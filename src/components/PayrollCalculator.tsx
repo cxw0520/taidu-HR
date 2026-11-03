@@ -262,6 +262,7 @@ export const PayrollCalculator: React.FC = () => {
         // Calculate late counts and accumulated minutes for attendance bonus
         let lateCount = 0;
         let lateMinutesTotal = 0;
+        const lateDetails: string[] = []; // 遲到明細：每筆「日期 +N分」
 
         // Group '上班' records by date
         const allInRecordsByDate: { [date: string]: any[] } = {};
@@ -296,7 +297,11 @@ export const PayrollCalculator: React.FC = () => {
                 
                 if (isLate) {
                   lateCount++;
-                  lateMinutesTotal += Math.max(0, actualInMins - expectedStart);
+                  const mins = Math.max(0, actualInMins - expectedStart);
+                  lateMinutesTotal += mins;
+                  const dateParts = date.split('-');
+                  const shortDate = `${dateParts[1]}/${dateParts[2]}`;
+                  lateDetails.push(`${shortDate} 打卡 ${rec.time}（應 ${startTimeStr}，遲 ${mins} 分）`);
                 }
               });
             }
@@ -412,6 +417,7 @@ export const PayrollCalculator: React.FC = () => {
 
 
         // 2. Overtime calculation
+        const overtimeDetails: string[] = []; // 加班明細：每筆「日期 類型 Nh」
         empOvertimeReqs.forEach((req: any) => {
           const isActualHoliday = holidays.some(h =>
             h.movedDate ? h.movedDate === req.date : h.date === req.date
@@ -425,6 +431,7 @@ export const PayrollCalculator: React.FC = () => {
           const dayOfWeek = d.getDay();
           const otHours = roundToHalfHour(req.hours || 0);
 
+          let otDayLabel = '平日';
           if (isHourly) {
             const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === req.date);
             const shiftType = dateSched ? dateSched.shift : '';
@@ -432,12 +439,15 @@ export const PayrollCalculator: React.FC = () => {
             if (shiftType === '休假') {
               overtimePay += calculateOvertimePay(hourlyRate, otHours, 'rest');
               restDayOvertimeHours += otHours;
+              otDayLabel = '休息日';
             } else if (shiftType === '例假') {
               overtimePay += Math.round(otHours * hourlyRate * 2.0);
               holidayOvertimeHours += otHours;
+              otDayLabel = '例假日';
             } else if (isActualHoliday) {
               overtimePay += calculateOvertimePay(hourlyRate, otHours, 'regular');
               holidayOvertimeHours += otHours;
+              otDayLabel = '國定假日';
             } else {
               overtimePay += calculateOvertimePay(hourlyRate, otHours, 'regular');
               weekdayOvertimeHours += otHours;
@@ -447,21 +457,28 @@ export const PayrollCalculator: React.FC = () => {
             if (isActualHoliday) {
               dayType = 'holiday';
               holidayOvertimeHours += otHours;
+              otDayLabel = '國定假日';
             } else if (isCompensatoryWorkday) {
               dayType = 'regular';
               weekdayOvertimeHours += otHours;
+              otDayLabel = '補班日';
             } else if (dayOfWeek === 6) {
               dayType = 'rest';
               restDayOvertimeHours += otHours;
+              otDayLabel = '休息日';
             } else if (dayOfWeek === 0) {
               dayType = 'holiday';
               holidayOvertimeHours += otHours;
+              otDayLabel = '例假日';
             } else {
               dayType = 'regular';
               weekdayOvertimeHours += otHours;
             }
             overtimePay += calculateOvertimePay(hourlyRate, otHours, dayType);
           }
+          const otDateParts = req.date.split('-');
+          const otShortDate = `${otDateParts[1]}/${otDateParts[2]}`;
+          overtimeDetails.push(`${otShortDate}（${otDayLabel}）${otHours}h`);
         });
 
         if (daysWorked === 0) {
@@ -475,6 +492,7 @@ export const PayrollCalculator: React.FC = () => {
         let totalLeaveHours = 0;
         
         const empLeaves = approvedLeaves.filter(l => l.employeeId === emp.id);
+        const leaveLineItems: string[] = []; // 請假明細（含日期假別時數）
         for (const lv of empLeaves) {
           if (lv.leaveType === 'shift_adj') continue;
           const lvStart = lv.startDate || '';
@@ -500,6 +518,16 @@ export const PayrollCalculator: React.FC = () => {
           if (lv.leaveType === 'personal') totalPersonalHours += roundedMonthLeaveHours;
           else if (lv.leaveType === 'sick') totalSickHours += roundedMonthLeaveHours;
           else if (lv.leaveType === 'typhoon') totalTyphoonHours += roundedMonthLeaveHours;
+
+          // 收集請假明細
+          const leaveTypeLabel: { [k: string]: string } = { personal: '事假', sick: '病假', annual: '特休', typhoon: '颱風假', bereavement: '喪假', official: '公假' };
+          const typeLabel = leaveTypeLabel[lv.leaveType] || lv.leaveType;
+          const esParts = effectiveStart.split('-');
+          const eeDateStr = effectiveEnd.split('-');
+          const dateStr = effectiveStart === effectiveEnd
+            ? `${esParts[1]}/${esParts[2]}`
+            : `${esParts[1]}/${esParts[2]}–${eeDateStr[1]}/${eeDateStr[2]}`;
+          leaveLineItems.push(`${dateStr} ${typeLabel} ${roundedMonthLeaveHours}h`);
         }
 
         // 自動對照後台設定之颱風假 (與該員工當月排班比對)
@@ -752,7 +780,12 @@ export const PayrollCalculator: React.FC = () => {
           payrollItems.push({ type: 'deduct', label: '全勤獎金（不發放）', amount: 0, note: attendanceBonusNote });
         }
         if (otherAllowance > 0) payrollItems.push({ type: 'income', label: '其他津貼', amount: otherAllowance, note: '' });
-        if (overtimePay > 0) payrollItems.push({ type: 'income', label: '加班費', amount: overtimePay, note: `平日${weekdayOvertimeHours}h / 休息日${restDayOvertimeHours}h / 假日${holidayOvertimeHours}h` });
+        if (overtimePay > 0) {
+          const otNote = overtimeDetails.length
+            ? overtimeDetails.join('、')
+            : `平日${weekdayOvertimeHours}h / 休息日${restDayOvertimeHours}h / 假日${holidayOvertimeHours}h`;
+          payrollItems.push({ type: 'income', label: '加班費', amount: overtimePay, note: otNote });
+        }
         if (annualLeavePayoff > 0) payrollItems.push({ type: 'income', label: '特休結清', amount: annualLeavePayoff, note: '' });
 
         // 三節獎金（問題四）
@@ -785,16 +818,18 @@ export const PayrollCalculator: React.FC = () => {
         // 扣款細項
         const nonTyphoonLeaveDeduction = leaveDeduction - typhoonDeduction;
         if (nonTyphoonLeaveDeduction > 0) {
-          const leaveNote = [
-            personalLeaveDays > 0 ? `事假${personalLeaveDays}天` : '',
-            sickLeaveDays > 0 ? `病假${sickLeaveDays}天(半薪)` : ''
-          ].filter(Boolean).join('；');
+          const leaveNote = leaveLineItems.filter(l => !l.includes('颱風假')).join('、') ||
+            [personalLeaveDays > 0 ? `事假${personalLeaveDays}天` : '', sickLeaveDays > 0 ? `病假${sickLeaveDays}天(半薪)` : ''].filter(Boolean).join('；');
           payrollItems.push({ type: 'deduct', label: '請假扣薪', amount: -nonTyphoonLeaveDeduction, note: leaveNote });
         }
         if (typhoonDeduction > 0) {
-          payrollItems.push({ type: 'deduct', label: '颱風假（不計薪）', amount: -typhoonDeduction, note: `${typhoonLeaveDays} 天 × 日薪 $${Math.round(dailyRate).toLocaleString()}；不影響全勤` });
+          const typhoonDateNote = leaveLineItems.filter(l => l.includes('颱風假')).join('、');
+          payrollItems.push({ type: 'deduct', label: '颱風假（不計薪）', amount: -typhoonDeduction, note: `${typhoonDateNote || `${typhoonLeaveDays} 天`} × 日薪 $${Math.round(dailyRate).toLocaleString()}；不影響全勤` });
         }
-        if (lateDeduction > 0) payrollItems.push({ type: 'deduct', label: '遲到扣款', amount: -lateDeduction, note: `遲到累計 ${lateMinutesTotal} 分鐘` });
+        if (lateDeduction > 0) {
+          const lateNote = lateDetails.length ? lateDetails.join('、') : `遲到累計 ${lateMinutesTotal} 分鐘`;
+          payrollItems.push({ type: 'deduct', label: '遲到扣款', amount: -lateDeduction, note: lateNote });
+        }
         if (ins.employeeLabor > 0) payrollItems.push({ type: 'deduct', label: '勞保費（員工自付）', amount: -ins.employeeLabor, note: `勞保投保薪資 $${laborSub.toLocaleString()}` });
         if (ins.employeeNhi > 0) payrollItems.push({ type: 'deduct', label: '健保費（員工自付）', amount: -ins.employeeNhi, note: `健保投保薪資 $${nhiSub.toLocaleString()}` });
         if (typhoonLeaveDays > 0 && typhoonDeduction === 0) payrollItems.push({ type: 'info', label: '颱風假', amount: 0, note: `共 ${typhoonLeaveDays} 天颱風假（時薪依實際工時計薪），不影響全勤` });
