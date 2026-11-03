@@ -597,10 +597,23 @@ export function analyzeDayPunches(
   let baseEnd = parseTimeStrToMinutes(endTimeStr);
   if (baseEnd < baseStart) baseEnd += 24 * 60;
 
+  // 實際打卡紀錄（先統計，用於後續判斷是否降回 2 槽位）
+  const sortedAtts = [...dayAtts]
+    .filter(r => r.time)
+    .sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
+
+  const actualInCount  = sortedAtts.filter(r => r.type === '上班').length;
+  const actualOutCount = sortedAtts.filter(r => r.type === '下班').length;
+
   // 建立預期的打卡窗格
+  // 重要防呆：若班別標記為 expectsFour（有休息設定），但實際打卡只有 ≤ 2 筆，
+  // 代表員工用的是「上班→下班」的 2 槽位習慣，或班別定義有舊資料殘留，
+  // 此時強制降回 2 槽位，避免下班卡被誤標為「休息開始」。
+  const effectiveExpectsFour = expectsFour && (actualInCount + actualOutCount) > 2;
+
   const expectedSlots: { label: string; type: '上班' | '下班'; expectedMins: number }[] = [];
 
-  if (expectsFour) {
+  if (effectiveExpectsFour) {
     // 四次打卡班別：建立 4 個槽位 (上班 → 休息開始 → 休息結束 → 下班)
     let breakStart: number;
     let breakEnd: number;
@@ -629,11 +642,6 @@ export function analyzeDayPunches(
     expectedSlots.push({ label: '上班', type: '上班', expectedMins: baseStart });
     expectedSlots.push({ label: '下班', type: '下班', expectedMins: baseEnd });
   }
-
-  // 依打卡時間排序
-  const sortedAtts = [...dayAtts]
-    .filter(r => r.time)
-    .sort((a, b) => parseTimeStrToMinutes(a.time) - parseTimeStrToMinutes(b.time));
 
   // 為每個窗格找最接近且尚未被使用的打卡紀錄
   const usedIds = new Set<string>();
@@ -701,7 +709,7 @@ export function analyzeDayPunches(
   let isLate = false;
   let isEarly = false;
 
-  if (expectsFour) {
+  if (effectiveExpectsFour) {
     // 4槽位模式：先嘗試計算兩段
     const slot0 = slots[0]; // 上班
     const slot1 = slots[1]; // 休息開始（下班）
