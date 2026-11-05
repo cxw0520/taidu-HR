@@ -543,12 +543,12 @@ export function evaluatePunchesStatus(
 }
 
 /**
- * 薪資計算工時最小單位：半小時 (0.5 小時) 結算
- * 例：7.2 小時 -> 7.0 小時，7.7 小時 -> 7.5 小時，0.4 小時 -> 0 小時
+ * 薪資計算工時最小單位：半小時 (0.5 小時) 結算（四捨五入）
+ * 例：7.2 小時 -> 7.0 小時，7.75 小時 -> 8.0 小時，0.25 小時 -> 0.5 小時
  */
 export function roundToHalfHour(hours: number): number {
   if (!hours || hours <= 0) return 0;
-  return Math.floor(hours * 2) / 2;
+  return Math.round(hours * 2) / 2;
 }
 
 
@@ -1256,7 +1256,10 @@ export function getEffectiveSalaryConfig(
   evaluationAllowance: number;
 } {
   const currentSalaryType: 'monthly' | 'hourly' = emp.salaryType || 'monthly';
-  const defaultMonthlySalary = emp.monthlySalary || 32000;
+  if (!emp.monthlySalary) {
+    console.error(`[taiwanHrEngine] 員工 ${emp.id} (${emp.name}) 未設定月薪，以法定最低工資 29500 計算，請儘速補正。`);
+  }
+  const defaultMonthlySalary = emp.monthlySalary || 29500;
   const defaultLaborSub = emp.laborSub === 0 ? 0 : (emp.laborSub || (currentSalaryType === 'hourly' ? 11100 : 29500));
   const defaultNhiSub = emp.nhiSub === 0 ? 0 : (emp.nhiSub || 29500);
   const defaultPensionSub = emp.pensionSub === 0 ? 0 : (emp.pensionSub || (currentSalaryType === 'hourly' ? 11100 : 29500));
@@ -1289,7 +1292,7 @@ export function getEffectiveSalaryConfig(
     const tMonth = emp.transitionDate.substring(0, 7);
     if (targetYearMonth < tMonth || (targetDate && targetDate < emp.transitionDate)) {
       const prevSalType = emp.previousSalaryType || 'hourly';
-      const prevSal = emp.previousMonthlySalary || (prevSalType === 'hourly' ? 190 : defaultMonthlySalary);
+      const prevSal = emp.previousMonthlySalary || (prevSalType === 'hourly' ? 196 : defaultMonthlySalary);
       return {
         salaryType: prevSalType,
         monthlySalary: prevSal,

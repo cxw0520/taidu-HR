@@ -18,7 +18,6 @@ service cloud.firestore {
       );
     }
 
-
     function isOwner(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
@@ -32,7 +31,18 @@ service cloud.firestore {
     // ── 2. 出勤打卡紀錄 ──
     match /attendance/{attendanceId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
+      // 建立時要求：
+      //   1. timestamp 欄位必須使用伺服器時間（防止偽造打卡時間）
+      //   2. 只允許特定欄位（防止注入額外欄位）
+      allow create: if isAdmin() || (
+        isSignedIn() &&
+        request.resource.data.employeeId == request.auth.uid &&
+        request.resource.data.timestamp == request.time &&
+        request.resource.data.keys().hasOnly([
+          'empName', 'employeeId', 'date', 'time', 'type',
+          'coords', 'timestamp', 'status', 'scheduleId'
+        ])
+      );
       allow update, delete: if isAdmin();
     }
 
@@ -65,21 +75,40 @@ service cloud.firestore {
     match /leaves/{leaveId} {
       // 管理員可讀全部；員工只能讀自己的
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      // 員工與管理員皆能新增
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
-      // 員工只能撤銷（更新 status）自己且狀態為 pending 的假單；管理員可修改所有
+      // 建立時強制 status == 'pending'（防止員工建立已審核的假單）
+      allow create: if isAdmin() ||
+        (isSignedIn() &&
+         request.resource.data.employeeId == request.auth.uid &&
+         request.resource.data.status == 'pending');
+      // 員工可：
+      //   a) 撤銷（status: pending → cancelled）
+      //   b) 修改待審假單的日期/時數/原因/假別（status 保持 pending）
       allow update: if isAdmin() ||
         (isSignedIn() &&
          resource.data.employeeId == request.auth.uid &&
          resource.data.status == 'pending' &&
-         request.resource.data.status == 'cancelled');
+         (
+           // 撤銷
+           (request.resource.data.status == 'cancelled' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+           // 修改內容，status 維持 pending
+           (request.resource.data.status == 'pending' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'date', 'hours', 'reason', 'type', 'startDate', 'endDate'
+            ]))
+         )
+        );
       allow delete: if isAdmin();
     }
 
     // ── 7. 加班申請 ──
     match /overtime_requests/{otId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
+      // 建立時強制 status == 'pending'
+      allow create: if isAdmin() ||
+        (isSignedIn() &&
+         request.resource.data.employeeId == request.auth.uid &&
+         request.resource.data.status == 'pending');
       allow update: if isAdmin() ||
         (isSignedIn() &&
          resource.data.employeeId == request.auth.uid &&
@@ -91,14 +120,22 @@ service cloud.firestore {
     // ── 8. 補卡申請 ──
     match /punch_corrections/{pcId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
+      // 建立時強制 status == 'pending'
+      allow create: if isAdmin() ||
+        (isSignedIn() &&
+         request.resource.data.employeeId == request.auth.uid &&
+         request.resource.data.status == 'pending');
       allow update, delete: if isAdmin();
     }
 
     // ── 9. 打卡異常申訴 ──
     match /attendance_appeals/{apId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.employeeId == request.auth.uid);
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.employeeId == request.auth.uid);
+      // 建立時強制 status == 'pending'
+      allow create: if isAdmin() ||
+        (isSignedIn() &&
+         request.resource.data.employeeId == request.auth.uid &&
+         request.resource.data.status == 'pending');
       allow update, delete: if isAdmin();
     }
   }

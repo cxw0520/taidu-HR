@@ -187,7 +187,6 @@ export const PayrollCalculator: React.FC = () => {
       const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig, getShiftStartEndTimes, roundToHalfHour, calculateTyphoonLeaveHours, analyzeDayPunches, calculateWorkedHoursInRange, getWeeklyRestDayType } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
-        const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
 
         // 已鎖定的薪資單跳過，保護數據不被覆蓋
         const existingRecordId = `${emp.id}-${monthStr}`;
@@ -250,13 +249,6 @@ export const PayrollCalculator: React.FC = () => {
         const roleAllowance = effConfig.roleAllowance;
         const evaluationAllowance = effConfig.evaluationAllowance;
 
-        if (isMock) {
-          if (emp.role && emp.role.includes('工程師')) {
-            monthlySalary = 45000; laborSub = 45800; nhiSub = 45800; pensionSub = 45800;
-          } else if (emp.role && emp.role.includes('設計師')) {
-            monthlySalary = 38000; laborSub = 38200; nhiSub = 38200; pensionSub = 38200;
-          }
-        }
 
         const isHourly = salaryType === 'hourly';
         
@@ -354,7 +346,7 @@ export const PayrollCalculator: React.FC = () => {
           const proRatedMonthlySalary = Math.round(monthlySalary * fullTimeDays / daysInMonth);
           calculatedBaseSalary += proRatedMonthlySalary;
 
-          const prevHourlyRate = emp.previousMonthlySalary || 190;
+          const prevHourlyRate = emp.previousMonthlySalary || 196;
           transitionNote = `【破月轉正職】${transDay}日生效正職 (${fullTimeDays}天=$${proRatedMonthlySalary.toLocaleString()})，工讀期間時薪 $${prevHourlyRate}`;
         } else if (!isHourly) {
           if (!fullMonthSalary || isResignMonth) {
@@ -422,7 +414,7 @@ export const PayrollCalculator: React.FC = () => {
               const isActualHolidayDateForHourly = holidays.some(h => h.date === date);
               const isCompensatoryWorkdayDate = holidays.some(h => h.workdayDate === date);
               const regHours = Math.min(hours, 8);
-              const effHourlyRate = isTransitionMonth ? (emp.previousMonthlySalary || 190) : hourlyRate;
+              const effHourlyRate = isTransitionMonth ? (emp.previousMonthlySalary || 196) : hourlyRate;
               // 補班日視同平日，不給節日雙薪；正常放假日才給
               if (!isCompensatoryWorkdayDate) {
                 calculatedBaseSalary += regHours * effHourlyRate;
@@ -584,7 +576,7 @@ export const PayrollCalculator: React.FC = () => {
         const typhoonLeaveDays = Math.round((totalTyphoonHours / 8) * 100) / 100;
 
         if (sickLeaveDays > 0 && attendanceBonus > 0) {
-          const sickBonusDeduction = Math.min(attendanceBonus, Math.round(sickLeaveDays * ((emp.attendanceBonus || 0) / 30)));
+          const sickBonusDeduction = Math.min(attendanceBonus, Math.round(sickLeaveDays * ((effConfig.attendanceBonus || 0) / 30)));
           attendanceBonus -= sickBonusDeduction;
           if (sickBonusDeduction > 0) {
             attendanceBonusNote = attendanceBonusNote
@@ -678,11 +670,6 @@ export const PayrollCalculator: React.FC = () => {
           insuranceRates
         );
 
-        console.log(`[Diagnostic] Employee: ${emp.name} | Month: ${monthStr} | Onboard: ${onboardDateStr} | Resign: ${resignDateStr} | Status: ${emp.status} | NHI Self: ${ins.employeeNhi} | NHI Employer: ${ins.employerNhi} | Labor Days: ${ins.laborDays}`);
-
-        if (emp.name.includes('吳雅君')) {
-          alert(`[診斷彈窗] 吳雅君計算中:\n- 到職日 (onboard): ${onboardDateStr}\n- 離職日 (resign): ${resignDateStr}\n- 結算月份 (month): ${monthStr}\n- 健保投保額 (nhiSub): ${nhiSub}\n- 健保自付 (employeeNhi): ${ins.employeeNhi}\n- 健保雇主 (employerNhi): ${ins.employerNhi}\n- 勞保天數 (laborDays): ${ins.laborDays}`);
-        }
 
         // 問題四：三節獎金自動計入 items[]
         // 從系統設定讀取三節獎金設定
