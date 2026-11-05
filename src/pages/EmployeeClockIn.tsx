@@ -339,7 +339,11 @@ const EmployeeClockIn: React.FC = () => {
     const runScheduledPublish = async () => {
       try {
         const now = Date.now();
-        const allPay = await getDocs(collection(db, 'payroll'));
+        const payQ = query(
+          collection(db, 'payroll'),
+          where('employeeId', '==', user?.uid)
+        );
+        const allPay = await getDocs(payQ);
         const toPublish = allPay.docs.filter(d => {
           const data = d.data();
           return !data.isPublished && data.scheduledPublishAt && data.scheduledPublishAt <= now;
