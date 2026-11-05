@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useAdminData } from '../context/AdminDataContext';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { getDocs, query, collection, where, deleteDoc, setDoc, doc as fsDoc } from 'firebase/firestore';
 import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 
 // 台灣勞動申報級距
 const LABOR_GRADES_MONTHLY = [29500, 30300, 31800, 33300, 34800, 36300, 38200, 40100, 42000, 43900, 45800];
@@ -235,6 +235,8 @@ const EmployeeManager: React.FC = () => {
   // Edit Employee Form States
   const [showEditEmployeeModal, setShowEditEmployeeModal] = useState(false);
   const [editEmployeeId, setEditEmployeeId] = useState('');
+  const [editEmpEmail, setEditEmpEmail] = useState('');
+  const [sendingReset, setSendingReset] = useState(false);
   const [editEmpName, setEditEmpName] = useState('');
   const [editEmpRole, setEditEmpRole] = useState('');
   const [editEmpStatus, setEditEmpStatus] = useState('active');
@@ -494,6 +496,7 @@ const EmployeeManager: React.FC = () => {
       return;
     }
     setEditEmployeeId(emp.id);
+    setEditEmpEmail(emp.email || '');
     setEditEmpName(emp.name || '');
     setEditEmpRole(emp.role || roles[0]);
     setEditEmpStatus(emp.status || 'active');
@@ -527,6 +530,24 @@ const EmployeeManager: React.FC = () => {
     setEditBirthDate(emp.birthDate || '');
     setEditFullMonthSalary(emp.fullMonthSalary !== false);
     setShowEditEmployeeModal(true);
+  };
+
+  const handleSendPasswordReset = async () => {
+    if (!editEmpEmail) {
+      alert('此員工沒有登入信箱，無法重設密碼。');
+      return;
+    }
+    if (!window.confirm(`確定要寄送密碼重設信到 ${editEmpEmail} 嗎？員工點信中連結即可自行設定新密碼。`)) return;
+    setSendingReset(true);
+    try {
+      await sendPasswordResetEmail(auth, editEmpEmail);
+      alert(`✅ 已寄出密碼重設信至 ${editEmpEmail}`);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.code === 'auth/user-not-found' ? '找不到此信箱對應的登入帳號' : '寄送失敗：' + (err.message || '請稍後再試'));
+    } finally {
+      setSendingReset(false);
+    }
   };
 
   const handleUpdateEmployeeSubmit = async (e: React.FormEvent) => {
@@ -999,6 +1020,12 @@ const EmployeeManager: React.FC = () => {
           <div className="glass-card" style={{ width: '90%', maxWidth: '450px', padding: '32px', borderRadius: '16px', backgroundColor: '#ffffff', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ marginBottom: '20px', color: 'var(--primary)', fontSize: '20px', fontWeight: '700' }}>編輯員工資訊</h3>
             <form onSubmit={handleUpdateEmployeeSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px', borderRadius: '8px', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb' }}>
+                <label style={{ fontSize: '13px', fontWeight: '600' }}>登入信箱：{editEmpEmail || '（無）'}</label>
+                <button type="button" disabled={sendingReset || !editEmpEmail} onClick={handleSendPasswordReset} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
+                  {sendingReset ? '寄送中...' : '🔑 寄送密碼重設信'}
+                </button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', fontWeight: '600' }}>姓名</label>
                 <input type="text" required value={editEmpName} onChange={(e) => setEditEmpName(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' }} />
