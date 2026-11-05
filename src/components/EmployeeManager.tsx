@@ -5,6 +5,9 @@ import { getDocs, query, collection, where, deleteDoc, setDoc, doc as fsDoc } fr
 import { getApps, initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 
+// 2026 台灣法定最低時薪
+const MIN_HOURLY_WAGE = 196;
+
 // 台灣勞動申報級距
 const LABOR_GRADES_MONTHLY = [29500, 30300, 31800, 33300, 34800, 36300, 38200, 40100, 42000, 43900, 45800];
 const LABOR_GRADES_HOURLY = [
@@ -63,7 +66,7 @@ const EmployeeManager: React.FC = () => {
   const [restoreName, setRestoreName] = useState('');
   const [restoreEmail, setRestoreEmail] = useState('');
   const [restoreSalaryType, setRestoreSalaryType] = useState<'monthly' | 'hourly'>('hourly');
-  const [restoreSalary, setRestoreSalary] = useState<number>(190);
+  const [restoreSalary, setRestoreSalary] = useState<number>(MIN_HOURLY_WAGE);
   const [restoreRole, setRestoreRole] = useState<string>(roles[0] || '員工');
 
   // 掃描出勤、薪資單與班表紀錄，尋找「有歷史紀錄但人員列表中被刪除」的被刪除帳號
@@ -140,7 +143,7 @@ const EmployeeManager: React.FC = () => {
     }
 
     setRestoreSalaryType('hourly');
-    setRestoreSalary(190);
+    setRestoreSalary(MIN_HOURLY_WAGE);
     setRestoreRole(roles[0] || '員工');
     setShowRestoreModal(true);
   };
@@ -316,7 +319,7 @@ const EmployeeManager: React.FC = () => {
       const oldRecord = {
         effectiveDate: onboardDate,
         salaryType: 'hourly',
-        monthlySalary: transitionEmp.monthlySalary || 190,
+        monthlySalary: transitionEmp.monthlySalary || MIN_HOURLY_WAGE,
         laborSub: transitionEmp.laborSub || 11100,
         nhiSub: transitionEmp.nhiSub || 29500,
         pensionSub: transitionEmp.pensionSub || 11100,
@@ -356,7 +359,7 @@ const EmployeeManager: React.FC = () => {
         otherAllowance: Number(transOtherAllowance),
         transitionDate: transEffectiveDate,
         previousSalaryType: 'hourly',
-        previousMonthlySalary: transitionEmp.monthlySalary || 190,
+        previousMonthlySalary: transitionEmp.monthlySalary || MIN_HOURLY_WAGE,
         salaryTypeHistory: updatedHistory
       });
 
@@ -1282,7 +1285,7 @@ const EmployeeManager: React.FC = () => {
             </div>
 
             <div style={{ backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#065f46' }}>
-              💡 <b>歷史薪資隔離保護：</b> 設定轉正職生效日後，過往歷史月份（生效日之前）重算或檢視薪資時，系統會自動選用原工讀時薪（<b>NT$ {transitionEmp.monthlySalary || 190} /時</b>），完全不會影響過去已算好的薪資！
+              💡 <b>歷史薪資隔離保護：</b> 設定轉正職生效日後，過往歷史月份（生效日之前）重算或檢視薪資時，系統會自動選用原工讀時薪（<b>NT$ {transitionEmp.monthlySalary || MIN_HOURLY_WAGE} /時</b>），完全不會影響過去已算好的薪資！
             </div>
 
             <form onSubmit={handleTransitionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1477,7 +1480,7 @@ const EmployeeManager: React.FC = () => {
                     onChange={(e) => {
                       const val = e.target.value as 'monthly' | 'hourly';
                       setRestoreSalaryType(val);
-                      setRestoreSalary(val === 'hourly' ? 190 : 33000);
+                      setRestoreSalary(val === 'hourly' ? MIN_HOURLY_WAGE : 33000);
                     }}
                     style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: '#fff' }}
                   >
