@@ -3,7 +3,7 @@ import { useAdminData } from '../context/AdminDataContext';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
-import { isOffShift, getMonthlyExpectedHours, getWeeklyRestDayType } from '../utils/taiwanHrEngine';
+import { isOffShift, getMonthlyExpectedHours, getWeeklyRestDayType, getShiftStartEndTimes, getShiftDisplayColor } from '../utils/taiwanHrEngine';
 import WeeklyStationBoard from './WeeklyStationBoard';
 
 // 寫入班表更新通知
@@ -41,6 +41,7 @@ const Scheduler: React.FC = () => {
   const [calendarEmpFilter, setCalendarEmpFilter] = useState<string>('all');
   const [calendarHideOff, setCalendarHideOff] = useState<boolean>(false);
   const [calendarCompactMode, setCalendarCompactMode] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<'calendar' | 'matrix'>('calendar');
 
   // 篩選出在該月份屬於「在職」的員工（即已入職且未在該月前離職）
   const activeEmployees = useMemo(() => {
@@ -476,6 +477,20 @@ const Scheduler: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>檢視模式：</span>
+            <button
+              type="button"
+              onClick={() => setViewMode('calendar')}
+              style={{ padding: '4px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'calendar' ? 'var(--primary)' : 'var(--border)'}`, backgroundColor: viewMode === 'calendar' ? 'rgba(79, 70, 229, 0.1)' : '#fff', color: viewMode === 'calendar' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: '600', fontSize: '13px', cursor: 'pointer' }}
+            >📅 月曆檢視</button>
+            <button
+              type="button"
+              onClick={() => setViewMode('matrix')}
+              style={{ padding: '4px 10px', borderRadius: '6px', border: `1px solid ${viewMode === 'matrix' ? 'var(--primary)' : 'var(--border)'}`, backgroundColor: viewMode === 'matrix' ? 'rgba(79, 70, 229, 0.1)' : '#fff', color: viewMode === 'matrix' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: '600', fontSize: '13px', cursor: 'pointer' }}
+            >🔲 矩陣檢視</button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>員工篩選：</span>
             <select
               value={calendarEmpFilter}
@@ -590,7 +605,72 @@ const Scheduler: React.FC = () => {
 
       {/* 2. 日曆主體 */}
       <div className="calendar-stats-container" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <div className="card" style={{ padding: '16px', overflowX: 'auto' }}>
+        {/* 矩陣檢視：員工 × 日期，格子依班別顏色標示 */}
+        <div className="card" style={{ padding: '16px', overflowX: 'auto', display: viewMode === 'matrix' ? 'block' : 'none' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+            💡 提示：點擊格子可為該員工新增該日排班；點擊已有排班的格子可編輯或刪除。
+          </div>
+          <table style={{ borderCollapse: 'collapse', fontSize: '12px', whiteSpace: 'nowrap' }}>
+            <thead>
+              <tr>
+                <th style={{ position: 'sticky', left: 0, zIndex: 2, backgroundColor: '#f9fafb', padding: '8px 12px', textAlign: 'left', border: '1px solid var(--border)', minWidth: '110px' }}>員工</th>
+                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
+                  const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                  const dow = new Date(viewYear, viewMonth - 1, d).getDay();
+                  const isHoliday = holidays.some((h: any) => (h.movedDate || h.date) === dateStr);
+                  const headerBg = isHoliday ? '#fee2e2' : dow === 0 ? '#fff5f5' : dow === 6 ? '#eff6ff' : '#f9fafb';
+                  const headerColor = isHoliday ? '#ef4444' : dow === 0 ? '#ef4444' : dow === 6 ? '#2563eb' : 'var(--text-main)';
+                  return (
+                    <th key={d} style={{ padding: '6px 4px', textAlign: 'center', border: '1px solid var(--border)', backgroundColor: headerBg, color: headerColor, minWidth: '46px' }}>
+                      <div>{d}</div>
+                      <div style={{ fontSize: '10px', fontWeight: 400 }}>{['日', '一', '二', '三', '四', '五', '六'][dow]}</div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {(calendarEmpFilter === 'all' ? activeEmployees : activeEmployees.filter(e => e.id === calendarEmpFilter)).map(emp => (
+                <tr key={emp.id}>
+                  <td style={{ position: 'sticky', left: 0, zIndex: 1, backgroundColor: '#fff', fontWeight: 600, padding: '8px 12px', border: '1px solid var(--border)' }}>{emp.name}</td>
+                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
+                    const dateStr = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const sched = schedules.find((s: any) => s.employeeId === emp.id && s.date === dateStr);
+                    if (!sched) {
+                      return (
+                        <td
+                          key={d}
+                          onClick={() => { setSchedEmployeeId(emp.id); setSchedDate(dateStr); setShowScheduleModal(true); }}
+                          style={{ padding: '4px', textAlign: 'center', border: '1px solid var(--border)', cursor: 'pointer', color: '#d1d5db' }}
+                          title={`${emp.name} · ${dateStr} · 點擊新增排班`}
+                        >
+                          +
+                        </td>
+                      );
+                    }
+                    const { shiftDef } = getShiftStartEndTimes(sched, shifts);
+                    const { bg, text } = getShiftDisplayColor(sched.shift, shiftDef);
+                    const shortLabel = sched.shift === '休假' ? '休' : sched.shift === '例假' ? '例' : sched.shift === '國定假日' ? '國' : (sched.shift || '').split('(')[0].trim();
+                    return (
+                      <td
+                        key={d}
+                        onClick={() => handleOpenEditSchedule(sched)}
+                        style={{ padding: '4px', textAlign: 'center', border: '1px solid var(--border)', cursor: 'pointer' }}
+                        title={`${emp.name} · ${dateStr} · ${sched.shift}`}
+                      >
+                        <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, backgroundColor: bg, color: text, maxWidth: '58px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {shortLabel}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="card" style={{ padding: '16px', overflowX: 'auto', display: viewMode === 'calendar' ? 'block' : 'none' }}>
           <div style={{ minWidth: '800px' }}>
             {/* 星期標頭 */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', marginBottom: '8px', textAlign: 'center', fontWeight: '700', fontSize: '14px' }}>

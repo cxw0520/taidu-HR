@@ -384,6 +384,49 @@ export function isOffShift(shiftName: string): boolean {
   return cleanName === '例假' || cleanName === '休假' || cleanName === '國定假日' || cleanName === '排休' || cleanName === '公休';
 }
 
+// 排休類班別固定配色（不透過班別設定管理，直接給一組好辨識的顏色）
+const OFF_SHIFT_COLORS: { [name: string]: string } = {
+  '例假': '#ef4444',
+  '休假': '#9ca3af',
+  '國定假日': '#f59e0b',
+  '排休': '#9ca3af',
+  '公休': '#9ca3af'
+};
+
+// 班別未自訂顏色時的預設色盤，依名稱做穩定雜湊，確保同一班別每次顏色一致
+const DEFAULT_SHIFT_PALETTE = ['#4f46e5', '#0ea5e9', '#10b981', '#8b5cf6', '#f97316', '#14b8a6', '#ec4899', '#64748b'];
+
+function getContrastTextColor(hexColor: string): string {
+  const hex = (hexColor || '').replace('#', '');
+  if (hex.length !== 6) return '#1f2937';
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? '#1f2937' : '#ffffff';
+}
+
+/**
+ * 依班別（排班字串 + 比對到的班別定義）取得顯示用配色，供班表矩陣/日曆等畫面統一使用：
+ * 1. 例假/休假/國定假日等排休類別固定配色
+ * 2. 一般班別優先使用管理員在「班別時間設定」裡自訂的 color
+ * 3. 都沒有時依班別名稱做穩定雜湊，從預設色盤挑一色，至少視覺上可互相區分
+ */
+export function getShiftDisplayColor(shiftRaw: string, shiftDef: any): { bg: string; text: string } {
+  const name = (shiftRaw || '').split('(')[0].trim();
+  if (OFF_SHIFT_COLORS[name]) {
+    const bg = OFF_SHIFT_COLORS[name];
+    return { bg, text: getContrastTextColor(bg) };
+  }
+  if (shiftDef?.color) {
+    return { bg: shiftDef.color, text: getContrastTextColor(shiftDef.color) };
+  }
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  const bg = DEFAULT_SHIFT_PALETTE[hash % DEFAULT_SHIFT_PALETTE.length];
+  return { bg, text: getContrastTextColor(bg) };
+}
+
 /**
  * 羅布斯（Robust）時間字串解析器
  * 支援 24小時制 (e.g. "17:30")、中文12小時制 (e.g. "下午05:30", "上午09:00")、英文AM/PM (e.g. "05:30 PM")
