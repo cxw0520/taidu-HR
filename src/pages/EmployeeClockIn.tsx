@@ -7,7 +7,7 @@ import {
   doc, getDoc, updateDoc, deleteDoc, getDocs
 } from 'firebase/firestore';
 import './EmployeeClockIn.css';
-import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getShiftStartEndTimes } from '../utils/taiwanHrEngine';
+import { isOffShift, evaluatePunchesStatus, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getShiftStartEndTimes, calculateWorkedHoursInRange } from '../utils/taiwanHrEngine';
 
 const LEAVE_TYPES = [
   { value: 'sick',        label: '病假 (半薪)',  yearlyDays: 30 },
@@ -427,97 +427,9 @@ const EmployeeClockIn: React.FC = () => {
   const specialLeavePeriods = useMemo(() => {
     if (!employeeProfile?.onboardDate) return [];
 
-    const attByDate: { [date: string]: any[] } = {};
-    allAttendance.forEach((rec: any) => {
-      if (!rec.date) return;
-      if (!attByDate[rec.date]) attByDate[rec.date] = [];
-      attByDate[rec.date].push(rec);
-    });
-
-    const getWorkedHours = (startDateStr: string, endDateStr: string): number => {
-      let totalHours = 0;
-      let curr = new Date(startDateStr);
-      const end = new Date(endDateStr);
-      while (curr <= end) {
-        const dateStr = curr.toLocaleDateString('sv');
-        const dayAtt = attByDate[dateStr] || [];
-        if (dayAtt.length > 0) {
-          const sorted = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
-          const sched = mySchedules.find(s => s.date === dateStr);
-          let shiftDef: any = null;
-          if (sched) {
-            const shiftName = (sched.shift || '').split('(')[0].trim();
-            shiftDef = shiftsList.find(s => s.name === shiftName);
-          }
-
-          let dayHours = 0;
-          let punchPairsCount = 0;
-          let idx = 0;
-          while (idx < sorted.length) {
-            if (sorted[idx].type === '上班') {
-              let nextOut = null;
-              let nextOutIdx = -1;
-              for (let j = idx + 1; j < sorted.length; j++) {
-                if (sorted[j].type === '下班') {
-                  nextOut = sorted[j];
-                  nextOutIdx = j;
-                  break;
-                }
-              }
-              if (nextOut) {
-                const inMins = parseTimeStrToMinutes(sorted[idx].time || '');
-                let outMins = parseTimeStrToMinutes(nextOut.time || '');
-                if (outMins < inMins) outMins += 24 * 60;
-                
-                let effectiveIn = inMins;
-                let effectiveOut = outMins;
-                if (sched) {
-                  const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
-                  if (timeMatch) {
-                    let startTimeStr = timeMatch[1];
-                    let endTimeStr = timeMatch[2];
-
-                    // 依核准的「班別調整」請假單調整班表時間
-                    const dayLeaves = myLeaves.filter(l => l.startDate <= dateStr && l.endDate >= dateStr);
-                    const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
-
-                    const expectedInMins = parseTimeStrToMinutes(adjustedStart);
-                    let expectedOutMins = parseTimeStrToMinutes(adjustedEnd);
-                    if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
-
-                    effectiveIn = inMins <= expectedInMins ? expectedInMins : inMins;
-                    effectiveOut = outMins >= expectedOutMins ? expectedOutMins : outMins;
-                  }
-                }
-
-                dayHours += Math.max(0, (effectiveOut - effectiveIn) / 60);
-                punchPairsCount++;
-                idx = nextOutIdx + 1;
-              } else {
-                idx++;
-              }
-            } else {
-              idx++;
-            }
-          }
-
-          if (dayHours > 0 && punchPairsCount === 1 && shiftDef) {
-            if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
-              const bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
-              let bEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
-              if (bEnd < bStart) bEnd += 24 * 60;
-              const overlap = Math.max(0, bEnd - bStart);
-              dayHours = Math.max(0, dayHours - (overlap / 60));
-            } else if (shiftDef.breakDuration > 0) {
-              dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
-            }
-          }
-          totalHours += Math.round(dayHours * 10) / 10;
-        }
-        curr.setDate(curr.getDate() + 1);
-      }
-      return Math.round(totalHours * 10) / 10;
-    };
+    // 使用共用引擎計算，避免與 PayrollCalculator 的同名邏輯各自實作而分歧
+    const getWorkedHours = (startDateStr: string, endDateStr: string): number =>
+      calculateWorkedHoursInRange(startDateStr, endDateStr, allAttendance, mySchedules, shiftsList, myLeaves);
 
     const approvedAnnualLeaves = myLeaves
       .filter(l => l.leaveType === 'annual' && l.status === 'approved')
@@ -717,7 +629,7 @@ const EmployeeClockIn: React.FC = () => {
           const { getDocs, query: fQuery, collection: fCol, where: fWhere } = await import('firebase/firestore');
           const schedSnap = await getDocs(fQuery(fCol(db, 'schedules'), fWhere('employeeId', '==', auth.currentUser?.uid || '')));
           const activeSchedules = schedSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-          const { assignClockToWorkDate, getAdjustedShiftTimes } = await import('../utils/taiwanHrEngine');
+          const { assignClockToWorkDate, getAdjustedShiftTimes, getShiftStartEndTimes } = await import('../utils/taiwanHrEngine');
           const now = new Date();
           const matchResult = assignClockToWorkDate(now, type === 'in', activeSchedules, toleranceMinutes / 60);
           let clockStatus = '正常';
@@ -745,10 +657,12 @@ const EmployeeClockIn: React.FC = () => {
               let   expectedOut = new Date(yr, mo - 1, dy, eh, em);
               if (expectedOut < expectedIn) expectedOut.setDate(expectedOut.getDate() + 1);
 
-              const shiftName = (matchedSched.shift || '').split('(')[0].trim();
-              const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
-              const hasFixedBreak = matchedShiftDef && matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime;
-              const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+              // 班別定義查找統一改用引擎的精確比對（避免與其他頁面對同一班表判斷出不同的 shiftDef）
+              const { shiftDef: matchedShiftDef } = getShiftStartEndTimes(matchedSched, shiftsList);
+              const hasFixedBreak = !!(matchedShiftDef && matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime);
+              // 刻意只採用「確實設定了休息時段」作為判斷依據（不採用較寬鬆的 expectsFour/isFourPunches 等旗標），
+              // 避免打卡當下把非四段班別誤判成四段，導致下班卡被誤標為「休息開始」
+              const expectsFour = !!(matchedShiftDef && ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)));
 
               const dateAtts = allAttendance.filter((r: any) => r.date === matchResult.workDate);
               const inCount = dateAtts.filter((r: any) => r.type === '上班').length;
@@ -1442,9 +1356,7 @@ const EmployeeClockIn: React.FC = () => {
                   const dow = new Date(dateStr).getDay();
                   const hasLeave  = myLeaves.some(l => l.startDate <= dateStr && l.endDate >= dateStr && l.status === 'approved');
                   
-                  const shiftName = sched ? (sched.shift || '').split('(')[0].trim() : '';
-                  const matchedShiftDef = shiftsList.find(s => s.name === shiftName);
-                  const expectsFour = matchedShiftDef ? ((matchedShiftDef.breakStartTime && matchedShiftDef.breakEndTime) || (matchedShiftDef.breakDuration > 0)) : false;
+                  const { expectsFour } = sched ? getShiftStartEndTimes(sched, shiftsList) : { expectsFour: false };
                   const hasApprovedOvertime = myOvertimes.some(ot => ot.date === dateStr && ot.status === 'approved');
                   const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
 

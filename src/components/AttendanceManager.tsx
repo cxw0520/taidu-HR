@@ -43,7 +43,7 @@ const AttendanceManager: React.FC = () => {
       setViewMonth(1);
       setViewYear(prev => prev + 1);
     } else {
-      setViewMonth(prev => prev - 1);
+      setViewMonth(prev => prev + 1);
     }
   };
 
@@ -54,7 +54,7 @@ const AttendanceManager: React.FC = () => {
   // add manual attendance modal
   const [showAddAttendanceModal, setShowAddAttendanceModal] = useState(false);
   const [addAttEmployeeId, setAddAttEmployeeId] = useState('');
-  const [addAttDate, setAddAttDate] = useState(new Date().toISOString().substring(0, 10));
+  const [addAttDate, setAddAttDate] = useState(new Date().toLocaleDateString('sv'));
   const [addAttTime, setAddAttTime] = useState('09:00');
   const [addAttType, setAddAttType] = useState('上班');
   const [addAttStatus, setAddAttStatus] = useState('正常');
@@ -240,12 +240,13 @@ const AttendanceManager: React.FC = () => {
       const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
 
 
-      // 依核准的「班別調整」假單調整當天班表起迄時間 (kept for future use)
+      // 依核准的「班別調整」假單調整當天班表起迄時間
       const approvedShiftAdjLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
-      getAdjustedShiftTimes(rawStart, rawEnd, approvedShiftAdjLeaves); // no-op - used for leave adjustment context
+      const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(rawStart, rawEnd, approvedShiftAdjLeaves);
+      const adjustedSched = { ...sched, startTime: adjustedStart, endTime: adjustedEnd };
 
-      // Slot-based analysis for the day
-      const dayAnalysis = dayAtt.length > 0 ? analyzeDayPunches(dayAtt, sched, shifts) : null;
+      // Slot-based analysis for the day（使用調整後的班表時間）
+      const dayAnalysis = dayAtt.length > 0 ? analyzeDayPunches(dayAtt, adjustedSched, shifts) : null;
 
       let types: string[] = [];
       let msg = '';

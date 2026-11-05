@@ -14,12 +14,13 @@ export const PayrollCalculator: React.FC = () => {
   } = useAdminData();
 
   // Local states for calculation and UI
-  const [payMonthFilter, setPayMonthFilter] = useState<string>(
-    new Date().toISOString().substring(0, 7)
-  );
-  const [viewPayMonth, setViewPayMonth] = useState<string>(
-    new Date().toISOString().substring(0, 7)
-  );
+  // 用本地（台灣）時間取得預設月份，避免 toISOString()（UTC）在凌晨 0-8 點誤回上個月
+  const getLocalMonthStr = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const [payMonthFilter, setPayMonthFilter] = useState<string>(getLocalMonthStr());
+  const [viewPayMonth, setViewPayMonth] = useState<string>(getLocalMonthStr());
   const [generatingPayroll, setGeneratingPayroll] = useState(false);
   const [payError, setPayError] = useState('');
   const [paySuccess, setPaySuccess] = useState('');
@@ -183,7 +184,7 @@ export const PayrollCalculator: React.FC = () => {
       const overtimeSnapshot = await getDocs(collection(db, 'overtime_requests'));
       const overtimeRecords = overtimeSnapshot.docs.map(doc => doc.data() as any);
 
-      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig, getShiftStartEndTimes, roundToHalfHour, calculateTyphoonLeaveHours, analyzeDayPunches } = await import('../utils/taiwanHrEngine');
+      const { calculatePayrollInsurance, calculateOvertimePay, isOffShift, parseTimeStrToMinutes, calculateSpecialLeavePeriods, getAdjustedShiftTimes, getEffectiveSalaryConfig, getShiftStartEndTimes, roundToHalfHour, calculateTyphoonLeaveHours, analyzeDayPunches, calculateWorkedHoursInRange, getWeeklyRestDayType } = await import('../utils/taiwanHrEngine');
 
       for (const emp of employeesList) {
         const isMock = emp.id === 'EMP001' || emp.id === 'EMP002' || emp.id === 'EMP003';
@@ -402,8 +403,17 @@ export const PayrollCalculator: React.FC = () => {
 
             const dateSched = schedulesList.find((s: any) => s.employeeId === emp.id && s.date === date);
 
+            // 依核准的「班別調整」假單調整當天班表起迄時間，再交給統一引擎計算
+            let effectiveSched = dateSched;
+            if (dateSched) {
+              const { startTimeStr: rawStart, endTimeStr: rawEnd } = getShiftStartEndTimes(dateSched, shifts);
+              const dayShiftAdjLeaves = approvedLeaves.filter((l: any) => l.employeeId === emp.id && l.startDate <= date && l.endDate >= date);
+              const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(rawStart, rawEnd, dayShiftAdjLeaves);
+              effectiveSched = { ...dateSched, startTime: adjustedStart, endTime: adjustedEnd };
+            }
+
             // 使用統一引擎計算當日有效工時（已處理4槽位缺打卡、休息扣除、半小時取捨）
-            const analysis = analyzeDayPunches(dayRecords, dateSched, shifts);
+            const analysis = analyzeDayPunches(dayRecords, effectiveSched, shifts);
             let hours = analysis.effectiveHours;
 
             if (hours > 0) {
@@ -474,17 +484,20 @@ export const PayrollCalculator: React.FC = () => {
               dayType = 'regular';
               weekdayOvertimeHours += otHours;
               otDayLabel = '補班日';
-            } else if (dayOfWeek === 6) {
-              dayType = 'rest';
-              restDayOvertimeHours += otHours;
-              otDayLabel = '休息日';
-            } else if (dayOfWeek === 0) {
-              dayType = 'holiday';
-              holidayOvertimeHours += otHours;
-              otDayLabel = '例假日';
             } else {
-              dayType = 'regular';
-              weekdayOvertimeHours += otHours;
+              const weeklyType = getWeeklyRestDayType(dayOfWeek);
+              if (weeklyType === 'rest') {
+                dayType = 'rest';
+                restDayOvertimeHours += otHours;
+                otDayLabel = '休息日';
+              } else if (weeklyType === 'holiday') {
+                dayType = 'holiday';
+                holidayOvertimeHours += otHours;
+                otDayLabel = '例假日';
+              } else {
+                dayType = 'regular';
+                weekdayOvertimeHours += otHours;
+              }
             }
             overtimePay += calculateOvertimePay(hourlyRate, otHours, dayType);
           }
@@ -601,9 +614,7 @@ export const PayrollCalculator: React.FC = () => {
             );
             if (!hasLeave) {
               const dayAtt = empAttendance.filter((rec: any) => rec.date === dateStr);
-              const shiftName = (daySched.shift || '').split('(')[0].trim();
-              const shiftDef = shifts.find(s => s.name === shiftName);
-              const expectsFour = shiftDef ? ((shiftDef.breakStartTime && shiftDef.breakEndTime) || (shiftDef.breakDuration > 0)) : false;
+              const { expectsFour } = getShiftStartEndTimes(daySched, shifts);
               const hasApprovedOvertime = empOvertimeReqs.some((ot: any) => ot.date === dateStr);
               const expectedPunches = (expectsFour && !hasApprovedOvertime) ? 4 : 2;
               
@@ -615,103 +626,12 @@ export const PayrollCalculator: React.FC = () => {
         }
         
         // Calculate special leave periods and see if any expire in this month
-        const getWorkedHours = (startDateStr: string, endDateStr: string): number => {
-          const empAtt = (attendanceRecords || []).filter(rec => rec.employeeId === emp.id);
-          const attByDate: { [date: string]: any[] } = {};
-          empAtt.forEach((rec: any) => {
-            if (!rec.date) return;
-            if (!attByDate[rec.date]) attByDate[rec.date] = [];
-            attByDate[rec.date].push(rec);
-          });
-          const empScheds = (schedulesList || []).filter(s => s.employeeId === emp.id);
-
-          let totalHours = 0;
-          let curr = new Date(startDateStr);
-          const end = new Date(endDateStr);
-          while (curr <= end) {
-            const y = curr.getFullYear();
-            const m = String(curr.getMonth() + 1).padStart(2, '0');
-            const dVal = String(curr.getDate()).padStart(2, '0');
-            const dateStr = `${y}-${m}-${dVal}`;
-
-            const dayAtt = attByDate[dateStr] || [];
-            if (dayAtt.length > 0) {
-              const sorted = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
-              const sched = empScheds.find(s => s.date === dateStr);
-              let shiftDef: any = null;
-              if (sched) {
-                const shiftName = (sched.shift || '').split('(')[0].trim();
-                shiftDef = (shifts || []).find(s => s.name === shiftName);
-              }
-
-              let dayHours = 0;
-              let punchPairsCount = 0;
-              let idx = 0;
-              while (idx < sorted.length) {
-                if (sorted[idx].type === '上班') {
-                  let nextOut = null;
-                  let nextOutIdx = -1;
-                  for (let j = idx + 1; j < sorted.length; j++) {
-                    if (sorted[j].type === '下班') {
-                      nextOut = sorted[j];
-                      nextOutIdx = j;
-                      break;
-                    }
-                  }
-                  if (nextOut) {
-                    const inMins = parseTimeStrToMinutes(sorted[idx].time || '');
-                    let outMins = parseTimeStrToMinutes(nextOut.time || '');
-                    if (outMins < inMins) outMins += 24 * 60;
-                    
-                    let effectiveIn = inMins;
-                    let effectiveOut = outMins;
-                    if (sched) {
-                      const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
-                      if (timeMatch) {
-                        let startTimeStr = timeMatch[1];
-                        let endTimeStr = timeMatch[2];
-
-                        // 依核准的「班別調整」請假單調整預期上下班時間
-                        const dayLeaves = approvedLeaves.filter(l => l.employeeId === emp.id && l.startDate <= dateStr && l.endDate >= dateStr);
-                        const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
-
-                        const expectedInMins = parseTimeStrToMinutes(adjustedStart);
-                        let expectedOutMins = parseTimeStrToMinutes(adjustedEnd);
-                        if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
-
-                        effectiveIn = inMins <= expectedInMins ? expectedInMins : inMins;
-                        effectiveOut = outMins >= expectedOutMins ? expectedOutMins : outMins;
-                      }
-                    }
-
-                    dayHours += Math.max(0, (effectiveOut - effectiveIn) / 60);
-                    punchPairsCount++;
-                    idx = nextOutIdx + 1;
-                  } else {
-                    idx++;
-                  }
-                } else {
-                  idx++;
-                }
-              }
-
-              if (dayHours > 0 && punchPairsCount === 1 && shiftDef) {
-                if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
-                  const bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
-                  let bEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
-                  if (bEnd < bStart) bEnd += 24 * 60;
-                  const overlap = Math.max(0, bEnd - bStart);
-                  dayHours = Math.max(0, dayHours - (overlap / 60));
-                } else if (shiftDef.breakDuration > 0) {
-                  dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
-                }
-              }
-              totalHours += Math.round(dayHours * 10) / 10;
-            }
-            curr.setDate(curr.getDate() + 1);
-          }
-          return Math.round(totalHours * 10) / 10;
-        };
+        // 使用共用引擎計算，避免與 EmployeeClockIn 的同名邏輯各自實作而分歧
+        const empAttForHours = (attendanceRecords || []).filter(rec => rec.employeeId === emp.id);
+        const empSchedsForHours = (schedulesList || []).filter(s => s.employeeId === emp.id);
+        const empApprovedLeavesForHours = (approvedLeaves || []).filter(l => l.employeeId === emp.id);
+        const getWorkedHours = (startDateStr: string, endDateStr: string): number =>
+          calculateWorkedHoursInRange(startDateStr, endDateStr, empAttForHours, empSchedsForHours, shifts, empApprovedLeavesForHours);
 
         const [yrPay, moPay] = monthStr.split('-').map(Number);
         const lastDayOfPayMonth = new Date(yrPay, moPay, 0);
@@ -1168,7 +1088,7 @@ export const PayrollCalculator: React.FC = () => {
     try {
       const emp = employees.find(e => e.id === addPayEmployeeId);
       const empName = emp ? emp.name : '未知員工';
-      const monthStr = addPayMonth || new Date().toISOString().substring(0, 7);
+      const monthStr = addPayMonth || getLocalMonthStr();
       const gross = Number(addPayBaseSalary) +
                     Number(addPayRoleAllowance) +
                     Number(addPayEvaluationAllowance) +

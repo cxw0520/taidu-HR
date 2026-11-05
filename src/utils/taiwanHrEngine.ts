@@ -182,7 +182,7 @@ export function calculateAnniversaryLeavePeriods(onboardDateStr: string, current
   const onboard = new Date(onboardDateStr);
   const periods: LeavePeriod[] = [];
   
-  const getFormatDate = (d: Date) => d.toISOString().substring(0, 10);
+  const getFormatDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   // 1. 滿半年 (6個月) 享 3 天，使用期限至滿一年前夕
   const halfYearStart = new Date(onboard);
@@ -366,6 +366,17 @@ export function calculateOvertimePay(hourlyRate: number, hours: number, dayType:
   return pay;
 }
 
+/**
+ * 判斷週間固定公休日型態（一週一休制：週六為休息日、週日為例假日），
+ * 供尚未被實際國定假日/補班日覆蓋時的 fallback 分類使用。
+ * PayrollCalculator（加班日型判斷）與 Scheduler（當月應出勤天數估算）共用，避免兩處各自寫 getDay() 判斷而不同步。
+ */
+export function getWeeklyRestDayType(dayOfWeek: number): 'holiday' | 'rest' | 'weekday' {
+  if (dayOfWeek === 0) return 'holiday'; // 例假日（週日）
+  if (dayOfWeek === 6) return 'rest';    // 休息日（週六）
+  return 'weekday';
+}
+
 export function isOffShift(shiftName: string): boolean {
   if (!shiftName) return false;
   // Clean name by removing any time ranges or extra spaces
@@ -408,11 +419,10 @@ export function getShiftStartEndTimes(
 
   const shiftRaw = dateSched.shift || '';
   const shiftName = shiftRaw.split('(')[0].trim();
-  // 優先找完全相同名稱，避免「12-20」誤配到「12-20.5(休18)」這類以它開頭的其他班別
+  // 只用完全相同名稱比對，避免「12-20」誤配到「12-20.5(休18)」這類以它開頭的其他班別。
+  // 找不到時寧可讓 shiftDef 為 null，下面的時間/expectsFour 判斷會改用括號內時間與文字關鍵字 fallback。
   const shiftDef = (shifts || []).find((s: any) =>
     s.name === shiftName || s.name === shiftRaw
-  ) || (shifts || []).find((s: any) =>
-    shiftName && s.name && (s.name.startsWith(shiftName) || shiftName.startsWith(s.name))
   );
 
   let startTimeStr = dateSched.startTime || '';
@@ -575,6 +585,37 @@ export interface DayPunchAnalysis {
   periodHours: [number, number][];  // 每段實際上班時間 [inMins, outMins]
 }
 
+/**
+ * 從 rawHours 中扣除班別規定的休息時間與實際出勤區間 [workIn, workOut] 的重疊部分。
+ * 若休息時間起訖相對 workIn 落在隔天（跨午夜班別），會自動整體 +24 小時再比對重疊區間。
+ * defaultDeductHours：當班別完全沒有設定休息起訖/時長時，預設扣除的小時數（0 表示不扣）。
+ */
+function deductBreakOverlap(
+  rawHours: number,
+  workIn: number,
+  workOut: number,
+  shiftDef: any,
+  defaultDeductHours: number = 0
+): number {
+  if (shiftDef?.breakStartTime && shiftDef?.breakEndTime) {
+    let bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
+    let bEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
+    if (bEnd < bStart) bEnd += 24 * 60;
+    // 休息時間跨午夜：若休息開始時間早於上班時間，視為發生在隔天
+    if (bStart < workIn && bStart + 24 * 60 >= workIn && bStart + 24 * 60 <= workOut) {
+      bStart += 24 * 60;
+      bEnd += 24 * 60;
+    }
+    const overlapHours = Math.max(0, (Math.min(workOut, bEnd) - Math.max(workIn, bStart)) / 60);
+    return Math.max(0, rawHours - overlapHours);
+  } else if (shiftDef?.breakDuration && shiftDef.breakDuration > 0) {
+    return Math.max(0, rawHours - shiftDef.breakDuration / 60);
+  } else if (defaultDeductHours > 0) {
+    return Math.max(0, rawHours - defaultDeductHours);
+  }
+  return rawHours;
+}
+
 export function analyzeDayPunches(
   dayAtts: any[],
   dateSched: any,
@@ -726,26 +767,11 @@ export function analyzeDayPunches(
       hasMissingPunch = true;
     } else if (midMissing) {
       // 中間休息打卡缺卡（只打了3次或2次）→ 降回2槽位模式：用第一次上班 + 最後一次下班計算
-      // 並自動扣除班表規定的休息時間
+      // 並自動扣除班表規定的休息時間（含休息時間跨午夜的情況，與2槽位模式共用同一條規則）
       const inMins  = slot0!.matchedMins;
       let outMins   = slot3!.matchedMins;
       if (outMins < inMins) outMins += 24 * 60;
-      let rawHours = Math.max(0, (outMins - inMins) / 60);
-
-      // 扣除休息時間（優先用固定起訖，否則用 breakDuration）
-      if (shiftDef?.breakStartTime && shiftDef?.breakEndTime) {
-        let bStart = parseTimeStrToMinutes(shiftDef!.breakStartTime);
-        let bEnd   = parseTimeStrToMinutes(shiftDef!.breakEndTime);
-        if (bEnd < bStart) bEnd += 24 * 60;
-        const overlapStart = Math.max(inMins, bStart);
-        const overlapEnd   = Math.min(outMins, bEnd);
-        rawHours = Math.max(0, rawHours - Math.max(0, (overlapEnd - overlapStart) / 60));
-      } else if (shiftDef?.breakDuration && shiftDef.breakDuration > 0) {
-        rawHours = Math.max(0, rawHours - shiftDef.breakDuration / 60);
-      } else {
-        // 預設扣 1 小時休息
-        rawHours = Math.max(0, rawHours - 1);
-      }
+      const rawHours = deductBreakOverlap(Math.max(0, (outMins - inMins) / 60), inMins, outMins, shiftDef, 1);
 
       effectiveHours = rawHours;
       periodHours.push([inMins, outMins]);
@@ -792,22 +818,9 @@ export function analyzeDayPunches(
     if (slots.length > 0 && slots[slots.length - 1].status === '早退') isEarly = true;
 
     // 扣除休息時間
-    if (!hasMissingPunch && effectiveHours > 0 && shiftDef) {
-      if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
-        let bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
-        let bEnd   = parseTimeStrToMinutes(shiftDef.breakEndTime);
-        if (bEnd < bStart) bEnd += 24 * 60;
-        if (periodHours.length > 0) {
-          const [workIn, workOut] = periodHours[0];
-          if (bStart < workIn && bStart + 24 * 60 >= workIn && bStart + 24 * 60 <= workOut) {
-            bStart += 24 * 60; bEnd += 24 * 60;
-          }
-          const overlapHours = Math.max(0, (Math.min(workOut, bEnd) - Math.max(workIn, bStart)) / 60);
-          effectiveHours = Math.max(0, effectiveHours - overlapHours);
-        }
-      } else if (shiftDef.breakDuration > 0) {
-        effectiveHours = Math.max(0, effectiveHours - shiftDef.breakDuration / 60);
-      }
+    if (!hasMissingPunch && effectiveHours > 0 && shiftDef && periodHours.length > 0) {
+      const [workIn, workOut] = periodHours[0];
+      effectiveHours = deductBreakOverlap(effectiveHours, workIn, workOut, shiftDef);
     }
   }
 
@@ -1099,6 +1112,114 @@ export function getAdjustedShiftTimes(
   adjustedEnd = minsToTimeStr(endMins);
 
   return { adjustedStart, adjustedEnd };
+}
+
+/**
+ * 計算某員工在指定日期區間內的實際工作時數（供特休期間工時門檻等計算使用）。
+ * 共用於 EmployeeClockIn 與 PayrollCalculator，避免兩處各自實作而逐漸分歧。
+ * employeeAttendance / employeeSchedules / employeeApprovedLeaves 需先篩選為單一員工的資料。
+ */
+export function calculateWorkedHoursInRange(
+  startDateStr: string,
+  endDateStr: string,
+  employeeAttendance: any[],
+  employeeSchedules: any[],
+  shifts: any[],
+  employeeApprovedLeaves: any[]
+): number {
+  const attByDate: { [date: string]: any[] } = {};
+  (employeeAttendance || []).forEach((rec: any) => {
+    if (!rec.date) return;
+    if (!attByDate[rec.date]) attByDate[rec.date] = [];
+    attByDate[rec.date].push(rec);
+  });
+
+  let totalHours = 0;
+  let curr = new Date(startDateStr);
+  const end = new Date(endDateStr);
+  while (curr <= end) {
+    const y = curr.getFullYear();
+    const m = String(curr.getMonth() + 1).padStart(2, '0');
+    const dVal = String(curr.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${dVal}`;
+
+    const dayAtt = attByDate[dateStr] || [];
+    if (dayAtt.length > 0) {
+      const sorted = [...dayAtt].sort((a, b) => parseTimeStrToMinutes(a.time || '') - parseTimeStrToMinutes(b.time || ''));
+      const sched = (employeeSchedules || []).find(s => s.date === dateStr);
+      let shiftDef: any = null;
+      if (sched) {
+        const shiftName = (sched.shift || '').split('(')[0].trim();
+        shiftDef = (shifts || []).find(s => s.name === shiftName);
+      }
+
+      let dayHours = 0;
+      let punchPairsCount = 0;
+      let idx = 0;
+      while (idx < sorted.length) {
+        if (sorted[idx].type === '上班') {
+          let nextOut = null;
+          let nextOutIdx = -1;
+          for (let j = idx + 1; j < sorted.length; j++) {
+            if (sorted[j].type === '下班') {
+              nextOut = sorted[j];
+              nextOutIdx = j;
+              break;
+            }
+          }
+          if (nextOut) {
+            const inMins = parseTimeStrToMinutes(sorted[idx].time || '');
+            let outMins = parseTimeStrToMinutes(nextOut.time || '');
+            if (outMins < inMins) outMins += 24 * 60;
+
+            let effectiveIn = inMins;
+            let effectiveOut = outMins;
+            if (sched) {
+              const timeMatch = (sched.shift || '').match(/\((\d{1,2}:\d{2})\s*-\s*[^)]*?(\d{1,2}:\d{2})\)/);
+              if (timeMatch) {
+                let startTimeStr = timeMatch[1];
+                let endTimeStr = timeMatch[2];
+
+                // 依核准的「班別調整」請假單調整預期上下班時間
+                const dayLeaves = (employeeApprovedLeaves || []).filter(l => l.startDate <= dateStr && l.endDate >= dateStr);
+                const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(startTimeStr, endTimeStr, dayLeaves);
+
+                const expectedInMins = parseTimeStrToMinutes(adjustedStart);
+                let expectedOutMins = parseTimeStrToMinutes(adjustedEnd);
+                if (expectedOutMins < expectedInMins) expectedOutMins += 24 * 60;
+
+                effectiveIn = inMins <= expectedInMins ? expectedInMins : inMins;
+                effectiveOut = outMins >= expectedOutMins ? expectedOutMins : outMins;
+              }
+            }
+
+            dayHours += Math.max(0, (effectiveOut - effectiveIn) / 60);
+            punchPairsCount++;
+            idx = nextOutIdx + 1;
+          } else {
+            idx++;
+          }
+        } else {
+          idx++;
+        }
+      }
+
+      if (dayHours > 0 && punchPairsCount === 1 && shiftDef) {
+        if (shiftDef.breakStartTime && shiftDef.breakEndTime) {
+          const bStart = parseTimeStrToMinutes(shiftDef.breakStartTime);
+          let bEnd = parseTimeStrToMinutes(shiftDef.breakEndTime);
+          if (bEnd < bStart) bEnd += 24 * 60;
+          const overlap = Math.max(0, bEnd - bStart);
+          dayHours = Math.max(0, dayHours - (overlap / 60));
+        } else if (shiftDef.breakDuration > 0) {
+          dayHours = Math.max(0, dayHours - (shiftDef.breakDuration / 60));
+        }
+      }
+      totalHours += Math.round(dayHours * 10) / 10;
+    }
+    curr.setDate(curr.getDate() + 1);
+  }
+  return Math.round(totalHours * 10) / 10;
 }
 
 export interface SalaryTypeHistoryItem {

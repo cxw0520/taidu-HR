@@ -398,9 +398,10 @@ export const MonthlyExceptionsReport: React.FC<{ month: string, attendance: any[
     const { startTimeStr: rawStart, endTimeStr: rawEnd } = getShiftStartEndTimes(sched, shifts);
 
     const approvedShiftAdjLeaves = empLeaves.filter(l => l.startDate <= date && l.endDate >= date);
-    getAdjustedShiftTimes(rawStart, rawEnd, approvedShiftAdjLeaves);
+    const { adjustedStart, adjustedEnd } = getAdjustedShiftTimes(rawStart, rawEnd, approvedShiftAdjLeaves);
+    const adjustedSched = { ...sched, startTime: adjustedStart, endTime: adjustedEnd };
 
-    const dayAnalysis = dayAtt.length > 0 ? analyzeDayPunches(dayAtt, sched, shifts) : null;
+    const dayAnalysis = dayAtt.length > 0 ? analyzeDayPunches(dayAtt, adjustedSched, shifts) : null;
     let types: string[] = [];
     let msg = '';
 

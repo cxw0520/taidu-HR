@@ -3,7 +3,7 @@ import { useAdminData } from '../context/AdminDataContext';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
-import { isOffShift, getMonthlyExpectedHours } from '../utils/taiwanHrEngine';
+import { isOffShift, getMonthlyExpectedHours, getWeeklyRestDayType } from '../utils/taiwanHrEngine';
 import WeeklyStationBoard from './WeeklyStationBoard';
 
 // 寫入班表更新通知
@@ -957,10 +957,13 @@ const Scheduler: React.FC = () => {
                           } else {
                             targetHolidays++;
                           }
-                        } else if (dayOfWeek === 0) {
-                          targetSundays++;
-                        } else if (dayOfWeek === 6) {
-                          targetSaturdays++;
+                        } else {
+                          const weeklyType = getWeeklyRestDayType(dayOfWeek);
+                          if (weeklyType === 'holiday') {
+                            targetSundays++;
+                          } else if (weeklyType === 'rest') {
+                            targetSaturdays++;
+                          }
                         }
                       }
 
