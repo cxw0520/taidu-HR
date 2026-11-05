@@ -35,6 +35,7 @@ export const SettingsManager: React.FC = () => {
   const [newShiftBreakEnd, setNewShiftBreakEnd] = useState('');
   const [breakType, setBreakType] = useState<'time' | 'duration'>('time');
   const [newShiftBreakDuration, setNewShiftBreakDuration] = useState<number>(0);
+  const [newShiftColor, setNewShiftColor] = useState('#4f46e5');
 
   // Shift Edit States
   const [editingShiftIndex, setEditingShiftIndex] = useState<number | null>(null);
@@ -45,6 +46,7 @@ export const SettingsManager: React.FC = () => {
   const [editShiftBreakEnd, setEditShiftBreakEnd] = useState('');
   const [editBreakType, setEditBreakType] = useState<'time' | 'duration'>('time');
   const [editShiftBreakDuration, setEditShiftBreakDuration] = useState<number>(0);
+  const [editShiftColor, setEditShiftColor] = useState('#4f46e5');
 
   // 3. Insurance & Rules Form States
   const [cfgLaborRate, setCfgLaborRate] = useState(0.125);
@@ -187,13 +189,14 @@ export const SettingsManager: React.FC = () => {
       return;
     }
     
-    const updatedShifts = [...shifts, { 
-      name, 
-      startTime: start, 
+    const updatedShifts = [...shifts, {
+      name,
+      startTime: start,
       endTime: end,
       breakStartTime: breakType === 'time' ? newShiftBreakStart.trim() : '',
       breakEndTime: breakType === 'time' ? newShiftBreakEnd.trim() : '',
-      breakDuration: breakType === 'duration' ? Number(newShiftBreakDuration) : 0
+      breakDuration: breakType === 'duration' ? Number(newShiftBreakDuration) : 0,
+      color: newShiftColor
     }];
 
     try {
@@ -202,6 +205,7 @@ export const SettingsManager: React.FC = () => {
       setNewShiftBreakStart('');
       setNewShiftBreakEnd('');
       setNewShiftBreakDuration(0);
+      setNewShiftColor('#4f46e5');
       alert(`✅ 班別「${name}」已成功建立！`);
     } catch (err) {
       console.error("Failed to save shifts:", err);
@@ -235,6 +239,7 @@ export const SettingsManager: React.FC = () => {
     setEditShiftBreakEnd(s.breakEndTime || '');
     setEditBreakType(s.breakDuration ? 'duration' : 'time');
     setEditShiftBreakDuration(s.breakDuration || 0);
+    setEditShiftColor(s.color || '#4f46e5');
   };
 
   const handleEditShiftSubmit = async (e: React.FormEvent) => {
@@ -259,7 +264,8 @@ export const SettingsManager: React.FC = () => {
       endTime: end,
       breakStartTime: editBreakType === 'time' ? editShiftBreakStart.trim() : '',
       breakEndTime: editBreakType === 'time' ? editShiftBreakEnd.trim() : '',
-      breakDuration: editBreakType === 'duration' ? Number(editShiftBreakDuration) : 0
+      breakDuration: editBreakType === 'duration' ? Number(editShiftBreakDuration) : 0,
+      color: editShiftColor
     };
     
     const updatedShifts = [...shifts];
@@ -590,12 +596,15 @@ export const SettingsManager: React.FC = () => {
                 backgroundColor: '#f9fafb',
                 border: '1px solid var(--border)'
               }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span style={{ fontWeight: '600', fontSize: '14px' }}>{s.name}</span>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    時間：{s.startTime} - {s.endTime}
-                    {s.breakStartTime && s.breakEndTime ? ` (休息：${s.breakStartTime} - ${s.breakEndTime})` : s.breakDuration ? ` (休息時間：${s.breakDuration} 分鐘)` : ''}
-                  </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ display: 'inline-block', width: '14px', height: '14px', borderRadius: '4px', backgroundColor: s.color || '#4f46e5', border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }} title="矩陣檢視顏色"></span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <span style={{ fontWeight: '600', fontSize: '14px' }}>{s.name}</span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      時間：{s.startTime} - {s.endTime}
+                      {s.breakStartTime && s.breakEndTime ? ` (休息：${s.breakStartTime} - ${s.breakEndTime})` : s.breakDuration ? ` (休息時間：${s.breakDuration} 分鐘)` : ''}
+                    </span>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button 
@@ -673,8 +682,8 @@ export const SettingsManager: React.FC = () => {
                   backgroundColor: '#fff'
                 }}
               />
-              <input 
-                type="time" 
+              <input
+                type="time"
                 required
                 value={newShiftEnd}
                 onChange={(e) => setNewShiftEnd(e.target.value)}
@@ -685,6 +694,20 @@ export const SettingsManager: React.FC = () => {
                   border: '1px solid var(--border)',
                   fontSize: '13px',
                   backgroundColor: '#fff'
+                }}
+              />
+              <input
+                type="color"
+                value={newShiftColor}
+                onChange={(e) => setNewShiftColor(e.target.value)}
+                title="矩陣檢視顏色"
+                style={{
+                  width: '40px',
+                  padding: '2px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer'
                 }}
               />
             </div>
@@ -1256,12 +1279,22 @@ export const SettingsManager: React.FC = () => {
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>下班時間</label>
-                  <input 
-                    type="time" 
+                  <input
+                    type="time"
                     required
                     value={editShiftEnd}
                     onChange={(e) => setEditShiftEnd(e.target.value)}
                     style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '14px', backgroundColor: '#fff' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600' }}>顏色</label>
+                  <input
+                    type="color"
+                    value={editShiftColor}
+                    onChange={(e) => setEditShiftColor(e.target.value)}
+                    title="矩陣檢視顏色"
+                    style={{ width: '44px', height: '40px', padding: '2px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: '#fff', cursor: 'pointer' }}
                   />
                 </div>
               </div>
